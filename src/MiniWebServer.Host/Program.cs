@@ -52,6 +52,13 @@ static void HandleClient(Socket clientSocket)
         Console.WriteLine("Raw HTTP request bytes decoded as UTF-8:");
         Console.WriteLine(request);
 
+        HttpRequest parsedRequest = HttpRequestParser.Parse(request);
+        Console.WriteLine("Parsed HTTP request:");
+        Console.WriteLine($"Method: {parsedRequest.Method}");
+        Console.WriteLine($"Path: {parsedRequest.Path}");
+        Console.WriteLine($"Version: {parsedRequest.Version}");
+        Console.WriteLine($"Headers: {parsedRequest.Headers.Count}");
+
         byte[] responseBytes = CreateHttpResponse(ResponseBody);
         SendAll(clientSocket, responseBytes);
 

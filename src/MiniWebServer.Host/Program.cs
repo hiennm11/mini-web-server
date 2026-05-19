@@ -5,7 +5,8 @@ using System.Text;
 const int Port = 8080;
 const int ListenBacklog = 10;
 const int ReceiveBufferSize = 4096;
-const string WebRoot = "wwwroot";
+
+string webRoot = WebRootLocator.GetWebRoot(AppContext.BaseDirectory);
 
 using Socket serverSocket = new(
     AddressFamily.InterNetwork,
@@ -27,7 +28,7 @@ while (true)
 
     try
     {
-        HandleClient(clientSocket);
+        HandleClient(clientSocket, webRoot);
     }
     catch (SocketException ex)
     {
@@ -41,7 +42,7 @@ while (true)
     }
 }
 
-static void HandleClient(Socket clientSocket)
+static void HandleClient(Socket clientSocket, string webRoot)
 {
     using (clientSocket)
     {
@@ -59,7 +60,7 @@ static void HandleClient(Socket clientSocket)
         Console.WriteLine($"Version: {parsedRequest.Version}");
         Console.WriteLine($"Headers: {parsedRequest.Headers.Count}");
 
-        HttpResponse response = StaticFileResponder.CreateResponse(parsedRequest, WebRoot);
+        HttpResponse response = StaticFileResponder.CreateResponse(parsedRequest, webRoot);
         Console.WriteLine($"Response: {response.StatusCode} {response.ReasonPhrase}");
 
         byte[] responseBytes = response.ToBytes();

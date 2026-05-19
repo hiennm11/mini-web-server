@@ -74,6 +74,15 @@ Run("path traversal returns 404", () =>
     AssertEqual(404, response.StatusCode);
 });
 
+Run("web root resolves from app base directory", () =>
+{
+    string appBase = Path.Combine(Path.GetTempPath(), "mini-web-server-tests", Guid.NewGuid().ToString("N"));
+
+    string webRoot = WebRootLocator.GetWebRoot(appBase);
+
+    AssertEqual(Path.GetFullPath(Path.Combine(appBase, "wwwroot")), webRoot);
+});
+
 Console.WriteLine("All tests passed.");
 
 static string CreateTempWebRoot()

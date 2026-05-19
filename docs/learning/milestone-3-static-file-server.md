@@ -4,6 +4,8 @@
 
 The server now uses the parsed request path to read files from `wwwroot`.
 
+The source files live in `src/MiniWebServer.Host/wwwroot`. During build, .NET copies them beside the host executable. The server uses that runtime location so `dotnet run --project ...` works from any current directory.
+
 Examples:
 
 ```text
@@ -32,6 +34,8 @@ It uses:
 - content types such as `text/html; charset=UTF-8`
 
 `HttpResponse.ToBytes()` manually formats the HTTP status line, headers, blank line, and body bytes.
+
+`WebRootLocator` avoids a common bug: using `"wwwroot"` relative to the terminal's current directory. Current directory can change; `AppContext.BaseDirectory` points to the running app's output folder.
 
 ## Experiment
 
@@ -64,4 +68,3 @@ Expected:
 ## Next Question
 
 The server now reads files, but still handles one client at a time. Milestone 4 will introduce one thread per client connection.
-

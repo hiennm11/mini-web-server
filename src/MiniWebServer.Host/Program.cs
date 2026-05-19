@@ -24,7 +24,21 @@ Console.WriteLine("Waiting inside Accept(). Press Ctrl+C to stop.");
 while (true)
 {
     Socket clientSocket = serverSocket.Accept();
-    HandleClient(clientSocket);
+
+    try
+    {
+        HandleClient(clientSocket);
+    }
+    catch (SocketException ex)
+    {
+        Console.WriteLine($"Socket error while handling client: {ex.SocketErrorCode}");
+        clientSocket.Dispose();
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Unexpected error while handling client: {ex.Message}");
+        clientSocket.Dispose();
+    }
 }
 
 static void HandleClient(Socket clientSocket)

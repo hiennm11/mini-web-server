@@ -37,7 +37,7 @@ Then send a request:
 curl http://localhost:8080/
 ```
 
-Before the request arrives, the server waits inside `Accept()`. After the request arrives, the server receives raw bytes, logs them, sends `Hello World!`, closes the client socket, and returns to `Accept()`.
+Before a client connects, the server waits inside `Accept()`. After the connection is accepted, the server calls `Receive()` to read raw request bytes, logs them, sends `Hello World!`, closes the client socket, and returns to `Accept()`.
 
 ## Next Question
 

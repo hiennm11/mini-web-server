@@ -5,7 +5,7 @@ using System.Text;
 const int Port = 8080;
 const int ListenBacklog = 10;
 const int ReceiveBufferSize = 4096;
-const string ResponseBody = "Hello World!";
+const string WebRoot = "wwwroot";
 
 using Socket serverSocket = new(
     AddressFamily.InterNetwork,
@@ -59,7 +59,10 @@ static void HandleClient(Socket clientSocket)
         Console.WriteLine($"Version: {parsedRequest.Version}");
         Console.WriteLine($"Headers: {parsedRequest.Headers.Count}");
 
-        byte[] responseBytes = CreateHttpResponse(ResponseBody);
+        HttpResponse response = StaticFileResponder.CreateResponse(parsedRequest, WebRoot);
+        Console.WriteLine($"Response: {response.StatusCode} {response.ReasonPhrase}");
+
+        byte[] responseBytes = response.ToBytes();
         SendAll(clientSocket, responseBytes);
 
         Console.WriteLine($"Sent {responseBytes.Length} response bytes.");
@@ -75,26 +78,6 @@ static string ReceiveRequest(Socket clientSocket)
     Console.WriteLine($"Receive() returned {bytesRead} byte(s).");
 
     return Encoding.UTF8.GetString(buffer, 0, bytesRead);
-}
-
-static byte[] CreateHttpResponse(string body)
-{
-    byte[] bodyBytes = Encoding.UTF8.GetBytes(body);
-
-    string headers =
-        "HTTP/1.1 200 OK\r\n" +
-        "Content-Type: text/plain; charset=UTF-8\r\n" +
-        $"Content-Length: {bodyBytes.Length}\r\n" +
-        "Connection: close\r\n" +
-        "\r\n";
-
-    byte[] headerBytes = Encoding.ASCII.GetBytes(headers);
-    byte[] responseBytes = new byte[headerBytes.Length + bodyBytes.Length];
-
-    Buffer.BlockCopy(headerBytes, 0, responseBytes, 0, headerBytes.Length);
-    Buffer.BlockCopy(bodyBytes, 0, responseBytes, headerBytes.Length, bodyBytes.Length);
-
-    return responseBytes;
 }
 
 static void SendAll(Socket clientSocket, byte[] responseBytes)

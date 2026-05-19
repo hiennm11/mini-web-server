@@ -1,4 +1,5 @@
 using System;
+using System.Text;
 
 Run("parses request line", () =>
 {
@@ -34,7 +35,53 @@ Run("invalid request becomes unknown request", () =>
     AssertEqual(0, request.Headers.Count);
 });
 
-Console.WriteLine("All parser tests passed.");
+Run("serves index html for root path", () =>
+{
+    string webRoot = CreateTempWebRoot();
+    File.WriteAllText(Path.Combine(webRoot, "index.html"), "<h1>Home</h1>");
+
+    HttpResponse response = StaticFileResponder.CreateResponse(
+        new HttpRequest("GET", "/", "HTTP/1.1", new Dictionary<string, string>()),
+        webRoot);
+
+    AssertEqual(200, response.StatusCode);
+    AssertEqual("text/html; charset=UTF-8", response.ContentType);
+    AssertEqual("<h1>Home</h1>", Encoding.UTF8.GetString(response.Body));
+});
+
+Run("missing file returns 404", () =>
+{
+    string webRoot = CreateTempWebRoot();
+
+    HttpResponse response = StaticFileResponder.CreateResponse(
+        new HttpRequest("GET", "/missing.txt", "HTTP/1.1", new Dictionary<string, string>()),
+        webRoot);
+
+    AssertEqual(404, response.StatusCode);
+    AssertEqual("Not Found", response.ReasonPhrase);
+});
+
+Run("path traversal returns 404", () =>
+{
+    string webRoot = CreateTempWebRoot();
+    string outsideFile = Path.Combine(Directory.GetParent(webRoot)!.FullName, "secret.txt");
+    File.WriteAllText(outsideFile, "secret");
+
+    HttpResponse response = StaticFileResponder.CreateResponse(
+        new HttpRequest("GET", "/../secret.txt", "HTTP/1.1", new Dictionary<string, string>()),
+        webRoot);
+
+    AssertEqual(404, response.StatusCode);
+});
+
+Console.WriteLine("All tests passed.");
+
+static string CreateTempWebRoot()
+{
+    string path = Path.Combine(Path.GetTempPath(), "mini-web-server-tests", Guid.NewGuid().ToString("N"), "wwwroot");
+    Directory.CreateDirectory(path);
+    return path;
+}
 
 static void Run(string name, Action test)
 {

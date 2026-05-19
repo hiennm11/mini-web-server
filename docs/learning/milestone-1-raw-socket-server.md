@@ -39,6 +39,25 @@ curl http://localhost:8080/
 
 Before a client connects, the server waits inside `Accept()`. After the connection is accepted, the server calls `Receive()` to read raw request bytes, logs them, sends `Hello World!`, closes the client socket, and returns to `Accept()`.
 
+## Browser Requests
+
+One browser visit can create more than one HTTP request. For example, opening `http://localhost:8080/` may produce:
+
+```text
+GET / HTTP/1.1
+GET /favicon.ico HTTP/1.1
+```
+
+The server logs once per accepted client socket, not once per thing the learner thinks of as a page visit. Browser refreshes, devtools, extensions, retries, and favicon loading can all create extra connections.
+
+Use `curl` when you want a smaller experiment:
+
+```powershell
+curl http://localhost:8080/
+```
+
+With `curl`, one command usually creates one request, so the server log is easier to reason about.
+
 ## Next Question
 
 The server can see request text such as `GET /ostep HTTP/1.1`, but it does not understand it yet. Milestone 2 will parse the raw HTTP request into method, path, version, and headers.

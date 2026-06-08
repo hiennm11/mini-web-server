@@ -60,6 +60,12 @@ static void HandleClient(Socket clientSocket, string webRoot)
         Console.WriteLine($"Version: {parsedRequest.Version}");
         Console.WriteLine($"Headers: {parsedRequest.Headers.Count}");
 
+        if (parsedRequest.Path == "/slow")
+        {
+            Console.WriteLine("Sleeping 5000 ms to simulate blocking I/O...");
+            Thread.Sleep(5000);
+        }
+
         HttpResponse response = StaticFileResponder.CreateResponse(parsedRequest, webRoot);
         Console.WriteLine($"Response: {response.StatusCode} {response.ReasonPhrase}");
 

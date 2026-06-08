@@ -83,6 +83,18 @@ Run("web root resolves from app base directory", () =>
     AssertEqual(Path.GetFullPath(Path.Combine(appBase, "wwwroot")), webRoot);
 });
 
+Run("parses /slow path", () =>
+{
+    HttpRequest request = HttpRequestParser.Parse(
+        "GET /slow HTTP/1.1\r\n" +
+        "Host: localhost:8080\r\n" +
+        "\r\n");
+
+    AssertEqual("GET", request.Method);
+    AssertEqual("/slow", request.Path);
+    AssertEqual("HTTP/1.1", request.Version);
+});
+
 Console.WriteLine("All tests passed.");
 
 static string CreateTempWebRoot()

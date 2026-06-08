@@ -48,11 +48,12 @@ On startup, the host binds to TCP port `8080` on all IPv4 interfaces and begins 
 4. Log the decoded request bytes to the console.
 5. Parse the request text into method, path, version, and headers.
 6. Log the parsed request summary to the console.
-7. Map the parsed path to a file under the runtime `wwwroot`.
-8. Send the file bytes with `200 OK`, or send `404 Not Found` for missing or unsafe paths.
-9. Close the client socket.
+7. If the parsed path is `/slow`, block the current server thread for 5 seconds to demonstrate single-thread blocking.
+8. Map the parsed path to a file under the runtime `wwwroot`.
+9. Send the file bytes with `200 OK`, or send `404 Not Found` for missing or unsafe paths.
+10. Close the client socket.
 
-The server handles one client at a time. It has no concurrency and no graceful shutdown. Per-client socket errors are logged so one failed client does not stop the host.
+The server handles one client at a time. It has no concurrency and no graceful shutdown. Per-client socket errors are logged so one failed client does not stop the host. The `/slow` path deliberately sleeps for 5 seconds before responding so learners can observe that one blocked handler prevents the accept loop from accepting the next client.
 
 ## Learning Workflow
 

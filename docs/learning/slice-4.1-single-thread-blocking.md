@@ -12,6 +12,58 @@ Why does a slow request block all other clients in the current single-threaded s
 
 For this server, that means one blocked handler freezes the only accept loop. The kernel may queue new TCP connections in the listen backlog, but the server thread cannot call `Accept()` again until `HandleClient()` returns.
 
+Detailed state mapping:
+
+```text
+Running: the server thread is executing C# instructions.
+Ready: the server thread can run, but the OS scheduler is running something else.
+Blocked: the server thread cannot run until a waited-for event completes.
+```
+
+In this slice, the visible transitions are:
+
+```text
+Server starts and reaches Accept()
+  -> Blocked if no client is ready
+
+Client connects
+  -> Ready, then Running when the scheduler runs the server
+
+Server enters HandleClient(/slow)
+  -> Running while receiving, parsing, and logging
+
+Server calls Thread.Sleep(5000)
+  -> Blocked for about 5 seconds
+
+Sleep timer completes
+  -> Ready, then Running
+
+Server sends response and loops back to Accept()
+  -> Now it can accept the next queued client
+```
+
+Important distinction from the NotebookLM query:
+
+- The application thread is blocked in user-mode server code.
+- The OS kernel is still alive and can manage the TCP port.
+- A second client can complete the TCP connection at the kernel level and wait in the listen backlog.
+- The application does not call `Accept()` on that queued connection until the single server thread wakes up and returns to the top of the loop.
+
+This is why the second `curl` appears to hang instead of immediately failing.
+
+Teaching points:
+
+1. Blocking is useful for CPU efficiency: the sleeping server thread does not waste CPU cycles.
+2. Blocking is harmful for responsiveness in a single-threaded server: one blocked handler stalls every later client.
+3. The kernel can queue connections independently from the application accepting them.
+4. Concurrency becomes necessary when the server must keep accepting clients while one client is blocked.
+
+Misconception to avoid:
+
+> If the server app is blocked, new clients should get `Connection refused`.
+
+Wrong. The socket is still listening in the kernel. New clients can connect and wait in the backlog. The problem is not that the port disappeared. The problem is that the user-mode server thread is not calling `Accept()` yet.
+
 ## C#/.NET Mechanism
 
 - Type or API: `Thread.Sleep(int milliseconds)`.
@@ -108,6 +160,10 @@ Expected answer:
 
 The server has one thread and one execution point. It was blocked inside `Thread.Sleep` in `HandleClient(/slow)`. The accept loop had not returned to `Accept()`, so the second client could not be accepted by the application yet. The OS could queue the connection, but the application thread could not process it.
 
+More precise answer:
+
+The second TCP client may connect at the kernel level while `/slow` is sleeping. That does not mean the application has accepted it. `Accept()` is the handoff point from the kernel's completed-connection queue into the server process. Because the only server thread is blocked in `Thread.Sleep`, it cannot execute that handoff until the sleep completes.
+
 ## Three-Question Test
 
 1. What is the OS doing?
@@ -152,6 +208,16 @@ Response: 200 OK
 ### OSTEP concept
 
 Process states explain the behavior. Running code can block on an event. While blocked, it cannot also accept new work. With one thread, the whole server is blocked.
+
+The important OSTEP transition is:
+
+```text
+Running -> Blocked -> Ready -> Running
+```
+
+`Thread.Sleep(5000)` caused the server thread to leave Running and enter Blocked. The OS could run other processes during that time, but this server had no second thread to continue accepting clients. When the sleep timer completed, the server became Ready, then Running again, sent the `/slow` response, closed that client socket, and only then accepted the queued `/` client.
+
+The second client did not prove the kernel was blocked. It proved the user-mode application thread was blocked. The kernel could still hold the connection in the listen backlog.
 
 ### .NET mechanism
 

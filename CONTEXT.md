@@ -21,6 +21,13 @@ The repository is a single-context .NET solution.
 
 `docs/adr/0001-build-first-ostep-learning-design.md` records the accepted build-first OSTEP learning direction and milestone roadmap.
 
+`docs/adr/0003-four-phase-ostep-roadmap.md` records the accepted four-phase OSTEP learning roadmap:
+
+1. Phase 1: The Process & The Byte Stream.
+2. Phase 2: Threads: Multiple Points of Execution.
+3. Phase 3: Bounded Concurrency.
+4. Phase 4: Event-Based Concurrency.
+
 ## Glossary
 
 - **Host**: The executable process that owns the socket server and runs continuously until stopped.
@@ -62,6 +69,8 @@ This repo uses two learning levels:
 - **Milestone**: a larger server capability that changes what the server can do. Milestones are roadmap units.
 - **Lesson slice**: a small build-first exercise inside a milestone, sized for one focused learning session. Lesson slices are execution units.
 
+The roadmap is also grouped into four OSTEP-aligned phases in `docs/adr/0003-four-phase-ostep-roadmap.md`. Phases explain the learning progression; milestones and lesson slices remain the execution structure.
+
 Each lesson slice should include:
 
 1. OSTEP concept (from NotebookLM or book).
@@ -75,6 +84,15 @@ A lesson slice is 30–90 minutes of focused work: read a concept, build a tiny 
 Every lesson slice must follow `docs/learning/lesson-slices.md`: start with a concrete question, query OSTEP NotebookLM, design the experiment before code, build one observable behavior, run the experiment, write the note, and pass the 10-rule checklist. The three-question test for every slice is: what is the OS doing, which .NET API exposes it, and where does it break at scale?
 
 The current OSTEP-connected notebook is in NotebookLM: `Operating Systems: Three Easy Pieces` (id `74bcbca0-6161-48cd-92bb-9dd39032794e`, 69 sources).
+
+Phase 1 learning docs are:
+
+- `docs/learning/slice-1.1-raw-socket-server.md`
+- `docs/learning/slice-1.2-http-request-understanding.md`
+- `docs/learning/slice-1.3-static-file-server.md`
+- `docs/learning/slice-1.4-robust-request-receive.md`
+
+Slices 1.1-1.3 are retrospective docs for already-built behavior. Slice 1.4 is planned but not yet built.
 
 ## Design Intent
 

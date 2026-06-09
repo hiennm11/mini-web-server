@@ -12,7 +12,7 @@ Accepted
 
 ADR 0001 defines the build-first OSTEP learning direction and the current milestone roadmap. ADR 0002 proves the single-thread blocking baseline before adding threads.
 
-Milestones 1-3 are complete. Milestone 4 is in progress: slice 4.1 is complete, and the remaining thread-per-connection slices are planned.
+Milestones 1-3 are complete. Milestone 4 is in progress: slices 4.1 and 4.2 are complete, and the remaining thread-per-connection slices are planned.
 
 The project now needs a higher-level learning roadmap that maps server capabilities to OSTEP's core structure. Milestones remain capability checkpoints. Phases explain the learning progression from easy to hard.
 
@@ -57,14 +57,14 @@ TCP gives the server an ordered byte stream, not complete HTTP request objects. 
 
 ## Phase 2: Threads: Multiple Points of Execution
 
-Status: in progress. Slice 4.1 is complete. Remaining slices belong to Milestone 4 and Milestone 5.
+Status: in progress. Slices 4.1 and 4.2 are complete. Remaining slices belong to Milestone 4 and Milestone 5.
 
 ### Features
 
 | Slice | Server behavior to build | OSTEP mapping | C#/.NET mechanism |
 |-------|--------------------------|---------------|-------------------|
 | Done | Prove single-thread blocking with `/slow` | Chapter 4.4: Process States | `Thread.Sleep(5000)` |
-| Planned | Spawn one thread per accepted client | Chapter 26: Concurrency: An Introduction; Chapter 27: Thread API | `new Thread(() => HandleClient(socket)).Start()` |
+| Done | Spawn one thread per accepted client | Chapter 26: Concurrency: An Introduction; Chapter 27: Thread API | `new Thread(() => HandleClient(socket)).Start()` |
 | Planned | Log thread IDs and observe non-deterministic ordering | Chapter 26: Concurrency; Chapter 4.4: Process States | `Thread.CurrentThread.ManagedThreadId` |
 | Planned | Show shared address space with `static` data and per-thread local variables | Chapter 13: The Abstraction: Address Spaces; Chapter 26: Concurrency | `static int`, local variables, method parameters |
 | Planned | Create a race condition with unsafe shared counter updates | Chapter 26: data race example; Chapter 28: Locks | `counter++` under concurrent requests |
@@ -151,7 +151,7 @@ Tradeoffs:
 
 1. Create `docs/learning/slice-1.4-robust-request-receive.md`.
 2. Implement slice 1.4 before continuing Phase 2.
-3. Continue Milestone 4 slices 4.2-4.6.
+3. Continue Milestone 4. Slice 4.2 is complete; slices 4.3-4.6 remain pending.
 4. Slice Milestone 5 before implementing the lock fixes.
 5. Slice Milestone 6 before implementing the worker pool.
 6. Slice Milestone 7 before implementing async sockets.

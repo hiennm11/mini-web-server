@@ -26,20 +26,25 @@ while (true)
 {
     Socket clientSocket = serverSocket.Accept();
 
-    try
+    var thread = new Thread(() =>
     {
-        HandleClient(clientSocket, webRoot);
-    }
-    catch (SocketException ex)
-    {
-        Console.WriteLine($"Socket error while handling client: {ex.SocketErrorCode}");
-        clientSocket.Dispose();
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"Unexpected error while handling client: {ex.Message}");
-        clientSocket.Dispose();
-    }
+        try
+        {
+            HandleClient(clientSocket, webRoot);
+        }
+        catch (SocketException ex)
+        {
+            Console.WriteLine($"Socket error while handling client: {ex.SocketErrorCode}");
+            clientSocket.Dispose();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Unexpected error while handling client: {ex.Message}");
+            clientSocket.Dispose();
+        }
+    });
+    thread.IsBackground = true;
+    thread.Start();
 }
 
 static void HandleClient(Socket clientSocket, string webRoot)

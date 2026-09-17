@@ -25,7 +25,7 @@ Updated 2026-09-17. Legend: ✅ built + experimented + noted · 🟡 planned · 
 **Milestones**: M1 ✅–M9 ✅. M8 and M9 are the first post-roadmap extensions per `docs/adr/0004-extend-broad-concurrency-roadmap.md`; the original 12-slice roadmap is closed.
 **Tests**: 15 passing (8 prior + 7 new for `HttpRequestReceiver`).
 **Code/runtime**: `net10.0`. Two run modes selectable via `--async` flag: default = bounded worker pool (8 threads) + producer/consumer queue, async = `AcceptAsync` + `Task` per connection with `ReceiveAsync` / `SendAsync`. Port 8080, static files under `wwwroot`.
-**Latest commit**: Milestone 7 — `AsyncServer` (single-threaded accept loop + `Task` per connection, OSEP §33 event-based); select via `--async` flag. 150 parked slow clients use 20 threads (vs ~150+ in slice 4.6, vs 17 in M6). Memory similar to M6 because per-connection buffer is the dominant cost.
+**Latest commit**: Milestone 9 — `RequestStatsCache` with `ReaderWriterLockSlim`; `/stats-fast` (reader) and `/stats-refresh` (writer) routes. OSEP §31.5 reader-writer pattern. 800 concurrent reads all returned 200 OK; writer took 9 ms. Build clean, 15/15 tests pass.
 
 ## OSTEP Coverage
 
@@ -194,7 +194,7 @@ The repo follows **build-first learning** (per `docs/learning/lesson-slices.md`)
 
 Useful directions that fit the project:
 
-- Extend concurrency via the next-milestones roadmap in `docs/adr/0004-extend-broad-concurrency-roadmap.md`. The detailed plan for the first next-milestone (M8 bounded queue + 503 backpressure) is at `docs/learning/slice-6.3-bounded-queue-and-backpressure.md`. After M8, candidates include M9 reader-writer lock + cache, M10 async-mode overload + ThreadPool cap, M11 raw `open`/`read`/`write`/`close`, M12 mini file system.
+- Extend concurrency via the next-milestones roadmap in `docs/adr/0004-extend-broad-concurrency-roadmap.md`. M8 (bounded queue + 503) and M9 (reader-writer lock + cache) are done. Next candidates: M10 async-mode overload + `ThreadPool` cap, M11 real `open`/`read`/`write`/`close` syscall demo, M12 mini file system (inode + bitmap + journal).
 - Add `ArrayPool<byte>` to lower per-connection memory in async mode (would change the M7 numbers from 172 MB toward M6's 21 MB).
 - Add a `Retry-After` header to the M8 503 response so clients can back off intelligently.
 - Extend the **OSEP coverage gaps** in the OSEP Coverage section: scheduling (Ch. 7-10), paging (Ch. 14-23), full FS (Ch. 36-45), security (Ch. 53-57). Each new chapter group should get its own ADR before any slices start.

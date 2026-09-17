@@ -2,16 +2,26 @@ using System.Net.Sockets;
 
 /// <summary>
 /// Fixed-size pool of worker threads. The accept loop hands each accepted
-/// client <c>Socket</c> to <see cref="Enqueue"/>; an idle worker thread
+/// client <c>Socket</c> to <see cref="TryEnqueue"/>; an idle worker thread
 /// wakes up via <see cref="Monitor.Wait(object)"/> (the .NET equivalent of
 /// <c>pthread_cond_wait</c>) and runs <c>HandleClient</c> on it. Bounded
 /// concurrency: the OS only knows about <see cref="WorkerCount"/>
-/// threads plus the accept thread. The queue absorbs bursts; queue
-/// length is observable through <see cref="QueueLength"/> and the
-/// <c>/qstats</c> route.
+/// threads plus the accept thread. The queue absorbs bursts up to
+/// <see cref="MaxQueueSize"/>; over-capacity accepted sockets are rejected
+/// with <c>503 Service Unavailable</c> by the accept loop. Queue length,
+/// capacity, and capacity-full state are exposed through <see cref="QueueLength"/>,
+/// <see cref="Capacity"/>, and <see cref="IsAtCapacity"/> for the <c>/qstats</c>
+/// route.
 /// </summary>
 public static class WorkerPool
 {
+    /// <summary>
+    /// Maximum number of accepted sockets held in the queue at one time.
+    /// Sized for learning, not for production. See M8 in
+    /// <c>docs/learning/slice-6.3-bounded-queue-and-backpressure.md</c>.
+    /// </summary>
+    public const int MaxQueueSize = 64;
+
     private static readonly object PoolLock = new();
     private static readonly Queue<Socket> Pending = new();
     private static Thread[]? Workers;
@@ -20,6 +30,8 @@ public static class WorkerPool
 
     public static int WorkerCount => Workers?.Length ?? 0;
 
+    public static int Capacity => MaxQueueSize;
+
     public static int QueueLength
     {
         get
@@ -27,6 +39,17 @@ public static class WorkerPool
             lock (PoolLock)
             {
                 return Pending.Count;
+            }
+        }
+    }
+
+    public static bool IsAtCapacity
+    {
+        get
+        {
+            lock (PoolLock)
+            {
+                return Pending.Count >= MaxQueueSize;
             }
         }
     }
@@ -54,12 +77,25 @@ public static class WorkerPool
         }
     }
 
-    public static void Enqueue(Socket clientSocket)
+    /// <summary>
+    /// Non-blocking enqueue. Returns <c>true</c> if the socket was added to
+    /// the queue and a worker will eventually pick it up; returns
+    /// <c>false</c> if the queue is at <see cref="MaxQueueSize"/> or the
+    /// pool is shutting down. The caller is responsible for closing the
+    /// socket on <c>false</c> (the accept loop replies with
+    /// <c>503 Service Unavailable</c>).
+    /// </summary>
+    public static bool TryEnqueue(Socket clientSocket)
     {
         lock (PoolLock)
         {
+            if (Stopping || Pending.Count >= MaxQueueSize)
+            {
+                return false;
+            }
             Pending.Enqueue(clientSocket);
             Monitor.Pulse(PoolLock);
+            return true;
         }
     }
 

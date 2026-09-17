@@ -3,7 +3,7 @@ using System.Net.Sockets;
 using System.Text;
 
 const int Port = 8080;
-const int ListenBacklog = 10;
+const int ListenBacklog = 128;
 const int MaxRequestBytes = 1_024 * 1_024;
 const int RaceIterations = 1_000_000;
 const int WorkerCount = 8;
@@ -43,7 +43,33 @@ WorkerPool.Start(WorkerCount, webRoot);
 while (true)
 {
     Socket clientSocket = serverSocket.Accept();
-    WorkerPool.Enqueue(clientSocket);
+    if (!WorkerPool.TryEnqueue(clientSocket))
+    {
+        // Queue is at capacity. Reply 503 and close so the accept loop
+        // keeps draining the kernel backlog instead of parking.
+        Console.WriteLine($"[accept] Rejecting connection from {clientSocket.RemoteEndPoint}: queue full");
+        var busy = new HttpResponse(
+            503,
+            "Service Unavailable",
+            "text/plain; charset=UTF-8",
+            Encoding.UTF8.GetBytes("Server is at capacity; retry later.\n"));
+        try
+        {
+            // Drain a small prefix of the request so Dispose() doesn't RST
+            // the client (Windows sends RST if a socket is closed with unread
+            // data in the receive buffer). Best-effort, short timeout.
+            clientSocket.ReceiveTimeout = 50;
+            var drain = new byte[256];
+            try { while (clientSocket.Receive(drain) > 0) { } } catch { }
+            clientSocket.SendTimeout = 5000;
+            SendAll(clientSocket, busy.ToBytes());
+        }
+        catch
+        {
+            // best-effort: client may have disconnected already
+        }
+        clientSocket.Dispose();
+    }
 }
 
 static void HandleClient(Socket clientSocket, string webRoot)
@@ -133,9 +159,13 @@ static void HandleClient(Socket clientSocket, string webRoot)
         {
             int q = WorkerPool.QueueLength;
             int w = WorkerPool.WorkerCount;
+            int cap = WorkerPool.Capacity;
+            bool atCap = WorkerPool.IsAtCapacity;
             string body =
                 $"worker_count = {w}\n" +
                 $"queue_length = {q}\n" +
+                $"capacity = {cap}\n" +
+                $"at_capacity = {atCap.ToString().ToLowerInvariant()}\n" +
                 $"total_requests = {RequestStats.TotalRequests}\n";
             response = new HttpResponse(
                 200,

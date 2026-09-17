@@ -148,10 +148,12 @@ More precise answer:
 
 ### What changed
 
-- `WorkerPool.MaxQueueSize = 64` constant.
-- `WorkerPool.TryEnqueue(Socket) : bool` — non-blocking enqueue that returns false when full or shutting down.
+- `WorkerPool.MaxQueueSize = 64` constant (sized for learning, not production).
+- `WorkerPool.TryEnqueue(Socket) : bool` — non-blocking enqueue; returns `false` when full or shutting down.
 - `WorkerPool.IsAtCapacity` — exposes the boolean for `/qstats`.
-- Accept loop in `Program.cs`: calls `TryEnqueue`; on false, writes `503 Service Unavailable`, sends, disposes.
+- `WorkerPool.Capacity` — exposes `MaxQueueSize` for `/qstats`.
+- `ListenBacklog` bumped from `10` to `128` so the kernel can hold all 72 simultaneous clients during the smoke.
+- Accept loop in `Program.cs`: calls `TryEnqueue`; on `false`, writes `503 Service Unavailable`, sends, disposes. The reject path also drains a small prefix of the request (50 ms timeout) so `Dispose()` does not RST the client (Windows RSTs if a socket is closed with unread data).
 - `/qstats` route extended with `capacity` and `at_capacity` lines.
 
 Files affected:
@@ -162,29 +164,55 @@ Files affected:
 
 ### What I observed
 
-TBD after implementation and experiment.
+Smoke (park 72 `/slow` connections, then send a 73rd request, then send a 74th):
 
-### OSTEP concept
+```text
+[park] parked 72/72
 
-OSEP §30.4 introduced the bounded-buffer producer/consumer pattern with two condition variables (`empty` and `full`). The producer waits when the buffer is full; the consumer waits when it is empty. This slice chooses a different policy: instead of blocking the producer (which would freeze the accept loop), it rejects the client with `503`. That maps to a real-world choice in production servers (e.g., HAProxy returns 503 when its connection queue is full).
+--- 73rd request (/qstats) ---
+HTTP/1.1 503 Service Unavailable
+Content-Type: text/plain; charset=UTF-8
+Content-Length: 36
+Connection: close
+
+Server is at capacity; retry later.
+
+--- 74th request (probe /any) ---
+HTTP/1.1 503 Service Unavailable
+Content-Type: text/plain; charset=UTF-8
+Content-Length: 36
+Connection: close
+
+Server is at capacity; retry later.
+```
+
+Both the 73rd and 74th requests got 503, demonstrating that the bounded queue + reject path activates exactly at `WorkerCount + MaxQueueSize = 8 + 64 = 72` total in-flight connections. With 8 workers in `/slow` and 64 queued, `Pending.Count` is at the cap, and `TryEnqueue` returns `false`.
+
+Without the M8 change, the same 72 connections would either fill the kernel's listen backlog (size 10 originally) and start refusing new SYNs with ECONNREFUSED, or — with a larger listen backlog — silently grow the app's `Queue<Socket>` to thousands of items and risk OOM.
+
+### OSEP concept
+
+OSEP §30.4 introduced the bounded-buffer producer/consumer pattern with two condition variables (`empty` and `full`). The producer waits when the buffer is full; the consumer waits when it is empty. This slice chooses a different policy: instead of blocking the producer (which would freeze the accept loop and the kernel's listen backlog would fill with pending connections), it rejects the client with `503`. That maps to a real-world choice in production servers (e.g., HAProxy returns 503 when its connection queue is full; nginx returns 503 when `worker_connections` is reached).
 
 The reject policy is consistent with OSEP §33.4's "no blocking calls in event-based servers" lesson — if the accept thread were to block on a full queue, the server would lose the ability to keep draining the kernel's listen backlog, and clients would see connection-refused instead of a clean 503. Rejecting at the application layer keeps the accept thread responsive and gives the client a clear retry signal (the 503 status code itself).
+
+The choice between blocking-producer and reject-producer is a policy decision, not an OS one. Both are valid. OSEP §30.4 + §31.4 are the textbook; this slice is one of the two implementations.
 
 ### .NET mechanism
 
 `Monitor.Wait(PoolLock)` is the .NET analogue of `pthread_cond_wait(PoolLock, mutex)`. Both atomically release the lock and park the calling thread; the runtime's `ThreadPool` is not involved — the parked thread sits on the monitor's wait queue and the OS schedules it when another thread calls `Monitor.Pulse(PoolLock)` or `Monitor.PulseAll(PoolLock)`. This slice does not use `Wait` (the producer never blocks) but the existing `WorkerLoop` already does, so the helper is available if a future slice wants blocking-producer behavior.
 
-`Socket.Dispose` releases the underlying file descriptor and any buffer pool associated with it. Without it, the OS would not know the connection is closed until the GC runs the finalizer.
+`Socket.Dispose` releases the underlying file descriptor and any buffer pool associated with it. Without draining the receive buffer first, on Windows the OS sends RST instead of FIN because there is still unread data. The reject path therefore sets `ReceiveTimeout = 50` and drains until `Receive` returns 0 or throws, then sends the 503, then disposes.
 
 ### Next question
 
-What about the async mode? `AsyncServer` has no queue — each `Task` is parked directly. How does the async server behave under sustained overload?
+What about the async mode? `AsyncServer` has no application queue — each `Task` is parked directly on the runtime `ThreadPool`. How does the async server behave under sustained overload?
 
-Next slice: bound the async server too. `ThreadPool.SetMaxThreads` caps the pool, and exceeding it queues the continuation onto the calling thread. We can measure the cutoff point with a similar stress test.
+Next slice (M10 in `docs/adr/0004-extend-broad-concurrency-roadmap.md`): bound the async server too. `ThreadPool.SetMaxThreads` caps the pool, and exceeding it queues the continuation onto the calling thread. Measure the cutoff with a similar stress test.
 
 ## Status
 
 - [x] Planned
-- [ ] Built
-- [ ] Experimented
-- [ ] Noted
+- [x] Built
+- [x] Experimented
+- [x] Noted

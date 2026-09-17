@@ -158,7 +158,15 @@ More precise answer:
 
 ### What changed
 
-Added `WorkerPool` static class with `Queue<Socket>` + `lock` + `Monitor.Wait/Pulse` (the .NET analogue of `pthread_cond_wait/signal`). `Program.cs` initializes the pool once at startup with 8 worker threads, registers `HandleClient` as the client handler delegate, and replaces the per-connection `new Thread(...)` with `WorkerPool.Enqueue(clientSocket)`. A new `/qstats` route exposes worker count, queue length, and total requests.
+Added `WorkerPool` static class with `Queue<Socket>` + `Monitor.Wait/Pulse` (the .NET analogue of `pthread_cond_wait/signal`). `Program.cs` initializes the pool once at startup with 8 worker threads, registers `HandleClient` as the client handler delegate, and replaces the per-connection `new Thread(...)` with `WorkerPool.Enqueue(clientSocket)`. A new `/qstats` route exposes worker count, queue length, and total requests.
+
+### M6.3 (added 2026-09-17): Bounded queue + 503 backpressure
+
+The original M6 had an unbounded `Queue<Socket>` — under sustained overload the queue could grow to thousands of items and risk OOM. The 6.3 follow-up adds a `MaxQueueSize = 64` cap, a `TryEnqueue` non-blocking enqueue that returns `false` when full, and a reject path in the accept loop that replies `503 Service Unavailable` and closes the socket. `/qstats` now also reports `capacity` and `at_capacity`. `ListenBacklog` was raised from 10 to 128 so the kernel can hold the 72 simultaneous clients used in the smoke.
+
+Smoke proved: with 72 `/slow` clients connected (8 workers in `Thread.Sleep(30000)` + 64 queued), a 73rd request immediately gets `503 Service Unavailable` instead of being silently queued or having the kernel refuse the connection. The reject path also drains a small prefix of the request before closing so Windows does not RST the client (a socket closed with unread data in the receive buffer triggers RST on Windows).
+
+Full learning note at `docs/learning/slice-6.3-bounded-queue-and-backpressure.md`. Plan doc predates this update: see ADR 0004 (`docs/adr/0004-extend-broad-concurrency-roadmap.md`) for the wider next-milestones roadmap.
 
 Files affected:
 

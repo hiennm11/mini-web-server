@@ -17,13 +17,13 @@ Updated 2026-09-17. Legend: ✅ built + experimented + noted · 🟡 planned · 
 | 4.5 | Reproduce OSTEP `threads.c` race (`counter++`) | Ch. 26, 28 | ✅ |
 | 4.6 | Stress thread-per-connection stack limit | Ch. 26, 27 | ✅ |
 | M5 | Race lab: fix with `lock` / `Interlocked` | Ch. 28 | ✅ |
-| M6 | Bounded worker pool + producer-consumer queue | Ch. 30, 31 | ❌ |
+| M6 | Bounded worker pool + producer-consumer queue | Ch. 30, 31 | ✅ |
 | M7 | Async / event-based server | Ch. 33, 36 | ❌ |
 
-**Milestones**: M1 ✅, M2 ✅, M3 ✅, M4 ✅, M5 ✅. Phase 2 closed (race observable + fixed). Phase 3 next.
+**Milestones**: M1 ✅, M2 ✅, M3 ✅, M4 ✅, M5 ✅, M6 ✅. Phase 3 worker pool landed; bounded queue + backpressure future.
 **Tests**: 15 passing (8 prior + 7 new for `HttpRequestReceiver`).
-**Code/runtime**: `net10.0`. Single host process, thread-per-connection, port 8080, static files under `wwwroot`.
-**Latest commit**: Milestone 5 — `/race-safe` route locks the counter; smoke confirms 4 concurrent × 1M each = exact 8M total (vs `/race` non-atomic = 5.85M, ~26% loss).
+**Code/runtime**: `net10.0`. Single host process, **bounded worker pool (8 threads) + producer/consumer queue**, port 8080, static files under `wwwroot`.
+**Latest commit**: Milestone 6 — `WorkerPool` static class with `Queue<Socket>` + lock + `Monitor.Wait/Pulse`; accept loop enqueues instead of spawning threads; `/qstats` exposes worker count + queue length. 150 parked slow clients now use 21 MB private vs 174 MB in slice 4.6 (~12× reduction).
 
 ## Purpose
 

@@ -6,6 +6,7 @@ const int Port = 8080;
 const int ListenBacklog = 10;
 const int MaxRequestBytes = 1_024 * 1_024;
 const int RaceIterations = 1_000_000;
+const int WorkerCount = 8;
 
 string webRoot = WebRootLocator.GetWebRoot(AppContext.BaseDirectory);
 
@@ -21,31 +22,16 @@ serverSocket.Listen(ListenBacklog);
 
 Console.WriteLine($"Host process id: {Environment.ProcessId}");
 Console.WriteLine($"Server socket listening on http://localhost:{Port}/");
-Console.WriteLine("Waiting inside Accept(). Press Ctrl+C to stop.");
+Console.WriteLine($"Worker pool size: {WorkerCount}");
+Console.WriteLine("Accept loop is running. Press Ctrl+C to stop.");
+
+WorkerPool.ClientHandler = HandleClient;
+WorkerPool.Start(WorkerCount, webRoot);
 
 while (true)
 {
     Socket clientSocket = serverSocket.Accept();
-
-    var thread = new Thread(() =>
-    {
-        try
-        {
-            HandleClient(clientSocket, webRoot);
-        }
-        catch (SocketException ex)
-        {
-            Console.WriteLine($"[thread {Thread.CurrentThread.ManagedThreadId}] Socket error while handling client: {ex.SocketErrorCode}");
-            clientSocket.Dispose();
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[thread {Thread.CurrentThread.ManagedThreadId}] Unexpected error while handling client: {ex.Message}");
-            clientSocket.Dispose();
-        }
-    });
-    thread.IsBackground = true;
-    thread.Start();
+    WorkerPool.Enqueue(clientSocket);
 }
 
 static void HandleClient(Socket clientSocket, string webRoot)
@@ -124,6 +110,20 @@ static void HandleClient(Socket clientSocket, string webRoot)
                 $"threads = {threads}\n" +
                 $"working_set_bytes = {workingSet}\n" +
                 $"private_bytes = {privateBytes}\n" +
+                $"total_requests = {RequestStats.TotalRequests}\n";
+            response = new HttpResponse(
+                200,
+                "OK",
+                "text/plain; charset=UTF-8",
+                Encoding.UTF8.GetBytes(body));
+        }
+        else if (parsedRequest.Path == "/qstats")
+        {
+            int q = WorkerPool.QueueLength;
+            int w = WorkerPool.WorkerCount;
+            string body =
+                $"worker_count = {w}\n" +
+                $"queue_length = {q}\n" +
                 $"total_requests = {RequestStats.TotalRequests}\n";
             response = new HttpResponse(
                 200,

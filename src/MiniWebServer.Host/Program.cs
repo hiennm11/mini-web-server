@@ -5,6 +5,7 @@ using System.Text;
 const int Port = 8080;
 const int ListenBacklog = 10;
 const int ReceiveBufferSize = 4096;
+const int RaceIterations = 1_000_000;
 
 string webRoot = WebRootLocator.GetWebRoot(AppContext.BaseDirectory);
 
@@ -77,7 +78,26 @@ static void HandleClient(Socket clientSocket, string webRoot)
             Thread.Sleep(5000);
         }
 
-        HttpResponse response = StaticFileResponder.CreateResponse(parsedRequest, webRoot);
+        HttpResponse response;
+        if (parsedRequest.Path == "/race")
+        {
+            Console.WriteLine($"[thread {threadId}] Running {RaceIterations} non-atomic increments on RequestStats.UnsafeCounter...");
+            for (int i = 0; i < RaceIterations; i++)
+            {
+                RequestStats.UnsafeCounter++;
+            }
+            int observed = RequestStats.UnsafeCounter;
+            Console.WriteLine($"[thread {threadId}] /race done. UnsafeCounter is now {observed}");
+            response = new HttpResponse(
+                200,
+                "OK",
+                "text/plain; charset=UTF-8",
+                Encoding.UTF8.GetBytes($"UnsafeCounter = {observed}\n"));
+        }
+        else
+        {
+            response = StaticFileResponder.CreateResponse(parsedRequest, webRoot);
+        }
         Console.WriteLine($"[thread {threadId}] Response: {response.StatusCode} {response.ReasonPhrase}");
 
         byte[] responseBytes = response.ToBytes();
@@ -125,4 +145,10 @@ static void SendAll(Socket clientSocket, byte[] responseBytes)
 public static class RequestStats
 {
     public static int TotalRequests = 0;
+
+    // Shared across every handler thread. Intentionally non-atomic.
+    // Two concurrent /race handlers will increment this with bare ++
+    // and produce totals lower than 2 * RaceIterations. The lesson is
+    // the race, not the fix. Milestone 5 introduces the lock fix.
+    public static int UnsafeCounter = 0;
 }

@@ -14,16 +14,16 @@ Updated 2026-09-17. Legend: ✅ built + experimented + noted · 🟡 planned · 
 | 4.2 | Spawn one background thread per accepted client | Ch. 26, 27 | ✅ |
 | 4.3 | Log `ManagedThreadId`, observe scheduler non-determinism | Ch. 26, 4.4 | ✅ |
 | 4.4 | Show shared address space (`static` vs locals) | Ch. 13, 26 | ✅ |
-| 4.5 | Reproduce OSTEP `threads.c` race (`counter++`) | Ch. 26, 28 | ❌ |
+| 4.5 | Reproduce OSTEP `threads.c` race (`counter++`) | Ch. 26, 28 | ✅ |
 | 4.6 | Stress thread-per-connection stack limit | Ch. 26, 27 | ❌ |
 | M5 | Race lab: fix with `lock` / `Interlocked` | Ch. 28 | ❌ |
 | M6 | Bounded worker pool + producer-consumer queue | Ch. 30, 31 | ❌ |
 | M7 | Async / event-based server | Ch. 33, 36 | ❌ |
 
-**Milestones**: M1 ✅, M2 ✅, M3 ✅, M4 in progress (next is slice 4.5 race lab), M5–M7 planned.
+**Milestones**: M1 ✅, M2 ✅, M3 ✅, M4 in progress (next is M5 lock fix), M5–M7 planned.
 **Tests**: 8 passing (M2 parser + M3 file serving + `WebRootLocator` + `/slow` parsing).
 **Code/runtime**: `net10.0`, `net10.0`. Single host process, thread-per-connection, port 8080, static files under `wwwroot`.
-**Latest commit**: slice 4.4 — shared `RequestStats.TotalRequests` (`Interlocked.Increment`) + per-thread `localRequestId`, both logged in handler.
+**Latest commit**: slice 4.5 — `/race` route incrementing `RequestStats.UnsafeCounter` non-atomically; observed 785,309 lost increments out of 4M expected (19.6%).
 
 ## Purpose
 

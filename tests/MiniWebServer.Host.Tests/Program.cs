@@ -95,6 +95,66 @@ Run("parses /slow path", () =>
     AssertEqual("HTTP/1.1", request.Version);
 });
 
+Run("receiver finds header terminator at expected offset", () =>
+{
+    byte[] bytes = Encoding.ASCII.GetBytes(
+        "GET / HTTP/1.1\r\n" +
+        "Host: localhost\r\n" +
+        "\r\n");
+
+    // "\r\n\r\n" starts at the byte right after "Host: localhost\r\n",
+    // which is 31 bytes from the start of the buffer.
+    AssertEqual(31, HttpRequestReceiver.FindHeaderEnd(bytes));
+});
+
+Run("receiver returns -1 when header terminator is missing", () =>
+{
+    byte[] bytes = Encoding.ASCII.GetBytes("GET / HTTP/1.1\r\nHost: localhost\r\n");
+
+    AssertEqual(-1, HttpRequestReceiver.FindHeaderEnd(bytes));
+});
+
+Run("receiver parses integer Content-Length value", () =>
+{
+    byte[] header = Encoding.ASCII.GetBytes(
+        "POST /submit HTTP/1.1\r\n" +
+        "Host: localhost\r\n" +
+        "Content-Length: 42\r\n" +
+        "\r\n");
+
+    AssertEqual(42, HttpRequestReceiver.ParseContentLength(header));
+});
+
+Run("receiver parses Content-Length with leading whitespace", () =>
+{
+    byte[] header = Encoding.ASCII.GetBytes(
+        "POST /submit HTTP/1.1\r\n" +
+        "Content-Length:    7\r\n" +
+        "\r\n");
+
+    AssertEqual(7, HttpRequestReceiver.ParseContentLength(header));
+});
+
+Run("receiver returns 0 when Content-Length is absent", () =>
+{
+    byte[] header = Encoding.ASCII.GetBytes(
+        "GET / HTTP/1.1\r\n" +
+        "Host: localhost\r\n" +
+        "\r\n");
+
+    AssertEqual(0, HttpRequestReceiver.ParseContentLength(header));
+});
+
+Run("receiver returns 0 when Content-Length is malformed", () =>
+{
+    byte[] header = Encoding.ASCII.GetBytes(
+        "POST /submit HTTP/1.1\r\n" +
+        "Content-Length: not-a-number\r\n" +
+        "\r\n");
+
+    AssertEqual(0, HttpRequestReceiver.ParseContentLength(header));
+});
+
 Console.WriteLine("All tests passed.");
 
 static string CreateTempWebRoot()

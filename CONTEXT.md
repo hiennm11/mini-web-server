@@ -9,7 +9,7 @@ Updated 2026-09-17. Legend: ✅ built + experimented + noted · 🟡 planned · 
 | 1.1 | Raw socket lifecycle (`Socket.Bind`/`Listen`/`Accept`/`Receive`/`Send`) | Ch. 4, 6 | ✅ |
 | 1.2 | Parse HTTP request → method, path, version, headers | Ch. 4, 13, 36 | ✅ |
 | 1.3 | Serve static files from `wwwroot`, reject path traversal | Ch. 39 | ✅ |
-| 1.4 | Robust receive loop until `\r\n\r\n` + `Content-Length` bytes | Ch. 4.4, 36 | 🟡 |
+| 1.4 | Robust receive loop until `\r\n\r\n` + `Content-Length` bytes | Ch. 4.4, 36 | ✅ |
 | 4.1 | Prove single-thread blocking via `/slow` (`Thread.Sleep`) | Ch. 4, 4.4 | ✅ |
 | 4.2 | Spawn one background thread per accepted client | Ch. 26, 27 | ✅ |
 | 4.3 | Log `ManagedThreadId`, observe scheduler non-determinism | Ch. 26, 4.4 | ✅ |
@@ -20,10 +20,10 @@ Updated 2026-09-17. Legend: ✅ built + experimented + noted · 🟡 planned · 
 | M6 | Bounded worker pool + producer-consumer queue | Ch. 30, 31 | ❌ |
 | M7 | Async / event-based server | Ch. 33, 36 | ❌ |
 
-**Milestones**: M1 ✅, M2 ✅, M3 ✅, M4 in progress (next is M5 lock fix), M5–M7 planned.
-**Tests**: 8 passing (M2 parser + M3 file serving + `WebRootLocator` + `/slow` parsing).
+**Milestones**: M1 ✅, M2 ✅, M3 ✅, M4 in progress (next is M5 lock fix); M1–M4 complete on Phase 1 + slice 1.4 closed.
+**Tests**: 15 passing (8 prior + 7 new for `HttpRequestReceiver`).
 **Code/runtime**: `net10.0`, `net10.0`. Single host process, thread-per-connection, port 8080, static files under `wwwroot`.
-**Latest commit**: slice 4.5 — `/race` route incrementing `RequestStats.UnsafeCounter` non-atomically; observed 785,309 lost increments out of 4M expected (19.6%).
+**Latest commit**: slice 1.4 — robust receive loop via `HttpRequestReceiver` (pure helpers + imperative `ReceiveRequest`); verified with fragmented GET/POST smoke tests.
 
 ## Purpose
 

@@ -4,7 +4,7 @@ using System.Text;
 
 const int Port = 8080;
 const int ListenBacklog = 10;
-const int ReceiveBufferSize = 4096;
+const int MaxRequestBytes = 1_024 * 1_024;
 const int RaceIterations = 1_000_000;
 
 string webRoot = WebRootLocator.GetWebRoot(AppContext.BaseDirectory);
@@ -61,7 +61,8 @@ static void HandleClient(Socket clientSocket, string webRoot)
         Console.WriteLine($"[thread {threadId}] Accepted client socket from {clientSocket.RemoteEndPoint}");
         Console.WriteLine($"[thread {threadId}] Local request id: {localRequestId}, shared total seen so far: {RequestStats.TotalRequests}");
 
-        string request = ReceiveRequest(clientSocket);
+        byte[] requestBytes = ReceiveRequest(clientSocket);
+        string request = Encoding.UTF8.GetString(requestBytes);
         Console.WriteLine($"[thread {threadId}] Raw HTTP request bytes decoded as UTF-8:");
         Console.WriteLine(request);
 
@@ -108,14 +109,46 @@ static void HandleClient(Socket clientSocket, string webRoot)
     }
 }
 
-static string ReceiveRequest(Socket clientSocket)
+static byte[] ReceiveRequest(Socket clientSocket)
 {
-    byte[] buffer = new byte[ReceiveBufferSize];
-    int bytesRead = clientSocket.Receive(buffer);
+    byte[] buffer = new byte[MaxRequestBytes];
+    int total = 0;
+    int headerEnd = -1;
+    int contentLength = 0;
+    int totalReceiveCalls = 0;
 
-    Console.WriteLine($"Receive() returned {bytesRead} byte(s).");
+    while (total < MaxRequestBytes)
+    {
+        int n = clientSocket.Receive(buffer, total, buffer.Length - total, SocketFlags.None);
+        totalReceiveCalls++;
+        if (n <= 0)
+        {
+            break;
+        }
+        total += n;
 
-    return Encoding.UTF8.GetString(buffer, 0, bytesRead);
+        if (headerEnd < 0)
+        {
+            headerEnd = HttpRequestReceiver.FindHeaderEnd(buffer.AsSpan(0, total));
+        }
+        if (headerEnd >= 0 && contentLength == 0)
+        {
+            contentLength = HttpRequestReceiver.ParseContentLength(buffer.AsSpan(0, headerEnd));
+        }
+
+        if (headerEnd >= 0)
+        {
+            int needed = headerEnd + HttpRequestReceiver.HeaderDelimiter.Length + contentLength;
+            if (total >= needed)
+            {
+                Console.WriteLine($"Receive() returned {n} byte(s) on call #{totalReceiveCalls}; total {total} byte(s); request complete.");
+                return buffer.AsSpan(0, needed).ToArray();
+            }
+        }
+    }
+
+    throw new InvalidOperationException(
+        $"Request incomplete after {totalReceiveCalls} receive call(s) and {total} byte(s); headerEnd={headerEnd}, contentLength={contentLength}.");
 }
 
 static void SendAll(Socket clientSocket, byte[] responseBytes)

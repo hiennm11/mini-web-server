@@ -20,8 +20,9 @@ Updated 2026-09-17. Legend: ✅ built + experimented + noted · 🟡 planned · 
 | M6 | Bounded worker pool + producer-consumer queue | Ch. 30, 31 | ✅ |
 | M7 | Async / event-based server | Ch. 33, 36 | ✅ |
 | M8 (6.3) | Bounded queue + 503 backpressure in `WorkerPool` | Ch. 30, 31 | ✅ |
+| M9 | Reader-writer lock + process-stats cache | Ch. 31.5 | ✅ |
 
-**Milestones**: M1 ✅–M8 ✅. M8 is the first post-roadmap extension (`docs/adr/0004-extend-broad-concurrency-roadmap.md`); the original 12-slice roadmap is closed.
+**Milestones**: M1 ✅–M9 ✅. M8 and M9 are the first post-roadmap extensions per `docs/adr/0004-extend-broad-concurrency-roadmap.md`; the original 12-slice roadmap is closed.
 **Tests**: 15 passing (8 prior + 7 new for `HttpRequestReceiver`).
 **Code/runtime**: `net10.0`. Two run modes selectable via `--async` flag: default = bounded worker pool (8 threads) + producer/consumer queue, async = `AcceptAsync` + `Task` per connection with `ReceiveAsync` / `SendAsync`. Port 8080, static files under `wwwroot`.
 **Latest commit**: Milestone 7 — `AsyncServer` (single-threaded accept loop + `Task` per connection, OSEP §33 event-based); select via `--async` flag. 150 parked slow clients use 20 threads (vs ~150+ in slice 4.6, vs 17 in M6). Memory similar to M6 because per-connection buffer is the dominant cost.
@@ -33,7 +34,7 @@ The book has ~50 chapters. Repo maps **the core three pieces** (Virtualization +
 | Piece | Coverage | Roadmap slices |
 |---|---|---|
 | **Virtualization** | Ch. 4 process, 6 LDE, 13 address space, 26-27 thread = point of execution, 33 event-based | 1.1, 1.4, 4.4, M7 |
-| **Concurrency** | Ch. 26 race, 27 thread API, 28 locks, 30 condition variables, 31 semaphores, 33 event-based | 4.1–4.6, M5, M6, M7, M8 |
+| **Concurrency** | Ch. 26 race, 27 thread API, 28 locks, 30 condition variables, 31 semaphores, 31.5 reader-writer, 33 event-based | 4.1–4.6, M5, M6, M7, M8, M9 |
 | **Persistence** | Ch. 39 files & directories (basic), 36 I/O devices (TCP receive loop) | 1.3, 1.4 |
 
 **Roughly 30% of OSTEP chapters have working code in this repo.**
@@ -180,6 +181,7 @@ Phase 3 + 4 learning docs:
 - `docs/learning/milestone-5-race-lab.md` (race fixed with `lock`)
 - `docs/learning/milestone-6-bounded-worker-pool.md` (bounded pool + producer/consumer; M8 bounded queue appended as section 6.3)
 - `docs/learning/slice-6.3-bounded-queue-and-backpressure.md` (M8 full learning note)
+- `docs/learning/slice-9-reader-writer-lock.md` (M9 full learning note)
 - `docs/learning/milestone-7-async-event-based.md` (event-based server)
 
 All twelve roadmap slices + milestones have learning notes with smoke-test output captured inline. M8 (the first post-roadmap extension) has its own learning note and a 6.3 section appended to the M6 note.

@@ -155,6 +155,29 @@ static void HandleClient(Socket clientSocket, string webRoot)
                 "text/plain; charset=UTF-8",
                 Encoding.UTF8.GetBytes(body));
         }
+        else if (parsedRequest.Path == "/stats-fast")
+        {
+            var (t, ws, pb) = RequestStatsCache.Read();
+            string body =
+                $"threads = {t}\n" +
+                $"working_set_bytes = {ws}\n" +
+                $"private_bytes = {pb}\n" +
+                $"total_requests = {RequestStats.TotalRequests}\n";
+            response = new HttpResponse(
+                200,
+                "OK",
+                "text/plain; charset=UTF-8",
+                Encoding.UTF8.GetBytes(body));
+        }
+        else if (parsedRequest.Path == "/stats-refresh")
+        {
+            RequestStatsCache.Refresh();
+            response = new HttpResponse(
+                200,
+                "OK",
+                "text/plain; charset=UTF-8",
+                Encoding.UTF8.GetBytes("refreshed\n"));
+        }
         else if (parsedRequest.Path == "/qstats")
         {
             int q = WorkerPool.QueueLength;

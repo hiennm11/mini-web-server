@@ -95,6 +95,25 @@ static void HandleClient(Socket clientSocket, string webRoot)
                 "text/plain; charset=UTF-8",
                 Encoding.UTF8.GetBytes($"UnsafeCounter = {observed}\n"));
         }
+        else if (parsedRequest.Path == "/race-safe")
+        {
+            Console.WriteLine($"[thread {threadId}] Running {RaceIterations} increments on RequestStats.SafeCounter under lock...");
+            int observed;
+            lock (RequestStats.SafeCounterLock)
+            {
+                for (int i = 0; i < RaceIterations; i++)
+                {
+                    RequestStats.SafeCounter++;
+                }
+                observed = RequestStats.SafeCounter;
+            }
+            Console.WriteLine($"[thread {threadId}] /race-safe done. SafeCounter is now {observed}");
+            response = new HttpResponse(
+                200,
+                "OK",
+                "text/plain; charset=UTF-8",
+                Encoding.UTF8.GetBytes($"SafeCounter = {observed}\n"));
+        }
         else if (parsedRequest.Path == "/stats")
         {
             var p = System.Diagnostics.Process.GetCurrentProcess();
@@ -201,4 +220,12 @@ public static class RequestStats
     // and produce totals lower than 2 * RaceIterations. The lesson is
     // the race, not the fix. Milestone 5 introduces the lock fix.
     public static int UnsafeCounter = 0;
+
+    // Lock-protected counter. Each handler enters the lock, increments
+    // under the lock, and exits. Same shared-memory footprint as
+    // UnsafeCounter but the critical section is bounded by the lock,
+    // so concurrent /race-safe jobs always produce the deterministic
+    // expected total.
+    public static readonly object SafeCounterLock = new();
+    public static int SafeCounter = 0;
 }

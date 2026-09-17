@@ -16,14 +16,14 @@ Updated 2026-09-17. Legend: ✅ built + experimented + noted · 🟡 planned · 
 | 4.4 | Show shared address space (`static` vs locals) | Ch. 13, 26 | ✅ |
 | 4.5 | Reproduce OSTEP `threads.c` race (`counter++`) | Ch. 26, 28 | ✅ |
 | 4.6 | Stress thread-per-connection stack limit | Ch. 26, 27 | ✅ |
-| M5 | Race lab: fix with `lock` / `Interlocked` | Ch. 28 | ❌ |
+| M5 | Race lab: fix with `lock` / `Interlocked` | Ch. 28 | ✅ |
 | M6 | Bounded worker pool + producer-consumer queue | Ch. 30, 31 | ❌ |
 | M7 | Async / event-based server | Ch. 33, 36 | ❌ |
 
-**Milestones**: M1 ✅, M2 ✅, M3 ✅, M4 ✅ complete (all 6 slices); next = M5 lock fix. Phase 1 closed.
+**Milestones**: M1 ✅, M2 ✅, M3 ✅, M4 ✅, M5 ✅. Phase 2 closed (race observable + fixed). Phase 3 next.
 **Tests**: 15 passing (8 prior + 7 new for `HttpRequestReceiver`).
 **Code/runtime**: `net10.0`. Single host process, thread-per-connection, port 8080, static files under `wwwroot`.
-**Latest commit**: slice 4.6 — `/stats` route exposes `Process.Threads.Count / WorkingSet64 / PrivateMemorySize64`; smoke shows ~1.1 MB per parked thread on .NET x64 (50 parked = +55 MB private, 100 more = +109 MB).
+**Latest commit**: Milestone 5 — `/race-safe` route locks the counter; smoke confirms 4 concurrent × 1M each = exact 8M total (vs `/race` non-atomic = 5.85M, ~26% loss).
 
 ## Purpose
 

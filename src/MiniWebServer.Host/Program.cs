@@ -75,8 +75,8 @@ static void HandleClient(Socket clientSocket, string webRoot)
 
         if (parsedRequest.Path == "/slow")
         {
-            Console.WriteLine($"[thread {threadId}] Sleeping 5000 ms to simulate blocking I/O...");
-            Thread.Sleep(5000);
+            Console.WriteLine($"[thread {threadId}] Sleeping 30000 ms to simulate blocking I/O...");
+            Thread.Sleep(30000);
         }
 
         HttpResponse response;
@@ -94,6 +94,23 @@ static void HandleClient(Socket clientSocket, string webRoot)
                 "OK",
                 "text/plain; charset=UTF-8",
                 Encoding.UTF8.GetBytes($"UnsafeCounter = {observed}\n"));
+        }
+        else if (parsedRequest.Path == "/stats")
+        {
+            var p = System.Diagnostics.Process.GetCurrentProcess();
+            int threads = p.Threads.Count;
+            long workingSet = p.WorkingSet64;
+            long privateBytes = p.PrivateMemorySize64;
+            string body =
+                $"threads = {threads}\n" +
+                $"working_set_bytes = {workingSet}\n" +
+                $"private_bytes = {privateBytes}\n" +
+                $"total_requests = {RequestStats.TotalRequests}\n";
+            response = new HttpResponse(
+                200,
+                "OK",
+                "text/plain; charset=UTF-8",
+                Encoding.UTF8.GetBytes(body));
         }
         else
         {

@@ -8,7 +8,19 @@ const int MaxRequestBytes = 1_024 * 1_024;
 const int RaceIterations = 1_000_000;
 const int WorkerCount = 8;
 
+bool asyncMode = args.Contains("--async");
+
 string webRoot = WebRootLocator.GetWebRoot(AppContext.BaseDirectory);
+
+if (asyncMode)
+{
+    Console.WriteLine($"Host process id: {Environment.ProcessId}");
+    Console.WriteLine($"[mode] async/event-based (OSEP Ch. 33)");
+    var cts = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+    await AsyncServer.RunAsync(Port, webRoot, cts.Token);
+    return;
+}
 
 using Socket serverSocket = new(
     AddressFamily.InterNetwork,
@@ -22,7 +34,7 @@ serverSocket.Listen(ListenBacklog);
 
 Console.WriteLine($"Host process id: {Environment.ProcessId}");
 Console.WriteLine($"Server socket listening on http://localhost:{Port}/");
-Console.WriteLine($"Worker pool size: {WorkerCount}");
+Console.WriteLine($"[mode] worker-pool bounded ({WorkerCount} threads)");
 Console.WriteLine("Accept loop is running. Press Ctrl+C to stop.");
 
 WorkerPool.ClientHandler = HandleClient;

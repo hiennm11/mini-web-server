@@ -18,12 +18,12 @@ Updated 2026-09-17. Legend: ✅ built + experimented + noted · 🟡 planned · 
 | 4.6 | Stress thread-per-connection stack limit | Ch. 26, 27 | ✅ |
 | M5 | Race lab: fix with `lock` / `Interlocked` | Ch. 28 | ✅ |
 | M6 | Bounded worker pool + producer-consumer queue | Ch. 30, 31 | ✅ |
-| M7 | Async / event-based server | Ch. 33, 36 | ❌ |
+| M7 | Async / event-based server | Ch. 33, 36 | ✅ |
 
-**Milestones**: M1 ✅, M2 ✅, M3 ✅, M4 ✅, M5 ✅, M6 ✅. Phase 3 worker pool landed; bounded queue + backpressure future.
+**Milestones**: M1 ✅–M7 ✅. All roadmap slices done. Phase 4 async mode landed; bounded queue backpressure and `ThreadPool` cap are future.
 **Tests**: 15 passing (8 prior + 7 new for `HttpRequestReceiver`).
-**Code/runtime**: `net10.0`. Single host process, **bounded worker pool (8 threads) + producer/consumer queue**, port 8080, static files under `wwwroot`.
-**Latest commit**: Milestone 6 — `WorkerPool` static class with `Queue<Socket>` + lock + `Monitor.Wait/Pulse`; accept loop enqueues instead of spawning threads; `/qstats` exposes worker count + queue length. 150 parked slow clients now use 21 MB private vs 174 MB in slice 4.6 (~12× reduction).
+**Code/runtime**: `net10.0`. Two run modes selectable via `--async` flag: default = bounded worker pool (8 threads) + producer/consumer queue, async = `AcceptAsync` + `Task` per connection with `ReceiveAsync` / `SendAsync`. Port 8080, static files under `wwwroot`.
+**Latest commit**: Milestone 7 — `AsyncServer` (single-threaded accept loop + `Task` per connection, OSEP §33 event-based); select via `--async` flag. 150 parked slow clients use 20 threads (vs ~150+ in slice 4.6, vs 17 in M6). Memory similar to M6 because per-connection buffer is the dominant cost.
 
 ## Purpose
 

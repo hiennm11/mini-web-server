@@ -34,12 +34,12 @@ while (true)
         }
         catch (SocketException ex)
         {
-            Console.WriteLine($"Socket error while handling client: {ex.SocketErrorCode}");
+            Console.WriteLine($"[thread {Thread.CurrentThread.ManagedThreadId}] Socket error while handling client: {ex.SocketErrorCode}");
             clientSocket.Dispose();
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Unexpected error while handling client: {ex.Message}");
+            Console.WriteLine($"[thread {Thread.CurrentThread.ManagedThreadId}] Unexpected error while handling client: {ex.Message}");
             clientSocket.Dispose();
         }
     });
@@ -51,34 +51,36 @@ static void HandleClient(Socket clientSocket, string webRoot)
 {
     using (clientSocket)
     {
+        int threadId = Thread.CurrentThread.ManagedThreadId;
+
         Console.WriteLine();
-        Console.WriteLine($"Accepted client socket from {clientSocket.RemoteEndPoint}");
+        Console.WriteLine($"[thread {threadId}] Accepted client socket from {clientSocket.RemoteEndPoint}");
 
         string request = ReceiveRequest(clientSocket);
-        Console.WriteLine("Raw HTTP request bytes decoded as UTF-8:");
+        Console.WriteLine($"[thread {threadId}] Raw HTTP request bytes decoded as UTF-8:");
         Console.WriteLine(request);
 
         HttpRequest parsedRequest = HttpRequestParser.Parse(request);
-        Console.WriteLine("Parsed HTTP request:");
-        Console.WriteLine($"Method: {parsedRequest.Method}");
-        Console.WriteLine($"Path: {parsedRequest.Path}");
-        Console.WriteLine($"Version: {parsedRequest.Version}");
-        Console.WriteLine($"Headers: {parsedRequest.Headers.Count}");
+        Console.WriteLine($"[thread {threadId}] Parsed HTTP request:");
+        Console.WriteLine($"[thread {threadId}] Method: {parsedRequest.Method}");
+        Console.WriteLine($"[thread {threadId}] Path: {parsedRequest.Path}");
+        Console.WriteLine($"[thread {threadId}] Version: {parsedRequest.Version}");
+        Console.WriteLine($"[thread {threadId}] Headers: {parsedRequest.Headers.Count}");
 
         if (parsedRequest.Path == "/slow")
         {
-            Console.WriteLine("Sleeping 5000 ms to simulate blocking I/O...");
+            Console.WriteLine($"[thread {threadId}] Sleeping 5000 ms to simulate blocking I/O...");
             Thread.Sleep(5000);
         }
 
         HttpResponse response = StaticFileResponder.CreateResponse(parsedRequest, webRoot);
-        Console.WriteLine($"Response: {response.StatusCode} {response.ReasonPhrase}");
+        Console.WriteLine($"[thread {threadId}] Response: {response.StatusCode} {response.ReasonPhrase}");
 
         byte[] responseBytes = response.ToBytes();
         SendAll(clientSocket, responseBytes);
 
-        Console.WriteLine($"Sent {responseBytes.Length} response bytes.");
-        Console.WriteLine("Closed client socket.");
+        Console.WriteLine($"[thread {threadId}] Sent {responseBytes.Length} response bytes.");
+        Console.WriteLine($"[thread {threadId}] Closed client socket.");
     }
 }
 

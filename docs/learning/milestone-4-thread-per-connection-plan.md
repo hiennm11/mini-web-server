@@ -1,6 +1,6 @@
 # Milestone 4: Thread-Per-Connection — Lesson Slice Plan
 
-> Status: in progress. Slice 4.1 is complete. Slice 4.2 is complete. Each remaining slice must be implemented individually, observed, and noted before moving to the next.
+> Status: in progress. Slices 4.1 and 4.2 are complete. Slice 4.3 is planned. Each remaining slice must be implemented individually, observed, and noted before moving to the next.
 
 Milestone 4 introduces concurrency into the server. The goal is not to build a production-grade threaded server. The goal is to make OS concepts concrete: what happens when a server thread blocks, how threads change that, and what new problems appear.
 
@@ -10,7 +10,7 @@ Milestone 4 introduces concurrency into the server. The goal is not to build a p
 |-------|------|---------|----------|
 | 4.1 | Prove single-thread blocking | Process states | 30 min — complete |
 | 4.2 | Spawn one thread per client | Threads, multiple PCs | 45 min — complete |
-| 4.3 | Observe scheduling non-determinism | Scheduler, context switch | 30 min |
+| 4.3 | Observe scheduling non-determinism | Scheduler, context switch | 30 min — planned |
 | 4.4 | Shared address space | Shared heap vs stacks | 45 min |
 | 4.5 | Prepare race condition lab | Race condition, critical section | 45 min |
 | 4.6 | Thread-per-connection limits | Stack overhead | 30 min |

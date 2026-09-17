@@ -1,5 +1,30 @@
 # Mini Web Server Context
 
+## Status Snapshot
+
+Updated 2026-09-17. Legend: ✅ built + experimented + noted · 🟡 planned · ⬜ future.
+
+| Slice | Capability | OSTEP chapter | Status |
+|-------|-----------|---------------|--------|
+| 1.1 | Raw socket lifecycle (`Socket.Bind`/`Listen`/`Accept`/`Receive`/`Send`) | Ch. 4, 6 | ✅ |
+| 1.2 | Parse HTTP request → method, path, version, headers | Ch. 4, 13, 36 | ✅ |
+| 1.3 | Serve static files from `wwwroot`, reject path traversal | Ch. 39 | ✅ |
+| 1.4 | Robust receive loop until `\r\n\r\n` + `Content-Length` bytes | Ch. 4.4, 36 | 🟡 |
+| 4.1 | Prove single-thread blocking via `/slow` (`Thread.Sleep`) | Ch. 4, 4.4 | ✅ |
+| 4.2 | Spawn one background thread per accepted client | Ch. 26, 27 | ✅ |
+| 4.3 | Log `ManagedThreadId`, observe scheduler non-determinism | Ch. 26, 4.4 | ✅ |
+| 4.4 | Show shared address space (`static` vs locals) | Ch. 13, 26 | ❌ |
+| 4.5 | Reproduce OSTEP `threads.c` race (`counter++`) | Ch. 26, 28 | ❌ |
+| 4.6 | Stress thread-per-connection stack limit | Ch. 26, 27 | ❌ |
+| M5 | Race lab: fix with `lock` / `Interlocked` | Ch. 28 | ❌ |
+| M6 | Bounded worker pool + producer-consumer queue | Ch. 30, 31 | ❌ |
+| M7 | Async / event-based server | Ch. 33, 36 | ❌ |
+
+**Milestones**: M1 ✅, M2 ✅, M3 ✅, M4 in progress (next is slice 4.3), M5–M7 planned.
+**Tests**: 8 passing (M2 parser + M3 file serving + `WebRootLocator` + `/slow` parsing).
+**Code/runtime**: `net10.0`, `net10.0`. Single host process, thread-per-connection, port 8080, static files under `wwwroot`.
+**Latest commit**: `1ec3165 feat: spawn thread per client`. Uncommitted: slice 4.3 instrumentation in `Program.cs` + matching learning note in `docs/learning/slice-4.3-scheduling-non-determinism.md`.
+
 ## Purpose
 
 Mini Web Server is a learning-oriented .NET console application that demonstrates how a minimal HTTP server works directly on top of TCP sockets. It does not use ASP.NET Core or `HttpListener`; the point is to expose the operating-system-level network steps: create a socket, bind it to a port, listen, accept a client connection, read raw bytes, write a raw HTTP response, and close the connection.
@@ -103,8 +128,9 @@ Phase 2 learning docs are:
 
 - `docs/learning/slice-4.1-single-thread-blocking.md`
 - `docs/learning/slice-4.2-spawn-thread-per-client.md`
+- `docs/learning/slice-4.3-scheduling-non-determinism.md`
 
-Slice 4.1 is complete and proves the single-thread blocking baseline. Slice 4.2 is complete and implements thread-per-connection: each accepted client is handled on its own background thread so the accept loop stays free. Slices 4.3–4.6 are planned.
+Slice 4.1 is complete and proves the single-thread blocking baseline. Slice 4.2 is complete and implements thread-per-connection: each accepted client is handled on its own background thread so the accept loop stays free. Slice 4.3 is planned and will add thread-id logs to observe scheduler non-determinism. Slices 4.4–4.6 are planned.
 
 ## Design Intent
 

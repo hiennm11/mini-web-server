@@ -53,8 +53,12 @@ static void HandleClient(Socket clientSocket, string webRoot)
     {
         int threadId = Thread.CurrentThread.ManagedThreadId;
 
+        // Per-thread stack value. Only this handler thread can see it.
+        int localRequestId = Interlocked.Increment(ref RequestStats.TotalRequests);
+
         Console.WriteLine();
         Console.WriteLine($"[thread {threadId}] Accepted client socket from {clientSocket.RemoteEndPoint}");
+        Console.WriteLine($"[thread {threadId}] Local request id: {localRequestId}, shared total seen so far: {RequestStats.TotalRequests}");
 
         string request = ReceiveRequest(clientSocket);
         Console.WriteLine($"[thread {threadId}] Raw HTTP request bytes decoded as UTF-8:");
@@ -113,4 +117,12 @@ static void SendAll(Socket clientSocket, byte[] responseBytes)
 
         totalSent += sent;
     }
+}
+
+// Shared across every handler thread inside this process. Local variables
+// inside `HandleClient` stay per-thread on the handler's stack; a static
+// field lives once and is visible to every thread that reaches it.
+public static class RequestStats
+{
+    public static int TotalRequests = 0;
 }

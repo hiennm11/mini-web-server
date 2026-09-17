@@ -247,7 +247,7 @@ Server console (key excerpt):
 This is the textbook OSEP §26.2 trace:
 
 - `/slow` started on thread 3.
-- Threads 9, 10, 11 each accepted, parsed, responded, and closed `/` requests while thread 3 was blocked in `Thread.Sleep(5000)`.
+- Threads 9, 10, 11 each accepted, parsed, responded, and closed `/` requests while thread 3 was blocked in `Thread.Sleep` (5000 ms when this slice ran; later extended to 30000 ms).
 - Thread 3 only logged `Response: 404 / Sent / Closed` after all three fast requests had already finished.
 - The managed thread ID `3` reappeared even though `/` threads used 9, 10, 11 — .NET recycles thread IDs after a thread exits. The IDs themselves are not unique per request; the IDs in flight are.
 

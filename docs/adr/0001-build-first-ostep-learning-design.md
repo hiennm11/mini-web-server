@@ -8,6 +8,8 @@ Accepted
 
 2026-05-19
 
+> **Roadmap closure note**: All seven milestones (M1-M7) and all twelve roadmap slices are now implemented. This ADR was originally written with M4-M7 as future work. The text below keeps the original design rationale and milestone plan but updates the status of each milestone to reflect that they have been built. See `CONTEXT.md` "OSEP Coverage" for what this repo maps to in the OSTEP textbook and what remains as future slices.
+
 ## Source Documents
 
 - `docs/superpowers/specs/2026-05-19-build-first-ostep-learning-design.md`
@@ -69,7 +71,7 @@ The OSTEP NotebookLM notebook provides concept-to-code mapping. Before implement
 
 ## Milestone Roadmap
 
-### Milestone 1: Raw Socket Server
+### Milestone 1: Raw Socket Server — implemented
 
 Goal: improve the single-threaded raw socket server so request receiving, connection handling, and learning feedback are clearer while preserving its low-level educational shape.
 
@@ -89,7 +91,7 @@ Learning focus:
 
 Status: implemented and documented in `docs/learning/milestone-1-raw-socket-server.md`.
 
-### Milestone 2: HTTP Request Understanding
+### Milestone 2: HTTP Request Understanding — implemented
 
 Goal: parse raw HTTP request text into method, path, version, and headers, then log the parsed view beside the raw bytes.
 
@@ -111,7 +113,7 @@ Learning focus:
 
 Status: implemented and documented in `docs/learning/milestone-2-http-request-understanding.md`.
 
-### Milestone 3: Static File Server
+### Milestone 3: Static File Server — implemented
 
 Goal: use the parsed request path to serve files from `wwwroot`.
 
@@ -134,20 +136,20 @@ Learning focus:
 
 Status: implemented and documented in `docs/learning/milestone-3-static-file-server.md`.
 
-### Future Milestone 4: Thread-Per-Connection (planned — not yet sliced)
+### Milestone 4: Thread-Per-Connection — implemented
 
 Goal: learn why a single-threaded server blocks clients and how threads change server behavior.
 
-This milestone must be implemented through lesson slices, not as one large change. Each slice introduces one observable OS behavior before moving to the next.
+This milestone was implemented through lesson slices, not as one large change. Each slice introduced one observable OS behavior before moving to the next.
 
-Planned slices (see `docs/learning/milestone-4-thread-per-connection-plan.md`):
+Slices (see `docs/learning/milestone-4-thread-per-connection-plan.md` for the full plan and `docs/learning/slice-4.*.md` for each slice's learning note):
 
-- 4.1 Prove single-thread blocking (process states: Running / Ready / Blocked)
-- 4.2 Spawn one thread per client (thread = multiple execution points)
-- 4.3 Observe thread identity and scheduling (scheduler non-determinism)
-- 4.4 Shared address space appears (shared heap vs independent stacks)
-- 4.5 Prepare race condition lab (shared mutable state danger)
-- 4.6 Thread-per-connection limits (stack + context-switch overhead)
+- 4.1 Prove single-thread blocking (process states: Running / Ready / Blocked) — `Thread.Sleep`
+- 4.2 Spawn one thread per client (thread = multiple execution points) — `new Thread(...).Start()`
+- 4.3 Observe thread identity and scheduling (scheduler non-determinism) — `ManagedThreadId`
+- 4.4 Shared address space appears (shared heap vs independent stacks) — `Interlocked.Increment`
+- 4.5 Prepare race condition lab (shared mutable state danger) — bare `counter++`
+- 4.6 Thread-per-connection limits (stack + context-switch overhead) — `Process.PrivateMemorySize64`
 
 Learning focus per slice:
 
@@ -156,39 +158,51 @@ Learning focus per slice:
 | 4.1 | Process states, blocking I/O | `Thread.Sleep`, timing logs |
 | 4.2 | Threads, multiple PCs | `new Thread(() => ...).Start()` |
 | 4.3 | Scheduler, context switch | `Thread.CurrentThread.ManagedThreadId` |
-| 4.4 | Shared address space | `static` variables vs locals |
-| 4.5 | Race condition, critical section | Unsafe `counter++` (no lock yet) |
-| 4.6 | Thread stack overhead | Connection stress test |
+| 4.4 | Shared address space | `Interlocked.Increment` + per-thread local |
+| 4.5 | Race condition, critical section | Bare `counter++` under concurrent requests |
+| 4.6 | Thread stack overhead | `Process.Threads.Count` + `PrivateMemorySize64` under 50/150 parked slow clients |
 
-### Future Milestone 5: Race Conditions Lab
+### Milestone 5: Race Conditions Lab — implemented
 
 Goal: make shared mutable state visible, then fix it.
 
-Planned learning focus:
+Implemented as `/race-safe` route that runs the same loop as slice 4.5's `/race` but inside `lock (RequestStats.SafeCounterLock)`. Smoke confirmed 4 concurrent × 1M increments produce exactly the deterministic total, while the non-locked `/race` still loses ~20-30%.
 
-- OS: race conditions, critical sections, locks.
-- .NET: `lock`, `Monitor`, `Interlocked`, memory visibility.
-- Experiment: stress concurrent requests and compare unsafe counting with synchronized counting.
+Learning focus:
 
-### Future Milestone 6: Thread Pool And Work Queue
+- OS: race conditions, critical sections, mutual exclusion via locks.
+- .NET: `lock` (= `Monitor.Enter`/`Monitor.Exit`).
+- Pairing with `Interlocked.Increment` shows the right primitive choice for each shape of critical section.
+
+Status: implemented and documented in `docs/learning/milestone-5-race-lab.md`.
+
+### Milestone 6: Thread Pool And Work Queue — implemented
 
 Goal: replace unbounded thread creation with bounded work.
 
-Planned learning focus:
+Implemented as `WorkerPool` static class with `Queue<Socket>` + lock + `Monitor.Wait`/`Monitor.Pulse` (= `pthread_cond_wait`/`signal`). Accept thread does `WorkerPool.Enqueue`; 8 long-lived worker threads dequeue and run `HandleClient`. Smoke proved 150 parked slow clients now use 17 threads and ~21 MB private memory (vs ~150+ threads and ~174 MB in slice 4.6).
 
-- OS: producer/consumer, bounded buffer, backpressure, condition variables.
-- .NET: `Queue<T>`, `Monitor.Wait`, `Monitor.Pulse`, `ThreadPool` comparisons.
-- Experiment: cap the queue and observe what happens when clients arrive faster than workers can respond.
+Learning focus:
 
-### Future Milestone 7: Async/Event-Based Server
+- OS: producer/consumer queue, condition variables, bounded concurrency, Mesa semantics.
+- .NET: `Monitor.Wait`/`Pulse`/Monitor lock, `Queue<T>`.
+- Comparison with slice 4.6 quantifies the win.
+
+Status: implemented and documented in `docs/learning/milestone-6-bounded-worker-pool.md`. Queue is still unbounded; bounded-queue backpressure is a future slice.
+
+### Milestone 7: Async/Event-Based Server — implemented
 
 Goal: explore event-based concurrency after the threaded model is understood.
 
-Planned learning focus:
+Implemented as `AsyncServer` selected via `--async` CLI flag (default mode remains the M6 worker pool). Single-threaded `AcceptAsync` loop; each accepted connection becomes a `Task` driving `ReceiveAsync`/`SendAsync`. Smoke proved 150 parked slow clients use ~20 threads (vs ~150+ in slice 4.6), proving the OSEP Ch. 33 lesson of "many connections with few threads". Memory did not drop below M6's because per-connection 1 MB receive buffer dominates; that win is for a future slice with `ArrayPool<byte>`.
 
-- OS: event loops, non-blocking I/O, asynchronous I/O, continuation-style control flow.
-- .NET: `AcceptAsync`, `ReceiveAsync`, `SendAsync`, `Task`, async state machines, runtime thread-pool behavior.
-- Experiment: compare blocked threads in the threaded version with async operations under concurrent load.
+Learning focus:
+
+- OS: event loop, async I/O, continuation-style control flow, `select`/`epoll` (via `AcceptAsync`).
+- .NET: `Task`, `async`/`await` state machines, `Socket.AcceptAsync`/`ReceiveAsync`/`SendAsync`.
+- Two-mode comparison: worker pool vs async under the same stress test.
+
+Status: implemented and documented in `docs/learning/milestone-7-async-event-based.md`. The default mode is still the M6 worker pool.
 
 ## Consequences
 
@@ -198,6 +212,7 @@ Good:
 - Each server capability maps directly to visible OS and .NET concepts.
 - Pure parsing and response logic can be tested without socket setup.
 - Console output remains part of the learning feedback loop.
+- All seven milestones are now closed; the repo is a complete OS concepts lab for the core three pieces of OSEP (Virtualization, Concurrency, Persistence).
 
 Tradeoffs:
 

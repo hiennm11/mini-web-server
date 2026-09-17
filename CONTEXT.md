@@ -20,10 +20,31 @@ Updated 2026-09-17. Legend: ✅ built + experimented + noted · 🟡 planned · 
 | M6 | Bounded worker pool + producer-consumer queue | Ch. 30, 31 | ✅ |
 | M7 | Async / event-based server | Ch. 33, 36 | ✅ |
 
-**Milestones**: M1 ✅–M7 ✅. All roadmap slices done. Phase 4 async mode landed; bounded queue backpressure and `ThreadPool` cap are future.
+**Milestones**: M1 ✅–M7 ✅. All 12 roadmap slices done; roadmap closed.
 **Tests**: 15 passing (8 prior + 7 new for `HttpRequestReceiver`).
 **Code/runtime**: `net10.0`. Two run modes selectable via `--async` flag: default = bounded worker pool (8 threads) + producer/consumer queue, async = `AcceptAsync` + `Task` per connection with `ReceiveAsync` / `SendAsync`. Port 8080, static files under `wwwroot`.
 **Latest commit**: Milestone 7 — `AsyncServer` (single-threaded accept loop + `Task` per connection, OSEP §33 event-based); select via `--async` flag. 150 parked slow clients use 20 threads (vs ~150+ in slice 4.6, vs 17 in M6). Memory similar to M6 because per-connection buffer is the dominant cost.
+
+## OSTEP Coverage
+
+The book has ~50 chapters. Repo maps **the core three pieces** (Virtualization + Concurrency + Persistence) end-to-end:
+
+| Piece | Coverage | Roadmap slices |
+|---|---|---|
+| **Virtualization** | Ch. 4 process, 6 LDE, 13 address space, 26-27 thread = point of execution, 33 event-based | 1.1, 1.4, 4.4, M7 |
+| **Concurrency** | Ch. 26 race, 27 thread API, 28 locks, 30 condition variables, 31 semaphores, 33 event-based | 4.1–4.6, M5, M6, M7 |
+| **Persistence** | Ch. 39 files & directories (basic), 36 I/O devices (TCP receive loop) | 1.3, 1.4 |
+
+**Roughly 30% of OSTEP chapters have working code in this repo.**
+
+Chapters **not yet implemented** (natural next slices):
+
+- **Part I Virtualization**: Ch. 7 process API, Ch. 8-10 scheduling (MLFQ, lottery), Ch. 14-23 paging & advanced VM (TLB, multi-level page tables, swapping, complete VM systems)
+- **Part II Concurrency**: Ch. 29 lock-free data structures, Ch. 30 reader-writer locks, Ch. 31.6 dining philosophers
+- **Part III Persistence** (largest gap): Ch. 36-38 device drivers & RAID, Ch. 39 file API (`open/read/write/close`), Ch. 40-45 file system implementation (inode, bitmap, FFS, journaling, LFS, flash)
+- **Part IV Security** (entirely untouched): Ch. 53-57
+
+The repo is best understood as an **OS concepts lab for the core three pieces**, not a full reproduction of the textbook. The concurrency chapter sweep (race observable → race fixed → pool → async) is the most complete coverage; persistence is reduced to "serve files from a directory"; virtualization covers thread/process abstraction but not CPU scheduling or paging.
 
 ## Purpose
 
@@ -35,23 +56,30 @@ The repository is a single-context .NET solution.
 
 - `MiniWebServer.sln` contains one host project.
 - `src/MiniWebServer.Host/MiniWebServer.Host.csproj` builds a `net10.0` executable.
-- `src/MiniWebServer.Host/Program.cs` contains the server loop.
+- `src/MiniWebServer.Host/Program.cs` is the startup. Branches on `--async` CLI flag; default starts the bounded worker-pool server; `--async` starts the event-based server. Accepts and parses `--async`.
+- `src/MiniWebServer.Host/WorkerPool.cs` is the bounded pool (Phase 3, default mode). Queue + lock + `Monitor.Wait`/`Monitor.Pulse` + 8 worker threads. Accept loop just `Enqueue`s.
+- `src/MiniWebServer.Host/AsyncServer.cs` is the event-based server (Phase 4, `--async` mode). Single-threaded `AcceptAsync` loop + `Task` per connection with `ReceiveAsync` / `SendAsync`.
 - `src/MiniWebServer.Host/HttpRequest.cs` models the parsed request line and headers.
 - `src/MiniWebServer.Host/HttpRequestParser.cs` parses raw HTTP request text.
+- `src/MiniWebServer.Host/HttpRequestReceiver.cs` is the pure helper for header-terminator + Content-Length detection used by both modes.
 - `src/MiniWebServer.Host/HttpResponse.cs` formats raw HTTP response bytes.
 - `src/MiniWebServer.Host/StaticFileResponder.cs` maps parsed request paths to files under `wwwroot`.
 - `src/MiniWebServer.Host/WebRootLocator.cs` locates the runtime `wwwroot` directory.
+- `src/MiniWebServer.Host/ServerConfig.cs` holds the `MaxRequestBytes` and `RaceIterations` constants shared by both server modes.
+- `src/MiniWebServer.Host/RequestStats` (nested inside Program.cs) holds `TotalRequests` (atomic), `UnsafeCounter` (non-atomic race demo), `SafeCounter` + `SafeCounterLock` (lock-fixed demo).
 - `src/MiniWebServer.Host/wwwroot/index.html` is the default static page for `/` and is copied to the build output.
 - `tests/MiniWebServer.Host.Tests/` contains console-based parser tests.
 
 `docs/adr/0001-build-first-ostep-learning-design.md` records the accepted build-first OSTEP learning direction and milestone roadmap.
 
-`docs/adr/0003-four-phase-ostep-roadmap.md` records the accepted four-phase OSTEP learning roadmap:
+`docs/adr/0003-four-phase-ostep-roadmap.md` records the accepted four-phase OSEP learning roadmap:
 
 1. Phase 1: The Process & The Byte Stream.
 2. Phase 2: Threads: Multiple Points of Execution.
 3. Phase 3: Bounded Concurrency.
 4. Phase 4: Event-Based Concurrency.
+
+All four phases are complete; see the **OSEP Coverage** section above for what this maps to in the textbook.
 
 ## Glossary
 
@@ -72,25 +100,40 @@ The repository is a single-context .NET solution.
 
 ## Runtime Behavior
 
-On startup, the host binds to TCP port `8080` on all IPv4 interfaces and begins listening. It then enters an infinite accept loop:
+The host binds to TCP port `8080` on all IPv4 interfaces and begins listening.
 
-1. Block until a client connects.
-2. Accept the client connection.
-3. Spawn one background handler thread for the accepted client.
-4. Return immediately to `Accept()` so the main thread can accept another client.
+### Default mode (worker pool)
 
-Each handler thread then:
+The accept loop calls `WorkerPool.Enqueue(clientSocket)`. The pool:
 
-1. Receives up to `4096` bytes from its client.
-2. Logs the decoded request bytes to the console.
-3. Parses the request text into method, path, version, and headers.
-4. Logs the parsed request summary to the console.
-5. If the parsed path is `/slow`, blocks that handler thread for 5 seconds.
-6. Maps the parsed path to a file under the runtime `wwwroot`.
-7. Sends the file bytes with `200 OK`, or sends `404 Not Found` for missing or unsafe paths.
-8. Closes the client socket.
+1. Owns 8 long-lived worker threads (created once at startup).
+2. Workers wait under a lock on `Monitor.Wait(PoolLock)` while the queue is empty.
+3. `Enqueue` adds the socket under the lock and calls `Monitor.Pulse` to wake one worker.
+4. The worker dequeues, releases the lock, and runs `HandleClient` for that connection.
 
-The current runtime behavior is thread-per-connection. Each accepted client is handled on its own background thread. One blocked handler no longer freezes the accept loop. Per-client socket errors are logged so one failed client does not stop the host. This design is unbounded: every client connection creates a new OS thread with its own stack, so many concurrent connections consume significant memory and scheduler time.
+Each `HandleClient` invocation:
+
+1. Allocates a 1 MB receive buffer.
+2. Loops `Socket.Receive` until the buffer contains `\r\n\r\n` + (optional) `Content-Length` bytes, capped at 1 MB.
+3. Decodes the request as UTF-8 and logs the raw bytes.
+4. Parses method, path, version, headers.
+5. If path is `/slow`, sleeps 30 seconds to simulate blocking I/O.
+6. Builds a response: static file from `wwwroot` (default), or one of the demo routes below.
+7. Sends the response, logs size, closes the socket.
+8. Per-client `SocketException` and generic `Exception` are logged; one bad client does not stop the host.
+
+Routes:
+
+- `/` → `wwwroot/index.html` (200) or 404
+- `/slow` → 404 after 30 s sleep
+- `/race` → runs 1_000_000 non-atomic increments on `RequestStats.UnsafeCounter` (race demo); returns cumulative value
+- `/race-safe` → same loop under `lock (RequestStats.SafeCounterLock)`; deterministic
+- `/stats` → process threads + working set + private bytes + total requests
+- `/qstats` → worker count + queue length + total requests
+
+### `--async` mode (event-based)
+
+The accept loop calls `serverSocket.AcceptAsync(ct)`. Each accepted connection becomes a `Task` driven by `ReceiveAsync` / `SendAsync`. The same routes and helpers apply. No worker pool, no per-connection OS thread — the runtime `ThreadPool` multiplexes all waiting `Task`s over a small set of workers. Stop with Ctrl+C.
 
 ## Learning Workflow
 
@@ -99,7 +142,7 @@ This repo uses two learning levels:
 - **Milestone**: a larger server capability that changes what the server can do. Milestones are roadmap units.
 - **Lesson slice**: a small build-first exercise inside a milestone, sized for one focused learning session. Lesson slices are execution units.
 
-The roadmap is also grouped into four OSTEP-aligned phases in `docs/adr/0003-four-phase-ostep-roadmap.md`. Phases explain the learning progression; milestones and lesson slices remain the execution structure.
+The roadmap is also grouped into four OSTEP-aligned phases in `docs/adr/0003-four-phase-ostep-roadmap.md`. All four phases are complete (M1–M7). Phases explain the learning progression; milestones and lesson slices remain the execution structure.
 
 Each lesson slice should include:
 
@@ -115,22 +158,29 @@ Every lesson slice must follow `docs/learning/lesson-slices.md`: start with a co
 
 The current OSTEP-connected notebook is in NotebookLM: `Operating Systems: Three Easy Pieces` (id `74bcbca0-6161-48cd-92bb-9dd39032794e`, 69 sources).
 
-Phase 1 learning docs are:
+Phase 1 learning docs (The Process & The Byte Stream):
 
 - `docs/learning/slice-1.1-raw-socket-server.md`
 - `docs/learning/slice-1.2-http-request-understanding.md`
 - `docs/learning/slice-1.3-static-file-server.md`
 - `docs/learning/slice-1.4-robust-request-receive.md`
 
-Slices 1.1-1.3 are retrospective docs for already-built behavior. Slice 1.4 is planned but not yet built.
-
-Phase 2 learning docs are:
+Phase 2 learning docs (Threads: Multiple Points of Execution):
 
 - `docs/learning/slice-4.1-single-thread-blocking.md`
 - `docs/learning/slice-4.2-spawn-thread-per-client.md`
 - `docs/learning/slice-4.3-scheduling-non-determinism.md`
+- `docs/learning/slice-4.4-shared-address-space.md`
+- `docs/learning/slice-4.5-race-condition-prep.md`
+- `docs/learning/slice-4.6-thread-per-connection-limits.md`
 
-Slice 4.1 is complete and proves the single-thread blocking baseline. Slice 4.2 is complete and implements thread-per-connection: each accepted client is handled on its own background thread so the accept loop stays free. Slice 4.3 is planned and will add thread-id logs to observe scheduler non-determinism. Slices 4.4–4.6 are planned.
+Phase 3 + 4 learning docs:
+
+- `docs/learning/milestone-5-race-lab.md` (race fixed with `lock`)
+- `docs/learning/milestone-6-bounded-worker-pool.md` (bounded pool + producer/consumer)
+- `docs/learning/milestone-7-async-event-based.md` (event-based server)
+
+All twelve roadmap slices + milestones have learning notes with smoke-test output captured inline.
 
 ## Design Intent
 
@@ -138,6 +188,10 @@ Prefer preserving the educational, low-level socket-server character of the proj
 
 Useful directions that fit the project:
 
+- Extend the **OSEP coverage gaps** noted in the OSTEP Coverage section: persistence chapter sweep (Ch. 39-45), reader-writer locks (Ch. 30), MLFQ/lottery scheduling (Ch. 8-10), paging (Ch. 14-23).
+- Add `ArrayPool<byte>` to lower per-connection memory in async mode (would change the M7 numbers from 172 MB toward M6's 21 MB).
+- Cap `ThreadPool.SetMaxThreads` in async mode to make M7's behavior under sustained load observable.
+- Add bounded queue capacity in `WorkerPool` + 503 backpressure response on overflow.
 - Extract small concepts such as request receiving, response formatting, and connection handling.
 - Add focused tests around pure logic if response formatting or request parsing is introduced.
 - Keep console output clear because it is part of the learning feedback loop.
@@ -146,7 +200,7 @@ Directions that change the project meaning and should be explicit decisions:
 
 - Replacing sockets with ASP.NET Core, Kestrel, or `HttpListener`.
 - Adding production features such as TLS, keep-alive, middleware, dependency injection, or background worker infrastructure.
-- Supporting multiple concurrent clients outside the accepted thread-per-connection learning slices.
+- Removing the `--async` flag and committing to one concurrency model.
 
 ## Commands
 
@@ -156,10 +210,16 @@ Build the solution:
 dotnet build MiniWebServer.sln
 ```
 
-Run the host:
+Run the host (default = bounded worker-pool mode):
 
 ```powershell
 dotnet run --project src/MiniWebServer.Host/MiniWebServer.Host.csproj
+```
+
+Run the host in event-based mode (single-threaded accept loop, `Task` per connection):
+
+```powershell
+dotnet run --project src/MiniWebServer.Host/MiniWebServer.Host.csproj -- --async
 ```
 
 The host uses the `wwwroot` directory copied beside the executable, so it works even when `dotnet run --project` is started from a different current directory.
@@ -168,12 +228,10 @@ Try it from another terminal while the host is running:
 
 ```powershell
 curl http://localhost:8080/
-```
-
-Try a missing file:
-
-```powershell
 curl -i http://localhost:8080/missing.txt
+curl http://localhost:8080/slow
+curl http://localhost:8080/stats
+curl http://localhost:8080/qstats
 ```
 
 Run parser tests:
@@ -184,11 +242,12 @@ dotnet run --project tests/MiniWebServer.Host.Tests/MiniWebServer.Host.Tests.csp
 
 ## Known Limitations
 
-- The request receive logic still performs one `Receive()` call, so partial, large, or slow HTTP requests are not robust yet.
 - Port `8080` is hard-coded.
-- Socket operations are synchronous and blocking.
-- The infinite loop has no cancellation path.
-- Static file reads use `File.ReadAllBytes(...)`, so large files are loaded into memory all at once.
-- Content type support is minimal.
-- Each milestone should be decomposed into lesson slices before implementation begins (see `docs/learning/lesson-slices.md`). Milestone 4 is sliced and in progress; milestone 5 onward should not be implemented as one large change.
-- The language-service cache file `src/MiniWebServer.Host/MiniWebServer.Host.csproj.lscache` is generated by C# Dev Kit and is not source logic.
+- The async-mode accept loop has no `CancellationToken` for graceful shutdown — Ctrl+C still terminates the process; no in-flight requests are drained.
+- The worker pool queue (`Queue<Socket>`) is unbounded. A sustained burst can grow memory without limit.
+- `ThreadPool` size in async mode is unbounded by default. Cap it via `ThreadPool.SetMaxThreads` if you want a measured-backpressure story.
+- Static file reads use `File.ReadAllBytes(...)`, so large files are loaded into memory all at once. Adding `ArrayPool<byte>` + streaming would lower memory in both modes.
+- Content type support is minimal (HTML, CSS, JS, plain text).
+- No TLS, no keep-alive, no chunked transfer encoding, no HTTP/2.
+- Each connection allocates its own 1 MB receive buffer (`ServerConfig.MaxRequestBytes`).
+- The language-service file `src/MiniWebServer.Host/MiniWebServer.Host.csproj.lscache` is generated by C# Dev Kit and is not source logic.

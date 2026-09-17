@@ -1,5 +1,7 @@
 # Milestone 2: HTTP Request Understanding
 
+> **Retrospective doc** — written when this milestone was completed. The server has since grown through milestones 3-4. For the current runtime behavior and file layout, see `CONTEXT.md`.
+
 ## What We Built
 
 The host still receives raw bytes from a TCP client socket, decodes them as UTF-8 text, and logs the raw request. It now also parses that text into:

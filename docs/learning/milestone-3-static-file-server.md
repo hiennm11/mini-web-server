@@ -1,5 +1,7 @@
 # Milestone 3: Static File Server
 
+> **Retrospective doc** — written when this milestone was completed. The server has since grown through milestones 4-7. For the current runtime behavior and file layout, see `CONTEXT.md`.
+
 ## What We Built
 
 The server now uses the parsed request path to read files from `wwwroot`.

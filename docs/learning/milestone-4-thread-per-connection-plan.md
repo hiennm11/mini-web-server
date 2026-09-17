@@ -1,21 +1,23 @@
 # Milestone 4: Thread-Per-Connection — Lesson Slice Plan
 
-> Status: in progress. Slices 4.1 and 4.2 are complete. Slice 4.3 is planned. Each remaining slice must be implemented individually, observed, and noted before moving to the next.
+> Status: complete. All six slices (4.1-4.6) are built, experimented, and noted. The race fix that this milestone deliberately left for Milestone 5 lives at `docs/learning/milestone-5-race-lab.md`.
+
+**This is the original slice plan**, kept for reference. Each slice's actual learning note (with what was built, observed, and learned) lives in `docs/learning/slice-4.*-*.md`. For current runtime behavior and the role of this milestone in the project, see `CONTEXT.md`.
 
 Milestone 4 introduces concurrency into the server. The goal is not to build a production-grade threaded server. The goal is to make OS concepts concrete: what happens when a server thread blocks, how threads change that, and what new problems appear.
 
 ## Slice Roadmap
 
-| Slice | Name | Concept | Duration |
-|-------|------|---------|----------|
-| 4.1 | Prove single-thread blocking | Process states | 30 min — complete |
-| 4.2 | Spawn one thread per client | Threads, multiple PCs | 45 min — complete |
-| 4.3 | Observe scheduling non-determinism | Scheduler, context switch | 30 min — planned |
-| 4.4 | Shared address space | Shared heap vs stacks | 45 min |
-| 4.5 | Prepare race condition lab | Race condition, critical section | 45 min |
-| 4.6 | Thread-per-connection limits | Stack overhead | 30 min |
+| Slice | Name | Concept | Status |
+|-------|------|---------|--------|
+| 4.1 | Prove single-thread blocking | Process states | Done |
+| 4.2 | Spawn one thread per client | Threads, multiple PCs | Done |
+| 4.3 | Observe scheduling non-determinism | Scheduler, context switch | Done |
+| 4.4 | Shared address space | Shared heap vs stacks | Done |
+| 4.5 | Prepare race condition lab | Race condition, critical section | Done |
+| 4.6 | Thread-per-connection limits | Stack overhead | Done |
 
-Dependencies: slices are sequential. 4.2 depends on 4.1. 4.5 depends on 4.4.
+Dependencies: slices are sequential. 4.2 depends on 4.1. 4.5 depends on 4.4. All dependencies satisfied; all slices closed.
 
 ---
 
@@ -33,13 +35,13 @@ Dependencies: slices are sequential. 4.2 depends on 4.1. 4.5 depends on 4.4.
 
 ### Build
 
-Add a deliberate slow path. When the request path is `/slow`, sleep 5 seconds before responding. All other paths respond immediately.
+Add a deliberate slow path. When the request path is `/slow`, sleep for several seconds before responding. (The original spec used `Thread.Sleep(5000)`; later slices lengthened this to `Thread.Sleep(30000)` to make stress tests easier to observe — see `slice-4.1-single-thread-blocking.md` learning note.) All other paths respond immediately.
 
 ### Experiment
 
 1. Start server.
-2. Terminal A: `curl http://localhost:8080/slow` (blocks 5s).
-3. Terminal B (during those 5s): `curl http://localhost:8080/` — hangs.
+2. Terminal A: `curl http://localhost:8080/slow` (blocks for the configured sleep).
+3. Terminal B (during the sleep): `curl http://localhost:8080/` — hangs.
 4. Wait. Both eventually respond, but B waited for A.
 
 ### Observation

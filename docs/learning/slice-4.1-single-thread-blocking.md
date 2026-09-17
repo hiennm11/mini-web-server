@@ -32,8 +32,8 @@ Client connects
 Server enters HandleClient(/slow)
   -> Running while receiving, parsing, and logging
 
-Server calls Thread.Sleep(5000)
-  -> Blocked for about 5 seconds
+Server calls Thread.Sleep(30000)
+  -> Blocked for about 30 seconds
 
 Sleep timer completes
   -> Ready, then Running
@@ -98,8 +98,8 @@ Expected code shape inside `HandleClient`, after parsed request logging and befo
 ```csharp
 if (parsedRequest.Path == "/slow")
 {
-    Console.WriteLine("Sleeping 5000 ms to simulate blocking I/O...");
-    Thread.Sleep(5000);
+    Console.WriteLine("Sleeping 30000 ms to simulate blocking I/O...");
+    Thread.Sleep(30000);
 }
 ```
 
@@ -215,13 +215,13 @@ The important OSTEP transition is:
 Running -> Blocked -> Ready -> Running
 ```
 
-`Thread.Sleep(5000)` caused the server thread to leave Running and enter Blocked. The OS could run other processes during that time, but this server had no second thread to continue accepting clients. When the sleep timer completed, the server became Ready, then Running again, sent the `/slow` response, closed that client socket, and only then accepted the queued `/` client.
+`Thread.Sleep(30000)` caused the server thread to leave Running and enter Blocked. (The slice spec originally used `Thread.Sleep(5000)`; later slices lengthened this to 30 seconds so stress tests could park handler threads long enough to observe memory and queue length.) The OS could run other processes during that time, but this server had no second thread to continue accepting clients. When the sleep timer completed, the server became Ready, then Running again, sent the `/slow` response, closed that client socket, and only then accepted the queued `/` client.
 
 The second client did not prove the kernel was blocked. It proved the user-mode application thread was blocked. The kernel could still hold the connection in the listen backlog.
 
 ### .NET mechanism
 
-`Thread.Sleep(5000)` blocks the current managed thread. The current server uses synchronous socket APIs and a single accept loop, so no other server work can continue.
+`Thread.Sleep(30000)` blocks the current managed thread. The current server uses synchronous socket APIs and a single accept loop, so no other server work can continue. (Originally `Thread.Sleep(5000)`; later slices extended the sleep to make stress tests easier to observe.)
 
 ### Next question
 

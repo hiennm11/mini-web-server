@@ -1,5 +1,7 @@
 # Milestone 1: Raw Socket Server
 
+> **Retrospective doc** — written when this milestone was completed. The server has since grown through milestones 2-4. For the current runtime behavior and file layout, see `CONTEXT.md`.
+
 ## What We Built
 
 The host process creates a TCP server socket, binds it to port `8080`, listens for pending connections, blocks in `Accept()`, receives raw request bytes, sends a manually formatted HTTP response, and closes the client socket.

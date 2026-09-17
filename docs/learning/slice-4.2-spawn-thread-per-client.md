@@ -10,7 +10,7 @@ If one blocked handler freezes the accept loop, can the server keep accepting cl
 - Concept: a thread is a separate point of execution with its own program counter, register set, and stack. Multiple threads inside one process share the same address space.
 - Key point from NotebookLM query: a multi-threaded program has more than one point of execution. When one thread blocks on I/O or a wait, the OS scheduler can run another ready thread in the same process.
 
-For this server, that means the accept loop and a slow client handler can become separate execution points. The `/slow` handler can block in `Thread.Sleep(5000)` while the main server thread returns to `Accept()` and accepts another client.
+For this server, that means the accept loop and a slow client handler can become separate execution points. The `/slow` handler can block in `Thread.Sleep` (originally 5000 ms; later extended to 30000 ms for slice-4.6 stress tests) while the main server thread returns to `Accept()` and accepts another client.
 
 Detailed thread mapping:
 
@@ -200,7 +200,7 @@ Verified with a live experiment using `Invoke-WebRequest` on Windows PowerShell:
 
 ### OSTEP concept
 
-A thread is a separate point of execution with its own program counter, register set, and stack. Multiple threads in one process share the same address space. When the `/slow` handler thread blocks in `Thread.Sleep(5000)`, the OS scheduler can still run the accept thread and other handler threads from the same process. The single-thread blocking problem (slice 4.1) is solved by giving each accepted client its own execution point.
+A thread is a separate point of execution with its own program counter, register set, and stack. Multiple threads in one process share the same address space. When the `/slow` handler thread blocks in `Thread.Sleep` (5000 ms when this slice ran; later extended to 30000 ms), the OS scheduler can still run the accept thread and other handler threads from the same process. The single-thread blocking problem (slice 4.1) is solved by giving each accepted client its own execution point.
 
 ### .NET mechanism
 

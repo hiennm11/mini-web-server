@@ -166,7 +166,7 @@ Experiment 2 — slow request first, fast request 50 ms later:
 [thread 3] Closed client socket.
 ```
 
-While thread 3 was blocked in `Thread.Sleep(5000)`, thread 4 incremented the shared counter from 1 to 2 and read 2 right after. The counter incremented even though thread 3 was not running. That is the shared-address-space guarantee in action: the static field is one cell, every thread sees the latest write.
+While thread 3 was blocked in `Thread.Sleep` (5000 ms when this slice ran; later extended to 30000 ms), thread 4 incremented the shared counter from 1 to 2 and read 2 right after. The counter incremented even though thread 3 was not running. That is the shared-address-space guarantee in action: the static field is one cell, every thread sees the latest write.
 
 ### OSTEP concept
 

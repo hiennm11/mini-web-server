@@ -186,12 +186,14 @@ All twelve roadmap slices + milestones have learning notes with smoke-test outpu
 
 Prefer preserving the educational, low-level socket-server character of the project unless a task explicitly asks for a higher-level framework. When adding behavior, make the network lifecycle easy to see and reason about.
 
+The repo follows **build-first learning** (per `docs/learning/lesson-slices.md`): each new behavior is a 30-90 min slice with one observable OS phenomenon, a smoke test, and a learning note. Chapters of OSEP are read on demand when a slice needs them, not end-to-end.
+
 Useful directions that fit the project:
 
-- Extend the **OSEP coverage gaps** noted in the OSTEP Coverage section: persistence chapter sweep (Ch. 39-45), reader-writer locks (Ch. 30), MLFQ/lottery scheduling (Ch. 8-10), paging (Ch. 14-23).
+- Extend concurrency via the next-milestones roadmap in `docs/adr/0004-extend-broad-concurrency-roadmap.md`. The detailed plan for the first next-milestone (M8 bounded queue + 503 backpressure) is at `docs/learning/slice-6.3-bounded-queue-and-backpressure.md`. After M8, candidates include M9 reader-writer lock + cache, M10 async-mode overload + ThreadPool cap, M11 raw `open`/`read`/`write`/`close`, M12 mini file system.
 - Add `ArrayPool<byte>` to lower per-connection memory in async mode (would change the M7 numbers from 172 MB toward M6's 21 MB).
-- Cap `ThreadPool.SetMaxThreads` in async mode to make M7's behavior under sustained load observable.
-- Add bounded queue capacity in `WorkerPool` + 503 backpressure response on overflow.
+- Add a `Retry-After` header to the M8 503 response so clients can back off intelligently.
+- Extend the **OSEP coverage gaps** in the OSEP Coverage section: scheduling (Ch. 7-10), paging (Ch. 14-23), full FS (Ch. 36-45), security (Ch. 53-57). Each new chapter group should get its own ADR before any slices start.
 - Extract small concepts such as request receiving, response formatting, and connection handling.
 - Add focused tests around pure logic if response formatting or request parsing is introduced.
 - Keep console output clear because it is part of the learning feedback loop.

@@ -54,6 +54,22 @@ public static class Workloads
             new Job(5, "inter-E", burstTotal: 4, yieldsEarly: true),
         };
     }
+
+    /// <summary>
+    /// Slice 13.2.1: proportional-share test workload.
+    /// Three jobs with tickets 100 / 50 / 250 (total 400).
+    /// Expected shares: 25% / 12.5% / 62.5%.
+    /// OSEP §9.1 worked example (A=100, B=50, C=250).
+    /// </summary>
+    public static List<Job> ProportionalWorkload()
+    {
+        return new List<Job>
+        {
+            new Job(1, "A", burstTotal: 100, tickets: 100),
+            new Job(2, "B", burstTotal: 50, tickets: 50),
+            new Job(3, "C", burstTotal: 250, tickets: 250),
+        };
+    }
 }
 
 /// <summary>

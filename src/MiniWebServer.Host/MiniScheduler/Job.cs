@@ -7,7 +7,8 @@ namespace MiniWebServer.Host.MiniScheduler;
 /// the scheduler's view; the scheduler mutates BurstRemaining and
 /// CurrentQueue as it runs the job.
 ///
-/// OSEP §4.2 / §8.2 "Job" abstraction.
+/// OSEP §8.2 / §8.4 "Job" abstraction.
+/// Slice 13.2.1: Tickets + Stride + Pass for proportional-share schedulers.
 /// </summary>
 public sealed class Job
 {
@@ -21,12 +22,21 @@ public sealed class Job
     /// <summary>
     /// True if the job yields CPU before exhausting its time slice
     /// (an "interactive" hint for MLFQ). When false, the scheduler
-    /// demotes the job on every slice expiry. When true, the job
-    /// stays in its current queue.
+    /// demotes the job to lower queue. When true, the job stays in
+    /// its current queue.
     /// </summary>
     public bool YieldsEarly { get; init; }
 
-    public Job(int id, string name, int burstTotal, bool yieldsEarly = false)
+    /// <summary>Slice 13.2.1: Lottery tickets (OSEP §9.1) — share of CPU.</summary>
+    public int Tickets { get; init; } = 100;
+
+    /// <summary>Slice 13.2.1: Stride = STRIDE_CONST / Tickets (OSEP §9.3).</summary>
+    public int Stride { get; set; }
+
+    /// <summary>Slice 13.2.1: Stride pass counter (OSEP §9.3, increments by Stride per run).</summary>
+    public long Pass { get; set; }
+
+    public Job(int id, string name, int burstTotal, bool yieldsEarly = false, int tickets = 100)
     {
         Id = id;
         Name = name;
@@ -34,9 +44,12 @@ public sealed class Job
         BurstRemaining = burstTotal;
         CurrentQueue = 0;  // MLFQ: all new jobs enter at the top
         YieldsEarly = yieldsEarly;
+        Tickets = tickets;
+        Stride = 10000 / Math.Max(1, tickets);  // OSEP §9.3
+        Pass = 0;
     }
 
-    public override string ToString() => $"J{Id}({Name},rem={BurstRemaining})";
+    public override string ToString() => $"J{Id}({Name},rem={BurstRemaining},tix={Tickets})";
 }
 
 public enum JobState

@@ -43,6 +43,9 @@ if (maxThreads.HasValue || minThreads.HasValue)
 
 string webRoot = WebRootLocator.GetWebRoot(AppContext.BaseDirectory);
 
+MiniWebServer.Host.MiniFs.MiniFs.Mount();
+Console.WriteLine($"[minifs] mounted: {MiniWebServer.Host.MiniFs.MiniFs.Superblock.NumDataBlocks} data blocks free of {MiniWebServer.Host.MiniFs.MiniFs.Superblock.TotalBlocks} total blocks");
+
 if (asyncMode)
 {
     Console.WriteLine($"Host process id: {Environment.ProcessId}");
@@ -215,6 +218,31 @@ static void HandleClient(Socket clientSocket, string webRoot)
                 "OK",
                 "text/plain; charset=UTF-8",
                 Encoding.UTF8.GetBytes("refreshed\n"));
+        }
+        else if (parsedRequest.Path == "/fs-stats")
+        {
+            var sb = MiniWebServer.Host.MiniFs.MiniFs.Superblock;
+            string body =
+                $"magic = 0x{sb.Magic:X8}\n" +
+                $"total_inodes = {sb.TotalInodes}\n" +
+                $"total_blocks = {sb.TotalBlocks}\n" +
+                $"free_inodes = {sb.FreeInodes}\n" +
+                $"free_data_blocks = {sb.FreeDataBlocks}\n" +
+                $"inodes_in_use = {MiniWebServer.Host.MiniFs.MiniFs.InodesInUse()}\n" +
+                $"data_blocks_in_use = {MiniWebServer.Host.MiniFs.MiniFs.DataBlocksInUse()}\n" +
+                $"inode_bitmap_block = {sb.InodeBitmapBlock}\n" +
+                $"data_bitmap_block = {sb.DataBitmapBlock}\n" +
+                $"inode_table_start = {sb.InodeTableStart}\n" +
+                $"data_blocks_start = {sb.DataBlocksStart}\n" +
+                $"num_data_blocks = {sb.NumDataBlocks}\n" +
+                $"disk_size_bytes = {MiniWebServer.Host.MiniFs.MiniFs.DiskSizeBytes}\n" +
+                $"block_size = {MiniWebServer.Host.MiniFs.Constants.BLOCK_SIZE}\n" +
+                $"mounted = {MiniWebServer.Host.MiniFs.MiniFs.IsMounted}\n";
+            response = new HttpResponse(
+                200,
+                "OK",
+                "text/plain; charset=UTF-8",
+                Encoding.UTF8.GetBytes(body));
         }
         else if (parsedRequest.Path == "/qstats")
         {

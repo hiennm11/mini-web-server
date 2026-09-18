@@ -244,7 +244,7 @@ Server console (key excerpt):
 [thread 3]  Closed client socket.
 ```
 
-This is the textbook OSEP §26.2 trace:
+This is the textbook OSEP §26.2 trace (figures 26.3, 26.4, 26.5 show three possible orderings of `main + Thread 1 + Thread 2` in `t0.c`):
 
 - `/slow` started on thread 3.
 - Threads 9, 10, 11 each accepted, parsed, responded, and closed `/` requests while thread 3 was blocked in `Thread.Sleep` (5000 ms when this slice ran; later extended to 30000 ms).
@@ -253,9 +253,11 @@ This is the textbook OSEP §26.2 trace:
 
 ### OSTEP concept
 
-A thread is a separate point of execution with its own PC, registers, and stack. Inside one process, threads share code, static data, and the heap, but the scheduler chooses which thread runs at any moment. Timer interrupts force context switches at points the programmer does not control, so even with two threads created in a known order, completion order is not deterministic (OSEP §26.2, t0.c; §26.4 the timing figure 26.7).
+A thread is a separate point of execution with its own PC, registers, and stack. Inside one process, threads share code, static data, and the heap, but the scheduler chooses which thread runs at any moment. Timer interrupts force context switches at points the programmer does not control, so even with two threads created in a known order, completion order is not deterministic. OSEP §26.2 demonstrates this with the `t0.c` example (figures 26.3, 26.4, 26.5 — three different valid interleavings of `main` + `Thread 1` + `Thread 2`).
 
 The visible proof here is not the thread IDs themselves — it is the *gap between thread 3 starting `/slow` and thread 3 finishing it*. During that gap, three other threads were scheduled, ran to completion, and exited. The scheduler interleaved them around the blocked thread without any cooperation from the application.
+
+Note: OSEP §26.4 (Uncontrolled Scheduling) covers a *different* demonstration — the 3-instruction `mov`/`add`/`mov` race (figure 26.7) where two threads racing on `counter++` lose updates because the read-modify-write is not atomic. That lesson motivates slice 4.5, not this one. The lesson here (§26.2) is the simpler point: even when threads do *not* race on shared state, the order in which they execute is not under the application's control.
 
 This is also a quiet reminder of why slice 4.5 will matter: every console write here goes through the OS's stdout buffer. Two threads writing at almost the same moment could in principle interleave their text — `Console.WriteLine` is *not* atomic across threads. We have not seen it yet because each `WriteLine` call completes quickly relative to the 5-second sleep, but the danger is real. Slice 4.4 (shared address space) and slice 4.5 (the `counter++` race) will make that danger concrete.
 

@@ -198,7 +198,13 @@ Prefer preserving the educational, low-level socket-server character of the proj
 
 The repo follows **build-first learning** (per `docs/learning/lesson-slices.md`): each new behavior is a 30-90 min slice with one observable OS phenomenon, a smoke test, and a learning note. Chapters of OSEP are read on demand when a slice needs them, not end-to-end.
 
-**Source provenance**: slice docs cite specific OSEP sections. The M1–M8 citations were made during the build and have not been re-audited against the book end-to-end. The M9–M12 citations were re-verified against the source PDFs (`pages.cs.wisc.edu/~remzi/OSTEP/*.pdf`) during a doc-sweep pass; inaccuracies were corrected. Where a doc says "Key point from OSEP §X.Y" the section number has been checked against the actual table-of-contents of the cited chapter PDF.
+**Source provenance**: slice docs cite specific OSEP sections. A two-pass doc sweep was done in 2026-09 against the source PDFs (`pages.cs.wisc.edu/~remzi/OSTEP/*.pdf`):
+
+1. **Pass 1 (M9–M12)**: verified Ch. 30 (condition variables), 31 (semaphores + 31.5 reader-writer), 33 (event-based), 39 (files & directories), 40 (vsfs). Several errors found and corrected: §30.4 misattribution for the "while not if" / "two CVs" / "hold lock while signaling" lessons (those are §30.1 / §30.2); the "vsfs = xv6" mistake in M12 (vsfs is OSEP's own design, xv6 is a separate OS); the bogus "log" claim in M12 (vsfs has no log; that's Ch. 42).
+
+2. **Pass 2 (M1–M5)**: verified Ch. 4 (process + 4.4 states), 6 (LDE), 13 (address space), 26 (concurrency), 27 (thread API), 28 (locks), 36 (I/O). One error found: slice-4.3 cited §26.4 figure 26.7 (the race example) for scheduler non-determinism, but the right citation is §26.2 t0.c + figures 26.3/26.4/26.5 (the non-deterministic ordering example). The M5 race-lab citations for §28.1-2 / §28.7-9 / §28.12-14 are accurate to the chapter's actual section breakdown.
+
+After both passes, every "Key point from OSEP §X.Y" should match the cited chapter's actual table of contents. Future readers should still treat the citations as a pointer to where the lesson lives, not as an authoritative cross-reference, but the section numbers should now be correct.
 
 Useful directions that fit the project:
 

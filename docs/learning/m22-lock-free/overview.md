@@ -8,9 +8,9 @@ Can you build concurrent data structures without locks at all? What does Compare
 
 ## Scope
 
-Two lock-free primitives built with the CAS retry pattern (OSEP §32.2 "Herlihy's idea"):
-- **`AtomicCounter`** — `Increment()` via CAS retry on `Interlocked.CompareExchange`. Matches OSEP §32.2 `AtomicIncrement` pseudocode exactly.
-- **`LockFreeStack<T>`** — Treiber stack. Push/pop via CAS on the head pointer. Matches OSEP §32.2 "lock-free list insert" pseudocode.
+Two lock-free primitives built with the CAS retry pattern (OSEP §32.3 "Mutual Exclusion" / "Herlihy's idea"):
+- **`AtomicCounter`** — `Increment()` via CAS retry on `Interlocked.CompareExchange`. Matches OSEP §32.3 `AtomicIncrement` pseudocode exactly.
+- **`LockFreeStack<T>`** — Treiber stack. Push/pop via CAS on the head pointer. Matches OSEP §32.3 "lock-free list insert" pseudocode.
 
 Plus lock-based comparison primitives (`LockedCounter`, `LockedStack`) so the benchmark shows the difference.
 
@@ -22,7 +22,7 @@ Exposed via `/lockfree/bench?impl=atomic|locked|stack-atomic|stack-locked&thread
 
 ## OSEP coverage
 
-- **Ch. 32 Common Concurrency Problems** (§32.2 Atomicity-Violation Bugs — but specifically the lock-free fix at the end of §32.3 "Mutual Exclusion").
+- **Ch. 32 Common Concurrency Problems** (§32.3 "Mutual Exclusion" — the lock-free fix subsection at the end of §32.3).
 
 OSEP §32.3 introduces the lock-free idea:
 > "one could design various data structures without locks at all [H91, H93]. The idea behind these lock-free (and related wait-free) approaches here is simple: using powerful hardware instructions, you can build data structures in a manner that does not require explicit locking."

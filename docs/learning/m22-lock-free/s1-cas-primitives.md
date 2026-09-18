@@ -33,7 +33,7 @@ Implements OSEP §32.3 (the "Mutual Exclusion" subsection) — both the `AtomicI
 
 ### Counter — 4 threads × 100k ops
 ```
-=== Lock-Free Benchmark (M22 / OSEP §32.2) ===
+=== Lock-Free Benchmark (M22 / OSEP §32.3) ===
 impl: AtomicCounter  threads: 4  ops/thread: 100000  total ops: 400000
   elapsed:     44.07 ms
   ops/sec:     9077231
@@ -41,7 +41,7 @@ impl: AtomicCounter  threads: 4  ops/thread: 100000  total ops: 400000
   final value: 400000  (expected: 400000)   ← ✅ no lost increments
 ```
 ```
-=== Lock-Free Benchmark (M22 / OSEP §32.2) ===
+=== Lock-Free Benchmark (M22 / OSEP §32.3) ===
 impl: LockedCounter  threads: 4  ops/thread: 100000  total ops: 400000
   elapsed:     26.48 ms
   ops/sec:     15102888

@@ -18,8 +18,8 @@ public static class Constants
     public const int DATA_BITMAP_BLOCK = 2;
     public const int INODE_TABLE_START = 3;
     public const int JOURNAL_START = INODE_TABLE_START + INODE_BLOCKS;  // = 7
-    public const int JOURNAL_BLOCKS = 8;
-    public const int DATA_BLOCKS_START = JOURNAL_START + JOURNAL_BLOCKS;  // = 15
+    public const int JOURNAL_BLOCKS = 64;                              // slice 12.6: bumped from 8 to avoid wrap
+    public const int DATA_BLOCKS_START = JOURNAL_START + JOURNAL_BLOCKS;  // = 71
 
     public const int NUM_DATA_BLOCKS = NUM_BLOCKS - DATA_BLOCKS_START;
 
@@ -36,4 +36,11 @@ public static class Constants
     public const uint JOURNAL_SB_MAGIC = 0xCAFE_BABE;
     public const uint TXB_MAGIC = 0xAABB_CCDD;
     public const uint TXE_MAGIC = 0xDDCC_BBAA;
+
+    /// <summary>
+    /// Max block updates per transaction (slice 12.6). TxB stores
+    /// [magic:4][tid:4][count:4][blockNo x MAX_BLOCKS_PER_TX] at fixed
+    /// offsets, so 4096/4 = 1024 minus 3 headers = 1021 entries.
+    /// </summary>
+    public const int MAX_BLOCKS_PER_TX = 1021;
 }

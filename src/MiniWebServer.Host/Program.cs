@@ -472,19 +472,77 @@ static void HandleClient(Socket clientSocket, string webRoot)
                 else response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes($"saved to {param}\n"));
             }
         }
+        else if (parsedRequest.Path.StartsWith("/fs-inject-orphan-multi"))
+        {
+            // DEBUG route: write a fake MULTI-BLOCK TxB (slice 12.6
+            // format) into the journal with two blockNo entries but no
+            // matching DATA or TxE. Replay should discard it.
+            var blk = new byte[4096];
+            BitConverter.GetBytes(0xAABBCCDDu).CopyTo(blk, 0);  // TXB_MAGIC
+            BitConverter.GetBytes(1234).CopyTo(blk, 4);          // fake TID
+            BitConverter.GetBytes(2).CopyTo(blk, 8);             // count = 2
+            BitConverter.GetBytes(100).CopyTo(blk, 12);          // blockNo 1
+            BitConverter.GetBytes(101).CopyTo(blk, 16);          // blockNo 2
+            MiniWebServer.Host.MiniFs.MiniFs.WriteBlockNoLog(8, blk);
+            response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("orphan-multi-txb-injected\n"));
+        }
         else if (parsedRequest.Path.StartsWith("/fs-inject-orphan"))
         {
-            // DEBUG route: write a fake TxB block into the journal with
-            // no matching TxE. After save + restart + replay, this
+            // DEBUG route: write a fake single-block TxB into the journal
+            // with no matching TxE. After save + restart + replay, this
             // should be silently discarded.
             var blk = new byte[4096];
             BitConverter.GetBytes(0xAABBCCDDu).CopyTo(blk, 0);  // TXB_MAGIC
             BitConverter.GetBytes(999).CopyTo(blk, 4);           // fake TID
-            BitConverter.GetBytes(42).CopyTo(blk, 8);            // fake blockNo
-            // Write the orphan TxB directly to the journal data region
-            // using the raw write path (bypasses the journal itself).
+            BitConverter.GetBytes(1).CopyTo(blk, 8);            // count = 1
+            BitConverter.GetBytes(42).CopyTo(blk, 12);           // fake blockNo
             MiniWebServer.Host.MiniFs.MiniFs.WriteBlockNoLog(8, blk);
             response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("orphan-txb-injected\n"));
+        }
+        else if (parsedRequest.Path.StartsWith("/fs-inject-orphan-multi"))
+        {
+            // DEBUG route: write a fake MULTI-BLOCK TxB (slice 12.6
+            // format) into the journal with two blockNo entries but no
+            // matching DATA or TxE. Replay should discard it.
+            var blk = new byte[4096];
+            BitConverter.GetBytes(0xAABBCCDDu).CopyTo(blk, 0);  // TXB_MAGIC
+            BitConverter.GetBytes(1234).CopyTo(blk, 4);          // fake TID
+            BitConverter.GetBytes(2).CopyTo(blk, 8);             // count = 2
+            BitConverter.GetBytes(100).CopyTo(blk, 12);          // blockNo 1
+            BitConverter.GetBytes(101).CopyTo(blk, 16);          // blockNo 2
+            MiniWebServer.Host.MiniFs.MiniFs.WriteBlockNoLog(8, blk);
+            response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("orphan-multi-txb-injected\n"));
+        }
+        else if (parsedRequest.Path.StartsWith("/fs-dump-block"))
+        {
+            // DEBUG route: dump a block as hex. ?blockNo=N
+            int blockNo = -1;
+            int qIdx = parsedRequest.Path.IndexOf('?');
+            if (qIdx >= 0)
+            {
+                foreach (var kv in parsedRequest.Path.Substring(qIdx + 1).Split('&'))
+                {
+                    int eq = kv.IndexOf('=');
+                    if (eq > 0 && kv.Substring(0, eq) == "blockNo" && int.TryParse(kv.Substring(eq + 1), out var n))
+                        blockNo = n;
+                }
+            }
+            if (blockNo < 0)
+            {
+                response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("blockNo required\n"));
+            }
+            else
+            {
+                var buf = new byte[4096];
+                MiniWebServer.Host.MiniFs.MiniFs.ReadBlock(blockNo, buf);
+                var sb = new StringBuilder();
+                for (int i = 0; i < buf.Length; i++)
+                {
+                    sb.Append($"{buf[i]:X2} ");
+                    if ((i + 1) % 32 == 0) sb.Append('\n');
+                }
+                response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes(sb.ToString()));
+            }
         }
         else if (parsedRequest.Path == "/qstats")
         {

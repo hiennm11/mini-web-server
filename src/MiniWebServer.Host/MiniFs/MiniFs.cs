@@ -285,6 +285,20 @@ public static class MiniFs
         if (_disk == null) throw new InvalidOperationException("not mounted");
         if (blockNo < 0 || blockNo >= NUM_BLOCKS) throw new ArgumentOutOfRangeException(nameof(blockNo));
         if (dest.Length != BLOCK_SIZE) throw new ArgumentException("dest must be BLOCK_SIZE bytes", nameof(dest));
+
+        // Slice 12.6: if we're inside a transaction and there's a pending
+        // write for this block, return the pending data (latest snapshot)
+        // rather than the stale _disk content. This is what makes
+        // multi-block transactions consistent: each WriteBlock call
+        // updates the in-tx view, so subsequent ReadBlock sees the
+        // latest state for that block.
+        var pending = Journal.GetPendingWrite(blockNo);
+        if (pending != null)
+        {
+            Array.Copy(pending, 0, dest, 0, BLOCK_SIZE);
+            return;
+        }
+
         Array.Copy(_disk, blockNo * BLOCK_SIZE, dest, 0, BLOCK_SIZE);
     }
 
@@ -675,6 +689,10 @@ public static class MiniFs
     /// <summary>
     /// Create a new file at the given absolute path. Parent directory
     /// must exist. Returns the new inode number or -1 on failure.
+    /// Slice 12.6: the inode bitmap update, inode table update, and
+    /// directory entry update are wrapped in a single journal
+    /// transaction so they become atomic — a crash mid-CreateFile
+    /// either commits all three or commits none.
     /// </summary>
     public static int CreateFile(string path)
     {
@@ -692,10 +710,25 @@ public static class MiniFs
         int existing = Lookup(parentIno, name);
         if (existing != 0) return existing;  // already exists
 
-        int newIno = Ialloc();
-        if (newIno < 0) return -1;
-        Iinit(newIno, Inode.TYPE_FILE);
-        DirLink(parentIno, name, newIno);
+        int newIno = -1;
+        Journal.Begin();
+        try
+        {
+            newIno = Ialloc();
+            if (newIno < 0)
+            {
+                Journal.Abort();
+                return -1;
+            }
+            Iinit(newIno, Inode.TYPE_FILE);
+            DirLink(parentIno, name, newIno);
+            Journal.Commit();
+        }
+        catch
+        {
+            Journal.Abort();
+            return -1;
+        }
         return newIno;
     }
 
@@ -727,6 +760,9 @@ public static class MiniFs
 
     /// <summary>
     /// Remove a file (not a directory) at the given absolute path.
+    /// Slice 12.6: the directory entry removal, inode release, and
+    /// data bitmap release are wrapped in a single journal
+    /// transaction so they become atomic.
     /// </summary>
     public static bool UnlinkFile(string path)
     {
@@ -743,8 +779,18 @@ public static class MiniFs
         var target = Iget(targetIno);
         if (target.Type != Inode.TYPE_FILE) return false;
 
-        DirUnlink(parentIno, name);
-        Idestroy(targetIno);
+        Journal.Begin();
+        try
+        {
+            DirUnlink(parentIno, name);
+            Idestroy(targetIno);
+            Journal.Commit();
+        }
+        catch
+        {
+            Journal.Abort();
+            return false;
+        }
         return true;
     }
 }

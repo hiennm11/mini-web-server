@@ -2,7 +2,7 @@
 
 ## Status Snapshot
 
-Updated 2026-09-17. Legend: ✅ built + experimented + noted · 🟡 planned · ⬜ future.
+Updated 2026-09-18 (M13.2 added). Legend: ✅ built + experimented + noted · 🟡 planned · ⬜ future.
 
 | Slice | Capability | OSTEP chapter | Status |
 |-------|-----------|---------------|--------|
@@ -28,13 +28,18 @@ Updated 2026-09-17. Legend: ✅ built + experimented + noted · 🟡 planned · 
 | M12 (12.6) | Mini FS multi-block transactions: Begin/Append/Commit + Tail pointer | Ch. 42.3 "Batching" | ✅ |
 | M12 (12.7) | Mini FS atomic rmdir: empty-only check + Begin/Commit around DirUnlink + Idestroy | Ch. 40.7 (`rmdir`) | ✅ |
 | M13 (13.1) | Mini MLFQ: multi-level feedback queue with priority boost | Ch. 8 | ✅ |
+| M13 (13.2) | Stride + Lottery proportional-share scheduling (tickets → CPU share) | Ch. 9 (§9.1, §9.3, §9.4, §9.6) | ✅ |
 | M14 (14.1) | Mini Pager: linear page table + VA→PA translation + page fault | Ch. 18 | ✅ |
+| M16 (16.1) | TLB: per-CPU hardware cache of recent VA→PA translations | Ch. 19 | ✅ |
+| M17 (17.1) | Multi-level page table: two-level radix tree (PD/PT) saves memory | Ch. 20 | ✅ |
+| M18 (18.1) | Replacement policy: FIFO + LRU + Random on Pager | Ch. 21 + Ch. 22 | ✅ |
+| M19 (19.1) | Complete VM: copy-on-write (fork) + swap-out/in (eviction) | Ch. 23 | ✅ |
 | M15 | ArrayPool&lt;byte&gt; in async mode (receive + response buffers) | n/a (perf) | ✅ |
 
-**Milestones**: M1 ✅–M15 ✅. M8–M15 are the post-roadmap extensions per `docs/adr/0004-extend-broad-concurrency-roadmap.md` (M8–M12), `docs/adr/0006-mini-scheduler-mlfq-proportional-multicpu.md` (M13), `docs/adr/0007-mini-pager-mmu-tlb-multilevel-replacement.md` (M14), and M15 is a standalone performance slice. The original 12-slice roadmap is closed. Latest: M12.5/12.6/12.7 (Mini FS journal + multi-block transactions + atomic rmdir), M13 (MLFQ scheduler), M14 (linear page table), M15 (ArrayPool in async mode — modest 9% reduction, see `docs/learning/m15-arraypool/s1-arraypool.md` for honest assessment).
-**Tests**: 15 passing (8 prior + 7 new for `HttpRequestReceiver`).
+**Milestones**: M1 ✅–M15 ✅, M16 ✅, M17 ✅, M18 ✅, M19 ✅, M13.2 ✅. M8–M15 are the post-roadmap extensions per `docs/adr/0004-extend-broad-concurrency-roadmap.md` (M8–M12), `docs/adr/0006-mini-scheduler-mlfq-proportional-multicpu.md` (M13), `docs/adr/0007-mini-pager-mmu-tlb-multilevel-replacement.md` (M14). The original 12-slice roadmap is closed. **Latest**: M13.2 (Stride + Lottery proportional-share, OSEP Ch. 9) and the **VM paging chain** M16 → M17 → M18 → M19 (OSEP Ch. 19 → 20 → 21+22 → 23). Each yielded a small slice with its own overview + smoke trace in `docs/learning/`.
+**Tests**: 15 passing.
 **Code/runtime**: `net10.0`. Two run modes selectable via `--async` flag: default = bounded worker pool (8 threads) + producer/consumer queue, async = `AcceptAsync` + `Task` per connection with `ReceiveAsync` / `SendAsync`. Port 8080, static files under `wwwroot`.
-**Latest commit**: Milestone 15 — ArrayPool<byte> in async mode. `AsyncServer.HandleClientAsync` now rents the 16 KB receive buffer from `ArrayPool<byte>.Shared.Rent` (instead of `new byte[MaxRequestBytes]`) and returns it in a finally block; the response is serialized via new `HttpResponse.WriteTo(byte[] dest)` into a 4 KB rented buffer. Measured under 150 parked /slow clients: working set 172 MB → 157 MB (~9% reduction). The expected 172 → 21 MB win did not materialize — the receive buffer wasn't the dominant cost; per-Task state machines parked at `Task.Delay(30000)` and per-request `HttpRequest` allocations dominate. Build clean, 15/15 tests pass.
+**Latest commit**: M13.2 (Stride + Lottery). `Job` gained `Tickets` + `Stride` + `Pass`; new `ProportionalScheduler.cs` adds `StrideScheduler` (OSEP §9.6, lowest-pass wins, deterministic) and `LotteryScheduler` (OSEP §9.3 Figure 9.1, random ticket, probabilistic). HTTP route `?algo=stride|lottery&workload=proportional&ticks=N`. Smoke at 400 ticks: both schedulers deliver exact 25% / 12.5% / 62.5% share (matches OSEP §9.1 worked example A=100/B=50/C=250). At 100 ticks Stride is near-perfect; Lottery shows the OSEP §9.4 fairness finding ("only as jobs run for significant ticks does the lottery approach the desired fair outcome"). Build clean, 15/15 tests pass.
 
 ## OSTEP Coverage
 
@@ -42,11 +47,11 @@ The book has ~50 chapters. Repo maps **the core three pieces** (Virtualization +
 
 | Piece | Coverage | Roadmap slices |
 |---|---|---|
-| **Virtualization** | Ch. 4 (§4.1 process, §4.4 states Running/Ready/Blocked); Ch. 6 (§6.1 direct execution, §6.2 syscalls, §6.3 timer interrupt); Ch. 13 (address space, implicit); Ch. 26-27 (thread = point of execution, thread API); Ch. 33 (event-based); **Ch. 8 MLFQ (basic + boost + R4 simplification)**; **Ch. 18 linear page table** | M1, M2, M3, M4, M7, M13, M14 |
+| **Virtualization** | Ch. 4 (§4.1 process, §4.4 states Running/Ready/Blocked); Ch. 6 (§6.1 direct execution, §6.2 syscalls, §6.3 timer interrupt); Ch. 8 (§8.1-§8.5 MLFQ); **Ch. 9 lottery + stride scheduling**; Ch. 13 (address space, implicit); Ch. 18 (linear page table); **Ch. 19 TLB**; **Ch. 20 multi-level page tables**; **Ch. 21 + Ch. 22 replacement policies**; **Ch. 23 complete VM (COW + swapping)**; Ch. 26-27 (thread = point of execution, thread API); Ch. 33 (event-based) | M1, M2, M3, M4, M7, M13, M13.2, M14, M16, M17, M18, M19 |
 | **Concurrency** | Ch. 26 (§26.4 figure 26.7 the race); Ch. 27 (thread API); Ch. 28 (§28.1 lock abstraction, §28.7 test-and-set, §28.9 CAS, §28.16 two-phase); Ch. 30 (CVs); Ch. 31 (§31.4 bounded buffer, §31.5 reader-writer); Ch. 33 (events) | M4, M5, M6, M7, M8, M9, M10 |
 | **Persistence** | Ch. 36 (I/O devices — TCP receive loop uses kernel async I/O); Ch. 39 (§39.3 open, §39.4 read/write, §39.13 rmdir); Ch. 40 (§40.2 vsfs layout, §40.3 inode, §40.4 directory, §40.5 free space, §40.6 access path, §40.7 caching); Ch. 42.3 (data journaling, recovery, batching, circular log, [Tricky Case: Block Reuse] deferred) | M1, M2, M3, M11, M12.1–12.7 |
 
-**Roughly 35% of OSEP chapters have working code in this repo**, with §-sub-section coverage noted in each milestone's `overview.md`.
+**Roughly 45% of OSEP chapters have working code in this repo**, with §-sub-section coverage noted in each milestone's `overview.md`.
 
 ### Per-milestone OSEP attribution (each overview.md has detailed deviations)
 
@@ -63,13 +68,22 @@ The book has ~50 chapters. Repo maps **the core three pieces** (Virtualization +
 - **M11 raw-syscall-demo** — Ch. 36 §36.7 device driver abstraction; Ch. 39 §39.3 + §39.4 + §39.7. See `m11-raw-syscall-demo/overview.md`.
 - **M12 mini-file-system** — Ch. 39 §39.1 + §39.10 + §39.11 + §39.13; Ch. 40 (§40.2-§40.7); Ch. 42.3 (data journaling + batching + circular log; revoke records deferred). See `m12-mini-file-system/overview.md`.
 - **M13 MLFQ** — Ch. 8 (§8.1-§8.5; §8.4 anti-gaming Rule 4 simplified). See `m13-mlfq/overview.md`.
+- **M13.2 Stride + Lottery** — Ch. 9 (§9.1 lottery, §9.3 lottery + stride, §9.4 fairness study, §9.6 stride; §9.2 currency/transfer/inflation + §9.7 CFS deferred). See `m13.2-stride-lottery/overview.md`.
 - **M14 pager** — Ch. 18 (§18.2-§18.5); Ch. 19 motivation. See `m14-pager/overview.md`.
+- **M16 TLB** — Ch. 19 (§19.1 simple example, §19.2 TLB as cache, §19.3 who handles the TLB miss, §19.5 TLB issue: context switch; §19.4 ASID / §19.6 other TLB issues deferred). See `m16-tlb/overview.md`.
+- **M17 Multi-level page table** — Ch. 20 (§20.1 simple example, §20.2 multi-level, §20.3 more than two levels; §20.4 invert page tables deferred). See `m17-multi-level-pt/overview.md`.
+- **M18 Replacement** — Ch. 21 (§21.1 cache memory review, §21.2 average memory access time, §21.3 simple policies: optimal/FIFO/Random/LRU; §21.4 stack-property analysis, §21.5 approximating LRU, §21.6 considering dirty pages deferred). Ch. 22 (§22.1 background, §22.2 segment, §22.3 considering workloads, §22.4 considering write cost deferred — we apply policy at eviction only). See `m18-replacement/overview.md`.
+- **M19 Complete VM** — Ch. 23 §23.1 VMS (demand zeroing deferred; COW implemented; segmented FIFO + second-chance list deferred; RSS per process deferred); §23.2 Linux (COW implemented; 2Q, huge pages, 4-level PTs, NX, ASLR, KPTI all deferred; TLB not re-impl'd since M16 already covers it). See `m19-complete-vm/overview.md`.
 - **M15 arraypool** — performance only; closest OSEP reference is Ch. 40.7 (caching). See `m15-arraypool/overview.md`.
 
 ### Deviations from OSEP (consolidated)
 
 - **MLFQ §8.4 anti-gaming Rule 4**: we implement §8.2 (R4a + R4b with `YieldsEarly` flag) not §8.4 (allotment tracking). Documented in `m13-mlfq/overview.md`.
+- **Stride tie-breaking**: Stride's "lowest pass wins" tie is broken by first-found order (deterministic) rather than random — OSEP doesn't specify. Documented in `m13.2-stride-lottery/overview.md`.
 - **Pager TranslateOutcome naming**: our `PageFault` label conflates OSEP's `SEGMENTATION_FAULT` (no valid PTE) with the literal "page fault" (valid + not present, needs swap). M14.5 will fix. Documented in `m14-pager/overview.md`.
+- **TLB global flush on context switch**: we don't implement ASID (§19.4). M16.1 has a `FlushTlb()` method for context switches but no ASID-tagged entries. Documented in `m16-tlb/overview.md`.
+- **Replacement policy §21.6 dirty bit**: we don't track a dirty bit per PTE for replacement decisions; writes always set `Dirty` but the policy treats it as advisory. Documented in `m18-replacement/overview.md`.
+- **M19 refcount for last-shareer-frees**: COW works correctly for one-shareer (P1 writes → P1 gets private frame, P2 keeps shared). Multi-shareer edge case (>2 processes sharing a frame) is documented but a per-frame refcount for "free on last unshare" is deferred. Documented in `m19-complete-vm/overview.md`.
 - **Mini FS inode fields**: we use a subset of OSEP §40.3's full inode (no `atime`/`ctime`/`mtime`/`dtime`/protection/blocks-count flags). Documented in `m12-mini-file-system/overview.md`.
 - **Mini FS no multi-level index**: file size capped at 12 × 4 KB = 48 KB. OSEP §40.3 indirect / double-indirect pointers deferred.
 - **Journaling is data journaling mode** (OSEP §42.3). Ordered/metadata journaling mode deferred.
@@ -77,12 +91,12 @@ The book has ~50 chapters. Repo maps **the core three pieces** (Virtualization +
 
 Chapters **not yet implemented** (natural next slices):
 
-- **Part I Virtualization**: Ch. 7 process API, Ch. 9 lottery / Ch. 10 multi-CPU scheduling (M13.2/M13.3 deferred per ADR 0006), Ch. 14-17 base+bound / segmentation / free-space mgmt, Ch. 19 TLB / Ch. 20 multi-level page tables / Ch. 21 swapping / Ch. 22-23 complete VM systems (M14.2-M14.6 deferred per ADR 0007)
+- **Part I Virtualization**: Ch. 7 process API (out of scope for .NET), **Ch. 10 multi-CPU scheduling** (M13.3 deferred per ADR 0006), Ch. 14-17 base+bound / segmentation / free-space mgmt (superseded by paging), §19.4 ASID, §20.4 inverted page tables, §21.4-§21.6 stack property + approximated LRU + dirty pages, §23.1 VMS demand-zeroing + RSS + segmented FIFO + second-chance list, §23.2 Linux 2Q + huge pages + 4-level PTs + NX + ASLR + KPTI
 - **Part II Concurrency**: Ch. 29 lock-free data structures, Ch. 31.6 dining philosophers (M9 covered Ch. 31.5 reader-writer)
 - **Part III Persistence**: Ch. 36-38 device drivers & RAID, Ch. 41 FFS, Ch. 43 LFS, Ch. 44 flash, Ch. 45 data integrity — M12 covers Ch. 40 vsfs + Ch. 42.3 journaling
 - **Part IV Security** (entirely untouched): Ch. 53-57
 
-The repo is best understood as an **OS concepts lab for the core three pieces**, not a full reproduction of the textbook. The concurrency chapter sweep (race observable → race fixed → pool → async) is the most complete coverage; persistence is reduced to "serve files from a directory + journal for crash safety"; virtualization covers thread/process abstraction + MLFQ + linear paging.
+The repo is best understood as an **OS concepts lab for the core three pieces**, not a full reproduction of the textbook. The concurrency chapter sweep (race observable → race fixed → pool → async) is the most complete coverage; persistence is reduced to "serve files from a directory + journal for crash safety"; **virtualization is now substantial**: thread/process abstraction + MLFQ + proportional-share + linear paging + TLB + multi-level page tables + replacement policy + COW (fork).
 
 ## Purpose
 
@@ -222,8 +236,15 @@ Phase 3 + 4 learning docs:
 - `docs/learning/m11-raw-syscall-demo/s1-raw-syscall-demo.md` (M11 full learning note)
 - `docs/learning/m12-mini-file-system/overview.md` (M12 mini-FS plan + learning note for slices 12.1–12.4)
 - `docs/learning/m7-async-event-based/s1-async-event-based.md` (event-based server)
+- `docs/learning/m13-mlfq/` (M13 MLFQ overview + slice doc)
+- `docs/learning/m13.2-stride-lottery/` (M13.2 Stride + Lottery overview + slice doc)
+- `docs/learning/m14-pager/` (M14 pager overview + slice doc)
+- `docs/learning/m16-tlb/` (M16 TLB overview + slice doc)
+- `docs/learning/m17-multi-level-pt/` (M17 multi-level PT overview + slice doc)
+- `docs/learning/m18-replacement/` (M18 replacement overview + slice doc)
+- `docs/learning/m19-complete-vm/` (M19 complete VM / COW overview + slice doc)
 
-All twelve roadmap slices + milestones have learning notes with smoke-test output captured inline. M8 (the first post-roadmap extension) has its own learning note and a 6.3 section appended to the M6 note.
+All twelve roadmap slices + post-roadmap extensions + the VM paging chain have learning notes with smoke-test output captured inline. M8 (the first post-roadmap extension) has its own learning note and a 6.3 section appended to the M6 note. The M16-M19 chain + M13.2 each have an `overview.md` and a slice doc under their own folder.
 
 ## Design Intent
 
@@ -241,10 +262,10 @@ After both passes, every "Key point from OSEP §X.Y" should match the cited chap
 
 Useful directions that fit the project:
 
-- Extend concurrency via the next-milestones roadmap in `docs/adr/0004-extend-broad-concurrency-roadmap.md`. M8 (bounded queue + 503), M9 (reader-writer lock + cache), M10 (ThreadPool cap), M11 (raw open/read/close syscall demo), M12 (mini file system slices 12.1–12.7), M13 (MLFQ scheduler), M14 (linear page table), and M15 (ArrayPool in async mode) are done.
+- Extend concurrency via the next-milestones roadmap in `docs/adr/0004-extend-broad-concurrency-roadmap.md`. M8 (bounded queue + 503), M9 (reader-writer lock + cache), M10 (ThreadPool cap), M11 (raw open/read/close syscall demo), M12 (mini file system slices 12.1–12.7), M13 (MLFQ scheduler), M13.2 (Stride + Lottery proportional-share), M14 (linear page table), M16 (TLB), M17 (multi-level page tables), M18 (replacement policies), M19 (COW + swap), and M15 (ArrayPool in async mode) are done.
 - Add `ArrayPool<byte>` to lower per-connection memory in async mode (would change the M7 numbers from 172 MB toward M6's 21 MB).
 - Add a `Retry-After` header to the M8 503 response so clients can back off intelligently.
-- Extend the **OSEP coverage gaps** in the OSEP Coverage section: scheduling (Ch. 7-10), paging (Ch. 14-23), full FS (Ch. 36-45), security (Ch. 53-57). Each new chapter group should get its own ADR before any slices start.
+- Extend the **OSEP coverage gaps** in the OSEP Coverage section: scheduling (Ch. 10 multi-CPU), paging (Ch. 14-17, §19.4 ASID, §20.4 inverted PTs, §21.4-§21.6 approximated LRU + dirty pages, §23.1 VMS demand-zeroing + RSS + segmented FIFO + second-chance list, §23.2 Linux 2Q + huge pages + 4-level PTs + NX + ASLR + KPTI), full FS (Ch. 36-45), security (Ch. 53-57). Each new chapter group should get its own ADR before any slices start.
 - Extract small concepts such as request receiving, response formatting, and connection handling.
 - Add focused tests around pure logic if response formatting or request parsing is introduced.
 - Keep console output clear because it is part of the learning feedback loop.

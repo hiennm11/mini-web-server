@@ -22,8 +22,13 @@ docs/learning/
 ├── m10-threadpool-cap/
 ├── m11-raw-syscall-demo/
 ├── m12-mini-file-system/            ← persistence
-├── m13-mlfq/                        ← scheduling
-├── m14-pager/                       ← paging
+├── m13-mlfq/                        ← scheduling (Ch. 8)
+├── m13.2-stride-lottery/            ← scheduling (Ch. 9)
+├── m14-pager/                       ← paging (Ch. 18)
+├── m16-tlb/                         ← paging (Ch. 19)
+├── m17-multi-level-pt/              ← paging (Ch. 20)
+├── m18-replacement/                 ← paging (Ch. 21 + Ch. 22)
+├── m19-complete-vm/                 ← paging (Ch. 23)
 └── m15-arraypool/                   ← perf
 ```
 
@@ -55,11 +60,16 @@ Within a folder, slices are numbered sequentially (`s1`, `s2`, ...). The milesto
 3. **Persistence** (Mini FS journal):
    - `m12-mini-file-system/` (overview + 7 slices)
 
-4. **Scheduling** (MLFQ):
+4. **Scheduling** (MLFQ + proportional-share):
    - `m13-mlfq/`
+   - `m13.2-stride-lottery/`
 
-5. **Paging** (linear page table):
+5. **Paging** (linear PT → TLB → multi-level → replacement → complete VM):
    - `m14-pager/`
+   - `m16-tlb/`
+   - `m17-multi-level-pt/`
+   - `m18-replacement/`
+   - `m19-complete-vm/`
 
 6. **Performance**:
    - `m15-arraypool/`

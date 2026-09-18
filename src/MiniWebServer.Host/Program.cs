@@ -888,6 +888,216 @@ static void HandleClient(Socket clientSocket, string webRoot)
             response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
                 Encoding.UTF8.GetBytes(output));
         }
+        else if (parsedRequest.Path.StartsWith("/auth/"))
+        {
+            // Password-based authentication (M23 / OSEP Ch. 54). Routes:
+            //   POST /auth/register?user=X&pass=Y   register
+            //   POST /auth/login?user=X&pass=Y      verify
+            //   GET  /auth/dump                     list stored salt+hash entries
+            //   GET  /auth/run?scenario=...         demo scenarios
+            //
+            // Note: query-string passwords are visible in process logs and on the wire.
+            // OSEP §57.4 makes clear that's wrong for real systems. Real auth runs over
+            // TLS with the password in the POST body, not the URL.
+            var authPath = parsedRequest.Path;
+            int authQ = authPath.IndexOf('?');
+            string authQuery = authQ >= 0 ? authPath.Substring(authQ + 1) : "";
+            string authUser = "";
+            string authPass = "";
+            string authScenario = "";
+            foreach (var kv in authQuery.Split('&'))
+            {
+                int eq = kv.IndexOf('=');
+                if (eq <= 0) continue;
+                var k = Uri.UnescapeDataString(kv.Substring(0, eq));
+                var v = Uri.UnescapeDataString(kv.Substring(eq + 1));
+                if      (k == "user")     authUser = v;
+                else if (k == "pass")     authPass = v;
+                else if (k == "scenario") authScenario = v;
+            }
+
+            // Strip /auth/ prefix so the route switch is local.
+            string routeName = authPath.Substring("/auth/".Length);
+            int routeQ = routeName.IndexOf('?');
+            if (routeQ >= 0) routeName = routeName.Substring(0, routeQ);
+
+            string authBody;
+            // `response` is set below on every code path; null! here lets the
+            // compiler see definite assignment while we keep it logically
+            // uninitialized for the nested-switch pattern. Use `response ??=`
+            // at the bottom of each case to keep the wiring short.
+            response = null!;
+            switch (routeName)
+            {
+                case "register":
+                {
+                    if (string.IsNullOrEmpty(authUser) || string.IsNullOrEmpty(authPass))
+                    {
+                        authBody = "missing user and/or pass\n";
+                        response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8",
+                            Encoding.UTF8.GetBytes(authBody));
+                        break;
+                    }
+                    // Refuse cross-empty password (some real systems do, OSEP §54.4 discourages
+                    // silent acceptance).
+                    bool ok = MiniWebServer.Host.MiniAuth.UserStore.Register(authUser, authPass);
+                    if (!ok)
+                    {
+                        authBody = "username already taken (or empty user/pass)\n";
+                        response = new HttpResponse(409, "Conflict", "text/plain; charset=UTF-8",
+                            Encoding.UTF8.GetBytes(authBody));
+                        break;
+                    }
+                    authBody = $"OK  user={authUser}  (hash + salt stored, plaintext discarded)\n";
+                    response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                        Encoding.UTF8.GetBytes(authBody));
+                    break;
+                }
+                case "login":
+                {
+                    if (string.IsNullOrEmpty(authUser) || string.IsNullOrEmpty(authPass))
+                    {
+                        // Fail-safe defaults (OSEP §53.4): identical 401 either way.
+                        authBody = "invalid credentials\n";
+                        response = new HttpResponse(401, "Unauthorized", "text/plain; charset=UTF-8",
+                            Encoding.UTF8.GetBytes(authBody));
+                        break;
+                    }
+                    bool ok = MiniWebServer.Host.MiniAuth.UserStore.Login(authUser, authPass);
+                    if (!ok)
+                    {
+                        authBody = "invalid credentials\n";
+                        response = new HttpResponse(401, "Unauthorized", "text/plain; charset=UTF-8",
+                            Encoding.UTF8.GetBytes(authBody));
+                        break;
+                    }
+                    authBody = $"OK  user={authUser}\n";
+                    response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                        Encoding.UTF8.GetBytes(authBody));
+                    break;
+                }
+                case "dump":
+                {
+                    var (_, lines) = MiniWebServer.Host.MiniAuth.UserStore.DumpSummary();
+                    var sb = new System.Text.StringBuilder();
+                    sb.Append("users: ").Append(lines.Length).Append('\n');
+                    sb.Append("stored form: hash + salt only (never plaintext)\n");
+                    sb.Append($"failed_logins: {MiniWebServer.Host.MiniAuth.UserStore.FailedLoginAttempts}\n");
+                    sb.Append($"successful_logins: {MiniWebServer.Host.MiniAuth.UserStore.SuccessfulLogins}\n");
+                    sb.Append("---\n");
+                    foreach (var line in lines) sb.Append(line).Append('\n');
+                    authBody = sb.ToString();
+                    response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                        Encoding.UTF8.GetBytes(authBody));
+                    break;
+                }
+                case "run":
+                {
+                    if (string.IsNullOrEmpty(authScenario)) authScenario = "register";
+                    var sb = new System.Text.StringBuilder();
+                    sb.Append($"scenario: {authScenario}\n");
+                    switch (authScenario)
+                    {
+                        case "register":
+                        {
+                            sb.Append("registers two demo users, alice & bob, both with password 'hunter2'\n");
+                            sb.Append("(pre-clear via /auth/run?scenario=clear if reusing the server)\n");
+                            // They must use a fresh server for register to succeed the second time.
+                            sb.Append("see HashAttack scenario for the salt demonstration.\n");
+                            authBody = sb.ToString();
+                            break;
+                        }
+                        case "hashattack":
+                        {
+                            // Demonstrate OSEP §54.4: same password, two users, different salts → different hashes.
+                            // We re-register (silently ignores conflict) so a fresh server works.
+                            MiniWebServer.Host.MiniAuth.UserStore.ClearForTests();
+                            MiniWebServer.Host.MiniAuth.UserStore.Register("alice", "hunter2");
+                            MiniWebServer.Host.MiniAuth.UserStore.Register("bob",   "hunter2");
+                            var (_, lines) = MiniWebServer.Host.MiniAuth.UserStore.DumpSummary();
+                            sb.Append("Two users, identical plaintext password 'hunter2':\n");
+                            foreach (var line in lines) sb.Append(line).Append('\n');
+                            sb.Append("Observation: salts differ, hashes differ.\n");
+                            sb.Append("OSEP §54.4: per-user salt defeats rainbow-table precomputation.\n");
+                            authBody = sb.ToString();
+                            break;
+                        }
+                        case "login":
+                        {
+                            sb.Append("login route summary:\n");
+                            sb.Append($"  failed_logins   = {MiniWebServer.Host.MiniAuth.UserStore.FailedLoginAttempts}\n");
+                            sb.Append($"  successful_logins = {MiniWebServer.Host.MiniAuth.UserStore.SuccessfulLogins}\n");
+                            sb.Append("Try: POST /auth/login?user=alice&pass=hunter2 (correct)\n");
+                            sb.Append("  vs /auth/login?user=alice&pass=wrong     (fails, identical error)\n");
+                            authBody = sb.ToString();
+                            break;
+                        }
+                        case "dictionary":
+                        {
+                            // OSEP §54.4 "drastically slowing down": PBKDF2 verify is slow on purpose.
+                            // We measure how long it takes to PBKDF2-verify each of the top 5 common
+                            // passwords against a registered user. This is the worst-case work an
+                            // attacker does per guess against a stolen hash file.
+                            MiniWebServer.Host.MiniAuth.UserStore.ClearForTests();
+                            MiniWebServer.Host.MiniAuth.UserStore.Register("victim", "p4ssw0rd");
+                            string[] guesses = { "123456", "password", "12345", "qwerty", "p4ssw0rd" };
+                            sb.Append("dictionary attack simulation (OSEP §54.4):\n");
+                            sb.Append($"target user: victim (password = 'p4ssw0rd')\n");
+                            sb.Append($"each PBKDF2 verify costs ~50-100 ms of HMAC-SHA256 work.\n");
+                            sb.Append("---\n");
+                            foreach (var guess in guesses)
+                            {
+                                // Time one PBKDF2 verify call so the per-guess cost is visible.
+                                // Worst case for the attacker: identical cost on every guess.
+                                byte[] salt;
+                                byte[] expectedHash;
+                                {
+                                    var (count, lines) = MiniWebServer.Host.MiniAuth.UserStore.DumpSummary();
+                                    // victim is the only user, just registered above.
+                                    var parts = lines[0].Split('\t');
+                                    salt         = MiniWebServer.Host.MiniAuth.PasswordHasher.FromHex(parts[2].Substring("salt=".Length));
+                                    expectedHash = MiniWebServer.Host.MiniAuth.PasswordHasher.FromHex(parts[3].Substring("sha256(pbkdf2)=".Length));
+                                }
+                                var sw = System.Diagnostics.Stopwatch.StartNew();
+                                MiniWebServer.Host.MiniAuth.PasswordHasher.Verify(guess, salt, expectedHash);
+                                sw.Stop();
+                                bool hit = MiniWebServer.Host.MiniAuth.UserStore.Login("victim", guess);
+                                sb.Append($"  guess=\"{guess,-10}\"  -> {(hit ? "HIT" : "miss")}  ({sw.ElapsedMilliseconds:N0} ms per verify call)\n");
+                            }
+                            sb.Append("---\n");
+                            sb.Append("OSEP §54.4: a 100k-iter PBKDF2 makes a 100k-guess attack take hours,\n");
+                            sb.Append("not the milliseconds a fast SHA-256 verifier would.\n");
+                            authBody = sb.ToString();
+                            break;
+                        }
+                        case "clear":
+                        {
+                            MiniWebServer.Host.MiniAuth.UserStore.ClearForTests();
+                            sb.Append("user store cleared.\n");
+                            authBody = sb.ToString();
+                            break;
+                        }
+                        default:
+                        {
+                            authBody = $"unknown scenario '{authScenario}' (try: register, login, hashattack, dictionary, clear)\n";
+                            response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8",
+                                Encoding.UTF8.GetBytes(authBody));
+                            break;
+                        }
+                    }
+                    response ??= new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                        Encoding.UTF8.GetBytes(authBody));
+                    break;
+                }
+                default:
+                {
+                    authBody = $"unknown auth route '{routeName}' (try: /auth/register, /auth/login, /auth/dump, /auth/run)\n";
+                    response = new HttpResponse(404, "Not Found", "text/plain; charset=UTF-8",
+                        Encoding.UTF8.GetBytes(authBody));
+                    break;
+                }
+            }
+        }
         else if (parsedRequest.Path.StartsWith("/qstats"))
         {
             int q = WorkerPool.QueueLength;

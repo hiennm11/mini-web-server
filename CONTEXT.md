@@ -2,7 +2,7 @@
 
 ## Status Snapshot
 
-Updated 2026-09-18 (M20 + M22 added). Legend: ✅ built + experimented + noted · 🟡 planned · ⬜ future.
+Updated 2026-09-18 (M21 added). Legend: ✅ built + experimented + noted · 🟡 planned · ⬜ future.
 
 | Slice | Capability | OSTEP chapter | Status |
 |-------|-----------|---------------|--------|
@@ -36,13 +36,14 @@ Updated 2026-09-18 (M20 + M22 added). Legend: ✅ built + experimented + noted �
 | M18 (18.1) | Replacement policy: FIFO + LRU + Random on Pager | Ch. 21 + Ch. 22 | ✅ |
 | M19 (19.1) | Complete VM: copy-on-write (fork) + swap-out/in (eviction) | Ch. 23 | ✅ |
 | M20 (20.1) | Dining philosophers: broken (deadlock) vs fixed (Dijkstra's reverse order) | Ch. 31.6 | ✅ |
+| M21 (21.1) | FFS block-group placement: locality policy + large-file exception | Ch. 41 (§41.3, §41.4, §41.6) | ✅ |
 | M22 (22.1) | Lock-free CAS primitives: AtomicCounter + LockFreeStack (Treiber) | Ch. 32.3 | ✅ |
 | M15 | ArrayPool&lt;byte&gt; in async mode (receive + response buffers) | n/a (perf) | ✅ |
 
-**Milestones**: M1 ✅–M15 ✅, M13.2 ✅, M13.3 ✅, M16 ✅, M17 ✅, M18 ✅, M19 ✅, M20 ✅, M22 ✅. M8–M15 are the post-roadmap extensions per `docs/adr/0004-extend-broad-concurrency-roadmap.md` (M8–M12), `docs/adr/0006-mini-scheduler-mlfq-proportional-multicpu.md` (M13), `docs/adr/0007-mini-pager-mmu-tlb-multilevel-replacement.md` (M14). The original 12-slice roadmap is closed. **Latest**: M20 (Dining philosophers, OSEP §31.6) and M22 (Lock-free CAS, OSEP §32.3). Each yielded a small slice with its own overview + smoke trace in `docs/learning/`.
+**Milestones**: M1 ✅–M15 ✅, M13.2 ✅, M13.3 ✅, M16 ✅, M17 ✅, M18 ✅, M19 ✅, M20 ✅, M21 ✅, M22 ✅. M8–M15 are the post-roadmap extensions per `docs/adr/0004-extend-broad-concurrency-roadmap.md` (M8–M12), `docs/adr/0006-mini-scheduler-mlfq-proportional-multicpu.md` (M13), `docs/adr/0007-mini-pager-mmu-tlb-multilevel-replacement.md` (M14). The original 12-slice roadmap is closed. **Latest**: M21 (FFS block-group placement, OSEP Ch. 41) and M22 (Lock-free CAS, OSEP §32.3). Each yielded a small slice with its own overview + smoke trace in `docs/learning/`.
 **Tests**: 15 passing.
 **Code/runtime**: `net10.0`. Two run modes selectable via `--async` flag: default = bounded worker pool (8 threads) + producer/consumer queue, async = `AcceptAsync` + `Task` per connection with `ReceiveAsync` / `SendAsync`. Port 8080, static files under `wwwroot`.
-**Latest commit**: M22 (Lock-free CAS). New `LockFreePrimitives.cs` adds `AtomicCounter` (CAS-retry increment, matches OSEP §32.3 `AtomicIncrement` pseudocode exactly) and `LockFreeStack<T>` (Treiber stack, matches OSEP §32.3 lock-free list insert pattern). Both use `Interlocked.CompareExchange` (x86 `CMPXCHG` wrapper). Lock-based comparison primitives (`LockedCounter`, `LockedStack<T>`) added so the benchmark shows the difference. ABA mitigation by never freeing popped stack nodes (documented). HTTP route `/lockfree/bench?impl=atomic|locked|stack-atomic|stack-locked&threads=N&ops=M`. Smoke: both atomic and locked counters deliver the expected final value (no lost updates); lock-free is not faster here on .NET 10 (Monitor thin locks win) — matches OSEP §29.1 TIP "More concurrency isn't necessarily faster". Build clean, 15/15 tests pass.
+**Latest commit**: M21 (FFS placement). New `FFS.cs` adds a block-group placement simulator implementing OSEP §41.3 (cylinder/block groups), §41.4 (locality policies: dirs in low-density group + files in parent's group), §41.6 (large-file exception with N-block rotation), and §41.7 homework metrics (filespan + dirspan). HTTP route `/ffs/run?scenario=manyfiles|largefile&groups=N&inodes=N&blocks=N&threshold=M`. Smoke: `manyfiles` (root + /a + /b + 4 files) demonstrates namespace locality — files in `/a` land in group 1 (same as `/a`); groups 3-7 stay empty. `largefile&threshold=12`: file of 30 blocks spreads across 3 groups (12/12/6) with filespan=37. `largefile&threshold=4`: same file spreads across all 8 groups with filespan=113 — demonstrates OSEP §41.7 amortization trade-off (smaller chunks → larger filespan → worse sequential reads). Build clean, 15/15 tests pass.
 
 ## OSTEP Coverage
 
@@ -52,9 +53,9 @@ The book has ~50 chapters. Repo maps **the core three pieces** (Virtualization +
 |---|---|---|
 | **Virtualization** | Ch. 4 (§4.1 process, §4.4 states Running/Ready/Blocked); Ch. 6 (§6.1 direct execution, §6.2 syscalls, §6.3 timer interrupt); Ch. 8 (§8.1-§8.5 MLFQ); **Ch. 9 lottery + stride scheduling**; **Ch. 10 multi-CPU scheduling (SQMS / MQMS / work stealing)**; Ch. 13 (address space, implicit); Ch. 18 (linear page table); **Ch. 19 TLB**; **Ch. 20 multi-level page tables**; **Ch. 21 + Ch. 22 replacement policies**; **Ch. 23 complete VM (COW + swapping)**; Ch. 26-27 (thread = point of execution, thread API); Ch. 33 (event-based) | M1, M2, M3, M4, M7, M13, M13.2, M13.3, M14, M16, M17, M18, M19 |
 | **Concurrency** | Ch. 26 (§26.4 figure 26.7 the race); Ch. 27 (thread API); Ch. 28 (§28.1 lock abstraction, §28.7 test-and-set, §28.9 CAS, §28.16 two-phase); Ch. 30 (CVs); Ch. 31 (§31.4 bounded buffer, §31.5 reader-writer, **§31.6 dining philosophers**); Ch. 33 (events); **Ch. 32.3 lock-free CAS** | M4, M5, M6, M7, M8, M9, M10, M20, M22 |
-| **Persistence** | Ch. 36 (I/O devices — TCP receive loop uses kernel async I/O); Ch. 39 (§39.3 open, §39.4 read/write, §39.13 rmdir); Ch. 40 (§40.2 vsfs layout, §40.3 inode, §40.4 directory, §40.5 free space, §40.6 access path, §40.7 caching); Ch. 42.3 (data journaling, recovery, batching, circular log, [Tricky Case: Block Reuse] deferred) | M1, M2, M3, M11, M12.1–12.7 |
+| **Persistence** | Ch. 36 (I/O devices — TCP receive loop uses kernel async I/O); Ch. 39 (§39.3 open, §39.4 read/write, §39.13 rmdir); Ch. 40 (§40.2 vsfs layout, §40.3 inode, §40.4 directory, §40.5 free space, §40.6 access path, §40.7 caching); **Ch. 41 FFS (cylinder groups, locality, large-file exception, filespan/dirspan)**; Ch. 42.3 (data journaling, recovery, batching, circular log, [Tricky Case: Block Reuse] deferred) | M1, M2, M3, M11, M12.1–12.7, M21 |
 
-**Roughly 50% of OSEP chapters have working code in this repo**, with §-sub-section coverage noted in each milestone's `overview.md`.
+**Roughly 55% of OSEP chapters have working code in this repo**, with §-sub-section coverage noted in each milestone's `overview.md`.
 
 ### Per-milestone OSEP attribution (each overview.md has detailed deviations)
 
@@ -79,6 +80,7 @@ The book has ~50 chapters. Repo maps **the core three pieces** (Virtualization +
 - **M19 Complete VM** — Ch. 23 §23.1 VMS (demand zeroing deferred; COW implemented; segmented FIFO + second-chance list deferred; RSS per process deferred); §23.2 Linux (COW implemented; 2Q, huge pages, 4-level PTs, NX, ASLR, KPTI all deferred; TLB not re-impl'd since M16 already covers it). See `m19-complete-vm/overview.md`.
 - **M20 Dining philosophers** — Ch. 31.6 (broken solution = deadlock; Dijkstra's fix = last philosopher reverses order). See `m20-dining-philosophers/overview.md`.
 - **M22 Lock-free** — Ch. 32.3 "Mutual Exclusion" (CAS-based `AtomicIncrement` + lock-free list insert / Treiber stack). ABA mitigation by never freeing popped nodes; livelock mitigated by `SpinWait`. See `m22-lock-free/overview.md`.
+- **M21 FFS** — Ch. 41 §41.3 (cylinder/block groups + per-group bitmaps), §41.4 (locality policies: dirs in low-density group + files in parent's group), §41.6 (large-file exception with N-block rotation), §41.7 (filespan + dirspan metrics). §41.7 sub-blocks + parameterized placement deferred. See `m21-ffs/overview.md`.
 - **M15 arraypool** — performance only; closest OSEP reference is Ch. 40.7 (caching). See `m15-arraypool/overview.md`.
 
 ### Deviations from OSEP (consolidated)
@@ -101,7 +103,7 @@ Chapters **not yet implemented** (natural next slices):
 
 - **Part I Virtualization**: Ch. 7 process API (out of scope for .NET), Ch. 14-17 base+bound / segmentation / free-space mgmt (superseded by paging), §19.4 ASID, §20.4 inverted page tables, §21.4-§21.6 stack property + approximated LRU + dirty pages, §23.1 VMS demand-zeroing + RSS + segmented FIFO + second-chance list, §23.2 Linux 2Q + huge pages + 4-level PTs + NX + ASLR + KPTI
 - **Part II Concurrency**: Ch. 29 lock-free data structures — partial coverage in M22 (CAS primitives); Ch. 32.2 atomicity/order bugs (CV fixes for the original cases), Ch. 32.3 deadlock prevention/avoidance (lock ordering, hold-and-wait, etc.)
-- **Part III Persistence**: Ch. 36-38 device drivers & RAID, Ch. 41 FFS, Ch. 43 LFS, Ch. 44 flash, Ch. 45 data integrity — M12 covers Ch. 40 vsfs + Ch. 42.3 journaling
+- **Part III Persistence**: Ch. 36-38 device drivers & RAID, Ch. 43 LFS, Ch. 44 flash, Ch. 45 data integrity — M12 covers Ch. 40 vsfs + Ch. 42.3 journaling; M21 covers Ch. 41 FFS placement
 - **Part IV Security** (entirely untouched): Ch. 53-57
 
 The repo is best understood as an **OS concepts lab for the core three pieces**, not a full reproduction of the textbook. The concurrency chapter sweep (race observable → race fixed → pool → async → dining philosophers → lock-free CAS) is now substantial; persistence is reduced to "serve files from a directory + journal for crash safety"; virtualization is now substantial (thread/process abstraction + MLFQ + proportional-share + multi-CPU + linear paging + TLB + multi-level page tables + replacement policy + COW).
@@ -253,9 +255,10 @@ Phase 3 + 4 learning docs:
 - `docs/learning/m18-replacement/` (M18 replacement overview + slice doc)
 - `docs/learning/m19-complete-vm/` (M19 complete VM / COW overview + slice doc)
 - `docs/learning/m20-dining-philosophers/` (M20 dining philosophers overview + slice doc)
+- `docs/learning/m21-ffs/` (M21 FFS placement overview + slice doc)
 - `docs/learning/m22-lock-free/` (M22 lock-free CAS overview + slice doc)
 
-All twelve roadmap slices + post-roadmap extensions + the VM paging chain + the multi-CPU/dining/lock-free trio have learning notes with smoke-test output captured inline. M8 (the first post-roadmap extension) has its own learning note and a 6.3 section appended to the M6 note. The M16-M19 chain + M13.2 + M13.3 + M20 + M22 each have an `overview.md` and a slice doc under their own folder.
+All twelve roadmap slices + post-roadmap extensions + the VM paging chain + the multi-CPU/dining/FFS/lock-free quartet have learning notes with smoke-test output captured inline. M8 (the first post-roadmap extension) has its own learning note and a 6.3 section appended to the M6 note. The M16-M19 chain + M13.2 + M13.3 + M20 + M21 + M22 each have an `overview.md` and a slice doc under their own folder.
 
 ## Design Intent
 
@@ -273,10 +276,10 @@ After both passes, every "Key point from OSEP §X.Y" should match the cited chap
 
 Useful directions that fit the project:
 
-- Extend concurrency via the next-milestones roadmap in `docs/adr/0004-extend-broad-concurrency-roadmap.md`. M8 (bounded queue + 503), M9 (reader-writer lock + cache), M10 (ThreadPool cap), M11 (raw open/read/close syscall demo), M12 (mini file system slices 12.1–12.7), M13 (MLFQ scheduler), M13.2 (Stride + Lottery), M13.3 (multi-CPU), M14 (linear page table), M16 (TLB), M17 (multi-level page tables), M18 (replacement policies), M19 (COW + swap), M20 (dining philosophers), M22 (lock-free CAS), and M15 (ArrayPool in async mode) are done.
+- Extend concurrency via the next-milestones roadmap in `docs/adr/0004-extend-broad-concurrency-roadmap.md`. M8 (bounded queue + 503), M9 (reader-writer lock + cache), M10 (ThreadPool cap), M11 (raw open/read/close syscall demo), M12 (mini file system slices 12.1–12.7), M13 (MLFQ scheduler), M13.2 (Stride + Lottery), M13.3 (multi-CPU), M14 (linear page table), M16 (TLB), M17 (multi-level page tables), M18 (replacement policies), M19 (COW + swap), M20 (dining philosophers), M21 (FFS), M22 (lock-free CAS), and M15 (ArrayPool in async mode) are done.
 - Add `ArrayPool<byte>` to lower per-connection memory in async mode (would change the M7 numbers from 172 MB toward M6's 21 MB).
 - Add a `Retry-After` header to the M8 503 response so clients can back off intelligently.
-- Extend the **OSEP coverage gaps** in the OSEP Coverage section: paging (Ch. 14-17, §19.4 ASID, §20.4 inverted PTs, §21.4-§21.6 approximated LRU + dirty pages, §23.1 VMS demand-zeroing + RSS + segmented FIFO + second-chance list, §23.2 Linux 2Q + huge pages + 4-level PTs + NX + ASLR + KPTI), full FS (Ch. 36-45), security (Ch. 53-57), concurrency (Ch. 32.2 atomicity/order bugs, Ch. 32.3 deadlock prevention/avoidance). Each new chapter group should get its own ADR before any slices start.
+- Extend the **OSEP coverage gaps** in the OSEP Coverage section: paging (Ch. 14-17, §19.4 ASID, §20.4 inverted PTs, §21.4-§21.6 approximated LRU + dirty pages, §23.1 VMS demand-zeroing + RSS + segmented FIFO + second-chance list, §23.2 Linux 2Q + huge pages + 4-level PTs + NX + ASLR + KPTI), full FS (Ch. 36-38 RAID, Ch. 41 §41.7 sub-blocks + parameterized placement, Ch. 43 LFS, Ch. 44 flash, Ch. 45 data integrity), security (Ch. 53-57), concurrency (Ch. 32.2 atomicity/order bugs, Ch. 32.3 deadlock prevention/avoidance). Each new chapter group should get its own ADR before any slices start.
 - Extract small concepts such as request receiving, response formatting, and connection handling.
 - Add focused tests around pure logic if response formatting or request parsing is introduced.
 - Keep console output clear because it is part of the learning feedback loop.

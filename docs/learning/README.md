@@ -31,6 +31,7 @@ docs/learning/
 ├── m18-replacement/                 ← paging (Ch. 21 + Ch. 22)
 ├── m19-complete-vm/                 ← paging (Ch. 23)
 ├── m20-dining-philosophers/         ← concurrency (Ch. 31.6)
+├── m21-ffs/                         ← persistence (Ch. 41)
 ├── m22-lock-free/                   ← concurrency (Ch. 32.3)
 └── m15-arraypool/                   ← perf
 ```
@@ -60,8 +61,9 @@ Within a folder, slices are numbered sequentially (`s1`, `s2`, ...). The milesto
    - `m10-threadpool-cap/`
    - `m11-raw-syscall-demo/`
 
-3. **Persistence** (Mini FS journal):
+3. **Persistence** (Mini FS journal → FFS block-group placement):
    - `m12-mini-file-system/` (overview + 7 slices)
+   - `m21-ffs/`
 
 4. **Scheduling** (MLFQ → proportional-share → multi-CPU):
    - `m13-mlfq/`

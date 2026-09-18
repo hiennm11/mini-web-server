@@ -609,6 +609,49 @@ static void HandleClient(Socket clientSocket, string webRoot)
                 response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes(sb.ToString()));
             }
         }
+        else if (parsedRequest.Path.StartsWith("/scheduler/run"))
+        {
+            // MiniScheduler demo. ?workload=two|mixed|cpu&ticks=N&q=N&boost=M
+            string workload = "mixed";
+            int totalTicks = 80;
+            int numQueues = 4;
+            int boostEvery = 50;
+            int qIdx = parsedRequest.Path.IndexOf('?');
+            if (qIdx >= 0)
+            {
+                foreach (var kv in parsedRequest.Path.Substring(qIdx + 1).Split('&'))
+                {
+                    int eq = kv.IndexOf('=');
+                    if (eq <= 0) continue;
+                    var k = kv.Substring(0, eq);
+                    var v = kv.Substring(eq + 1);
+                    if (k == "workload") workload = v;
+                    else if (k == "ticks" && int.TryParse(v, out var t)) totalTicks = t;
+                    else if (k == "q" && int.TryParse(v, out var qn)) numQueues = qn;
+                    else if (k == "boost" && int.TryParse(v, out var b)) boostEvery = b;
+                }
+            }
+
+            System.Collections.Generic.List<MiniWebServer.Host.MiniScheduler.Job> jobs = workload switch
+            {
+                "two" => MiniWebServer.Host.MiniScheduler.Workloads.TwoJobs(),
+                "cpu" => MiniWebServer.Host.MiniScheduler.Workloads.TwoCpuBound(),
+                "mixed" => MiniWebServer.Host.MiniScheduler.Workloads.MixedWorkload(),
+                _ => new System.Collections.Generic.List<MiniWebServer.Host.MiniScheduler.Job>(),
+            };
+            if (jobs.Count == 0)
+            {
+                response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8",
+                    Encoding.UTF8.GetBytes("unknown workload (use two|cpu|mixed)\n"));
+            }
+            else
+            {
+                string trace = MiniWebServer.Host.MiniScheduler.SchedulerRunner.RunMlfq(
+                    jobs, totalTicks, numQueues, null, boostEvery);
+                response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                    Encoding.UTF8.GetBytes(trace));
+            }
+        }
         else if (parsedRequest.Path == "/qstats")
         {
             int q = WorkerPool.QueueLength;

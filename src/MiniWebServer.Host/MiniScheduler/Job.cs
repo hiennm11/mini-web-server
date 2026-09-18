@@ -36,6 +36,12 @@ public sealed class Job
     /// <summary>Slice 13.2.1: Stride pass counter (OSEP §9.3, increments by Stride per run).</summary>
     public long Pass { get; set; }
 
+    /// <summary>Slice 13.3.1: Last CPU the job ran on (OSEP §10.3 cache affinity).</summary>
+    public int LastCpu { get; set; } = -1;
+
+    /// <summary>Slice 13.3.1: Number of times this job migrated between CPUs.</summary>
+    public int MigratedCount { get; set; }
+
     public Job(int id, string name, int burstTotal, bool yieldsEarly = false, int tickets = 100)
     {
         Id = id;

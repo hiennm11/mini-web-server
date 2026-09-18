@@ -70,6 +70,58 @@ public static class Workloads
             new Job(3, "C", burstTotal: 250, tickets: 250),
         };
     }
+
+    /// <summary>
+    /// Slice 13.3.1: SQMS demo workload (OSEP §10.4 Figure - "five jobs").
+    /// Five short jobs (A-E) with burst=4 each. Total work = 20 units.
+    /// Ideal parallelism on 2 CPUs = 10 ticks; on 4 CPUs = 5 ticks.
+    /// </summary>
+    public static List<Job> SqmsDemoWorkload()
+    {
+        return new List<Job>
+        {
+            new Job(1, "A", burstTotal: 4),
+            new Job(2, "B", burstTotal: 4),
+            new Job(3, "C", burstTotal: 4),
+            new Job(4, "D", burstTotal: 4),
+            new Job(5, "E", burstTotal: 4),
+        };
+    }
+
+    /// <summary>
+    /// Slice 13.3.1: MQMS load-imbalance demo (OSEP §10.5 "A and C finish, leaving B and D").
+    /// Two long jobs (A, C) on CPU 0; two long jobs (B, D) on CPU 1.
+    /// Total work = 8 units. Ideal parallelism = 4 ticks.
+    /// Without work-stealing, B and D finish but A and C have to wait.
+    /// </summary>
+    public static List<Job> MqmsImbalanceWorkload()
+    {
+        return new List<Job>
+        {
+            new Job(1, "A", burstTotal: 4),  // initial: cpu 0
+            new Job(2, "B", burstTotal: 4),  // initial: cpu 1
+            new Job(3, "C", burstTotal: 4),  // initial: cpu 0
+            new Job(4, "D", burstTotal: 4),  // initial: cpu 1
+        };
+    }
+
+    /// <summary>
+    /// Slice 13.3.1: MQMS load-imbalance extreme (OSEP §10.5 "load imbalance").
+    /// 3 jobs on CPU 0 (A, C, E), 1 job on CPU 1 (B). All burst=4.
+    /// Total work = 16 units. Ideal parallelism = 8 ticks.
+    /// Without work-stealing: CPU 1 idles for 12 ticks; with stealing: balanced.
+    /// </summary>
+    public static List<Job> MqmsExtremeImbalanceWorkload()
+    {
+        return new List<Job>
+        {
+            new Job(1, "A", burstTotal: 4),  // initial: cpu 0
+            new Job(2, "B", burstTotal: 4),  // initial: cpu 1
+            new Job(3, "C", burstTotal: 4),  // initial: cpu 0
+            new Job(4, "D", burstTotal: 4),  // initial: cpu 0
+            new Job(5, "E", burstTotal: 4),  // initial: cpu 0
+        };
+    }
 }
 
 /// <summary>

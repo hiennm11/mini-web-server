@@ -611,11 +611,12 @@ static void HandleClient(Socket clientSocket, string webRoot)
         }
         else if (parsedRequest.Path.StartsWith("/pager/run"))
         {
-            // MiniPager demo. ?workload=seq|rand|two|array&frames=N&tlb=N&pt=linear|level2
+            // MiniPager demo. ?workload=seq|rand|two|array|exceed|cow&frames=N&tlb=N&pt=linear|level2&policy=fifo|lru|random
             string workload = "seq";
             int numFrames = 16;
             int tlbCapacity = 0;  // 0 = TLB disabled
             bool twoLevel = false; // slice 17.1
+            string policy = "fifo"; // slice 18.1
             int qIdx = parsedRequest.Path.IndexOf('?');
             if (qIdx >= 0)
             {
@@ -629,25 +630,40 @@ static void HandleClient(Socket clientSocket, string webRoot)
                     else if (k == "frames" && int.TryParse(v, out var nf)) numFrames = nf;
                     else if (k == "tlb" && int.TryParse(v, out var tlb)) tlbCapacity = tlb;
                     else if (k == "pt" && v == "level2") twoLevel = true;
+                    else if (k == "policy" && (v == "lru" || v == "random")) policy = v;
                 }
             }
 
-            string output = workload switch
+            string output;
+            if (workload == "exceed")
             {
-                "seq" => MiniWebServer.Host.MiniPager.PagerRunner.RunSingle(
-                    MiniWebServer.Host.MiniPager.Workloads.SequentialSingleProcess(), numFrames, tlbCapacity, twoLevel),
-                "rand" => MiniWebServer.Host.MiniPager.PagerRunner.RunSingle(
-                    MiniWebServer.Host.MiniPager.Workloads.RandomSingleProcess(), numFrames, tlbCapacity, twoLevel),
-                "two" => MiniWebServer.Host.MiniPager.PagerRunner.RunTwoOverlap(
-                    MiniWebServer.Host.MiniPager.Workloads.TwoProcessesOverlap(), numFrames, tlbCapacity, twoLevel),
-                "array" => MiniWebServer.Host.MiniPager.PagerRunner.RunSingle(
-                    MiniWebServer.Host.MiniPager.Workloads.ArrayAccessOsep(), numFrames, tlbCapacity, twoLevel),
-                _ => "",
-            };
+                output = MiniWebServer.Host.MiniPager.PagerRunner.RunReplacement(
+                    MiniWebServer.Host.MiniPager.Workloads.ExceedsMemory(),
+                    Math.Max(2, numFrames), tlbCapacity, policy);
+            }
+            else if (workload == "cow")
+            {
+                output = MiniWebServer.Host.MiniPager.PagerRunner.RunCow(numFrames);
+            }
+            else
+            {
+                output = workload switch
+                {
+                    "seq" => MiniWebServer.Host.MiniPager.PagerRunner.RunSingle(
+                        MiniWebServer.Host.MiniPager.Workloads.SequentialSingleProcess(), numFrames, tlbCapacity, twoLevel, policy),
+                    "rand" => MiniWebServer.Host.MiniPager.PagerRunner.RunSingle(
+                        MiniWebServer.Host.MiniPager.Workloads.RandomSingleProcess(), numFrames, tlbCapacity, twoLevel, policy),
+                    "two" => MiniWebServer.Host.MiniPager.PagerRunner.RunTwoOverlap(
+                        MiniWebServer.Host.MiniPager.Workloads.TwoProcessesOverlap(), numFrames, tlbCapacity, twoLevel, policy),
+                    "array" => MiniWebServer.Host.MiniPager.PagerRunner.RunSingle(
+                        MiniWebServer.Host.MiniPager.Workloads.ArrayAccessOsep(), numFrames, tlbCapacity, twoLevel, policy),
+                    _ => "",
+                };
+            }
             if (string.IsNullOrEmpty(output))
             {
                 response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8",
-                    Encoding.UTF8.GetBytes("unknown workload (use seq|rand|two|array)\n"));
+                    Encoding.UTF8.GetBytes("unknown workload (use seq|rand|two|array|exceed|cow)\n"));
             }
             else
             {
@@ -657,7 +673,8 @@ static void HandleClient(Socket clientSocket, string webRoot)
         }
         else if (parsedRequest.Path.StartsWith("/scheduler/run"))
         {
-            // MiniScheduler demo. ?workload=two|mixed|cpu&ticks=N&q=N&boost=M
+            // MiniScheduler demo. ?algo=mlfq|stride|lottery&workload=two|cpu|mixed|proportional&ticks=N&q=N&boost=M
+            string algo = "mlfq";
             string workload = "mixed";
             int totalTicks = 80;
             int numQueues = 4;
@@ -671,7 +688,8 @@ static void HandleClient(Socket clientSocket, string webRoot)
                     if (eq <= 0) continue;
                     var k = kv.Substring(0, eq);
                     var v = kv.Substring(eq + 1);
-                    if (k == "workload") workload = v;
+                    if (k == "algo") algo = v;
+                    else if (k == "workload") workload = v;
                     else if (k == "ticks" && int.TryParse(v, out var t)) totalTicks = t;
                     else if (k == "q" && int.TryParse(v, out var qn)) numQueues = qn;
                     else if (k == "boost" && int.TryParse(v, out var b)) boostEvery = b;
@@ -683,22 +701,113 @@ static void HandleClient(Socket clientSocket, string webRoot)
                 "two" => MiniWebServer.Host.MiniScheduler.Workloads.TwoJobs(),
                 "cpu" => MiniWebServer.Host.MiniScheduler.Workloads.TwoCpuBound(),
                 "mixed" => MiniWebServer.Host.MiniScheduler.Workloads.MixedWorkload(),
+                "proportional" => MiniWebServer.Host.MiniScheduler.Workloads.ProportionalWorkload(),
                 _ => new System.Collections.Generic.List<MiniWebServer.Host.MiniScheduler.Job>(),
             };
             if (jobs.Count == 0)
             {
                 response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8",
-                    Encoding.UTF8.GetBytes("unknown workload (use two|cpu|mixed)\n"));
+                    Encoding.UTF8.GetBytes("unknown workload (use two|cpu|mixed|proportional)\n"));
             }
             else
             {
-                string trace = MiniWebServer.Host.MiniScheduler.SchedulerRunner.RunMlfq(
-                    jobs, totalTicks, numQueues, null, boostEvery);
+                string output = algo switch
+                {
+                    "stride" => new MiniWebServer.Host.MiniScheduler.StrideScheduler(jobs).Run(totalTicks),
+                    "lottery" => new MiniWebServer.Host.MiniScheduler.LotteryScheduler(jobs).Run(totalTicks),
+                    _ => MiniWebServer.Host.MiniScheduler.SchedulerRunner.RunMlfq(
+                        jobs, totalTicks, numQueues, null, boostEvery),
+                };
                 response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
-                    Encoding.UTF8.GetBytes(trace));
+                    Encoding.UTF8.GetBytes(output));
             }
         }
-        else if (parsedRequest.Path == "/qstats")
+        else if (parsedRequest.Path.StartsWith("/multicpu/run"))
+        {
+            // Multi-CPU demo. ?mode=sqms|mqms|ws&workload=sqms|imbalance&cpus=N&ticks=M&peek=K
+            string mode = "sqms";
+            string workload = "sqms";
+            int cpus = 2;
+            int maxTicks = 30;
+            int peekInterval = 5;
+            int qIdx = parsedRequest.Path.IndexOf('?');
+            if (qIdx >= 0)
+            {
+                foreach (var kv in parsedRequest.Path.Substring(qIdx + 1).Split('&'))
+                {
+                    int eq = kv.IndexOf('=');
+                    if (eq <= 0) continue;
+                    var k = kv.Substring(0, eq);
+                    var v = kv.Substring(eq + 1);
+                    if (k == "mode") mode = v;
+                    else if (k == "workload") workload = v;
+                    else if (k == "cpus" && int.TryParse(v, out var c)) cpus = c;
+                    else if (k == "ticks" && int.TryParse(v, out var t)) maxTicks = t;
+                    else if (k == "peek" && int.TryParse(v, out var p)) peekInterval = p;
+                }
+            }
+
+            var multiMode = mode switch
+            {
+                "mqms" => MiniWebServer.Host.MiniScheduler.MultiCpuMode.Mqms,
+                "ws" => MiniWebServer.Host.MiniScheduler.MultiCpuMode.MqmsWorkStealing,
+                _ => MiniWebServer.Host.MiniScheduler.MultiCpuMode.Sqms,
+            };
+            var multicpuJobs = workload switch
+            {
+                "sqms" => MiniWebServer.Host.MiniScheduler.Workloads.SqmsDemoWorkload(),
+                "imbalance" => MiniWebServer.Host.MiniScheduler.Workloads.MqmsImbalanceWorkload(),
+                "extreme" => MiniWebServer.Host.MiniScheduler.Workloads.MqmsExtremeImbalanceWorkload(),
+                _ => new System.Collections.Generic.List<MiniWebServer.Host.MiniScheduler.Job>(),
+            };
+            if (multicpuJobs.Count == 0)
+            {
+                response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8",
+                    Encoding.UTF8.GetBytes("unknown workload (use sqms|imbalance|extreme)\n"));
+            }
+            else
+            {
+                string output = new MiniWebServer.Host.MiniScheduler.MultiCpuScheduler(
+                    multicpuJobs, cpus, multiMode, peekInterval).Run(maxTicks);
+                response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                    Encoding.UTF8.GetBytes(output));
+            }
+        }
+        else if (parsedRequest.Path.StartsWith("/dining/run"))
+        {
+            // Dining philosophers demo. ?mode=broken|fixed&philosophers=N&seconds=M&think=T&eat=E
+            string mode = "fixed";
+            int philosophers = 5;
+            int seconds = 3;
+            int thinkMs = 50;
+            int eatMs = 25;
+            int qIdx = parsedRequest.Path.IndexOf('?');
+            if (qIdx >= 0)
+            {
+                foreach (var kv in parsedRequest.Path.Substring(qIdx + 1).Split('&'))
+                {
+                    int eq = kv.IndexOf('=');
+                    if (eq <= 0) continue;
+                    var k = kv.Substring(0, eq);
+                    var v = kv.Substring(eq + 1);
+                    if (k == "mode") mode = v;
+                    else if (k == "philosophers" && int.TryParse(v, out var ph)) philosophers = ph;
+                    else if (k == "seconds" && int.TryParse(v, out var s)) seconds = s;
+                    else if (k == "think" && int.TryParse(v, out var t)) thinkMs = t;
+                    else if (k == "eat" && int.TryParse(v, out var e)) eatMs = e;
+                }
+            }
+            var diningMode = mode == "broken"
+                ? MiniWebServer.Host.MiniScheduler.DiningMode.Broken
+                : MiniWebServer.Host.MiniScheduler.DiningMode.Fixed;
+            var dining = new MiniWebServer.Host.MiniScheduler.DiningPhilosophers(
+                philosophers, diningMode, seconds, thinkMs: thinkMs, eatMs: eatMs);
+            var stats = dining.Run();
+            string output = dining.FormatReport();
+            response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                Encoding.UTF8.GetBytes(output));
+        }
+        else if (parsedRequest.Path.StartsWith("/qstats"))
         {
             int q = WorkerPool.QueueLength;
             int w = WorkerPool.WorkerCount;

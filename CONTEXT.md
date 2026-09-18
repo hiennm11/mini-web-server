@@ -42,20 +42,30 @@ The book has ~50 chapters. Repo maps **the core three pieces** (Virtualization +
 
 | Piece | Coverage | Roadmap slices |
 |---|---|---|
-| **Virtualization** | Ch. 4 process, 6 LDE, 13 address space, 26-27 thread = point of execution, 33 event-based | 1.1, 1.4, 4.4, M7 |
+| **Virtualization** | Ch. 4 process, 6 LDE, 13 address space, 26-27 thread = point of execution, 33 event-based, **Ch. 8 MLFQ (basic + boost, R1-R3 + simplified R4)**, **Ch. 18 linear page table** | 1.1, 1.4, 4.4, M7, M13.1, M14.1 |
 | **Concurrency** | Ch. 26 race, 27 thread API, 28 locks, 30 condition variables, 31 semaphores, 31.5 reader-writer, 33 event-based | 4.1–4.6, M5, M6, M7, M8, M9, M10 |
-| **Persistence** | Ch. 36 I/O devices (TCP receive loop), 39 file API (basic static files; M11 covers open/read/close syscalls; no write/seek/unlink demo), 40 vsfs layout / inode / bitmap / directory, 42 crash consistency / journaling / write-ahead log | 1.3, 1.4, M11, M12 |
+| **Persistence** | Ch. 36 I/O devices (TCP receive loop), 39 file API (basic static files; M11 covers open/read/close syscalls; no write/seek/unlink demo), Ch. 40 vsfs layout / inode / bitmap / directory, Ch. 42.3 crash consistency / journaling / data journaling mode / write-ahead log / batching / circular log | 1.3, 1.4, M11, M12.1–12.7 |
 
-**Roughly 30% of OSTEP chapters have working code in this repo.**
+**Roughly 35% of OSEP chapters have working code in this repo.**
+
+### OSEP coverage notes per slice
+
+Each slice doc notes its OSEP chapter and §-sub-section with explicit deviations:
+
+- **M13.1 (MLFQ)** — implements OSEP §8.1-§8.3 (basic MLFQ with boost) and a simplification of §8.4 anti-gaming Rule 4. See `docs/learning/slice-13-mlfq.md` "Implementation deviation vs. OSEP §8" for the gap.
+- **M14.1 (linear page table)** — implements OSEP §18.3 + §18.4 translation pipeline. Simplifications in `docs/learning/slice-14-pager.md` "Implementation deviations vs. OSEP §18" cover the TranslateOutcome naming (we conflate SEGFAULT/PAGEFAULT), missing PTE.Present + PTE.Protection bits, and not modeling the §18.5 memory-trace overhead.
+- **M12.5 (single-block journal)** — implements OSEP §42.3 data journaling mode + recovery. Documented alignment in `docs/learning/slice-12-mini-file-system.md` slice 12.5 section.
+- **M12.6 (multi-block transactions)** — implements OSEP §42.3 "Batching Log Updates" + "Making the Log Finite" (circular log via Tail pointer). Deferred: revoke records for §42.3 "Tricky Case: Block Reuse".
+- **M12.7 (rmdir)** — implements POSIX `rmdir` semantics per OSEP §40.7 (`mkdir`/`rmdir` semantics). Deferred: indirect/double-indirect block pointers.
 
 Chapters **not yet implemented** (natural next slices):
 
-- **Part I Virtualization**: Ch. 7 process API, Ch. 8-10 scheduling (MLFQ, lottery), Ch. 14-23 paging & advanced VM (TLB, multi-level page tables, swapping, complete VM systems)
+- **Part I Virtualization**: Ch. 7 process API, Ch. 9 lottery / Ch. 10 multi-CPU scheduling (M13.2/M13.3 deferred per ADR 0006), Ch. 14-17 base+bound / segmentation / free-space mgmt, Ch. 19 TLB / Ch. 20 multi-level page tables / Ch. 21 swapping / Ch. 22-23 complete VM systems (M14.2-M14.6 deferred per ADR 0007)
 - **Part II Concurrency**: Ch. 29 lock-free data structures, Ch. 31.6 dining philosophers (M9 covered Ch. 31.5 reader-writer)
-- **Part III Persistence** (largest gap): Ch. 36-38 device drivers & RAID, Ch. 39 file API is partially covered by M11 (open/read/close only — no write/seek/unlink demo), Ch. 41-45 file system implementation (FFS, journaling, LFS, flash) — M12 covers Ch. 40 vsfs and would extend into Ch. 42 via slice 12.5
+- **Part III Persistence**: Ch. 36-38 device drivers & RAID, Ch. 39 file API is partially covered by M11 (open/read/close only — no write/seek/unlink demo), Ch. 41 FFS, Ch. 43 LFS, Ch. 44 flash, Ch. 45 data integrity — M12 covers Ch. 40 vsfs + Ch. 42.3 journaling
 - **Part IV Security** (entirely untouched): Ch. 53-57
 
-The repo is best understood as an **OS concepts lab for the core three pieces**, not a full reproduction of the textbook. The concurrency chapter sweep (race observable → race fixed → pool → async) is the most complete coverage; persistence is reduced to "serve files from a directory"; virtualization covers thread/process abstraction but not CPU scheduling or paging.
+The repo is best understood as an **OS concepts lab for the core three pieces**, not a full reproduction of the textbook. The concurrency chapter sweep (race observable → race fixed → pool → async) is the most complete coverage; persistence is reduced to "serve files from a directory + journal for crash safety"; virtualization covers thread/process abstraction + MLFQ + linear paging.
 
 ## Purpose
 

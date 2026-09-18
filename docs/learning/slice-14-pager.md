@@ -4,15 +4,40 @@
 
 OSEP Ch. 18 introduces paging as the dominant approach to virtual memory in modern systems. Instead of giving each process a contiguous region of physical memory (base + bound), the OS gives each process a virtual address space, divides that space into fixed-size pages, and maintains a page table that maps each virtual page to a physical frame.
 
-The translation pipeline is:
+The translation pipeline (OSEP §18.4, Figure 18.6):
 
-1. **Decompose VA**: split the virtual address into VPN (virtual page number) and offset (within page).
-2. **Look up PTE**: index the page table by VPN → get the page table entry.
-3. **Check valid**: if the PTE is not valid → page fault.
-4. **Compute PA**: `PA = PTE.Frame * PAGE_SIZE + offset`.
-5. **Read/write physical memory** at the PA.
+```
+1. VPN = (VirtualAddress & VPN_MASK) >> SHIFT
+2. PTEAddr = PTBR + (VPN * sizeof(PTE))
+3. PTE = AccessMemory(PTEAddr)
+4. if (PTE.Valid == False)        RaiseException(SEGMENTATION_FAULT)
+5. else if (CanAccess(ProtectBits) == False)  RaiseException(PROTECTION_FAULT)
+6. else
+7.     offset = VirtualAddress & OFFSET_MASK
+8.     PhysAddr = (PTE.PFN << SHIFT) | offset
+9.     Register = AccessMemory(PhysAddr)
+```
 
-This slice implements the linear (single-level) page table — the simplest possible version.
+This slice implements the linear (single-level) page table — the simplest possible version, matching OSEP §18.3 ("Linear Page Table").
+
+### Implementation deviations vs. OSEP §18
+
+1. **TranslateOutcome naming**: OSEP distinguishes **SEGMENTATION_FAULT** (no PTE for the VPN at all) from **PROTECTION_FAULT** (PTE exists but access not allowed) from **PAGEFAULT** (PTE says "present bit = 0", i.e., needs swap-in). Our `TranslateOutcome` has only three values:
+   - `Hit` — PTE.Valid and in memory → PA computed.
+   - `PageFault` — PTE.Valid is false → no mapping. **This name is misleading**; OSEP calls this a SEGMENTATION_FAULT in the no-swap case. The literal "page fault" in OSEP terminology is reserved for "valid but not present" which requires swap (Ch. 21).
+   - `OutOfRange` — VPN beyond the configured address space.
+
+   The naming is a tradeoff: "PageFault" is the colloquial term most readers expect, even though OSEP distinguishes it from SEGFAULT. Documented.
+
+2. **PTE fields**: OSEP §18.3 lists: Valid, Protection (R/W/U/S), Present, Dirty, Reference (Accessed), PFN. Our `Pte` has only `Valid`, `FrameNo`, `Dirty`, `Referenced`. Missing: Protection bits, Present bit. The Present bit is what makes the OSEP `PAGEFAULT` distinguishable from `SEGMENTATION_FAULT`. Adding `Present` is in M14.4's plan (replacement policy uses Dirty + Referenced).
+
+3. **VA size**: OSEP examples use 16-bit VA (64-byte address space, 16-byte pages = 4 pages) for illustration, and 32-bit VA (4 GB address space, 4 KB pages) for realistic. Our simulator uses 32-bit VA / 4 KB pages (20-bit VPN), matching OSEP §18.2's "32-bit address space with 4 KB pages → 20-bit VPN" example.
+
+4. **VA decomposition in .NET**: OSEP's algorithm uses bit shifts on unsigned values. Our `Vpn` getter does `(int)((uint)Value >> 12)` to get unsigned-style right shift (preserves negative values as positive before shifting). This matches `VPN = (VirtualAddress & VPN_MASK) >> SHIFT` for 32-bit addresses.
+
+5. **§18.5 memory trace**: OSEP walks through a `for (i = 0; i < 1000; i++) array[i]++` trace showing 10 memory accesses per loop iteration (4 instruction fetches, 1 explicit store, 5 page-table accesses for translation). Our simulator doesn't model this overhead — it just reports whether each Translate succeeded or faulted. The point of the simulator is to exercise the page-table lookup path, not to measure instruction-side costs.
+
+6. **§19 TLB**: The motivation for Ch. 19's TLB is that pure paging requires "one extra memory reference in order to first fetch the translation from the page table" (§18.4). Our simulator doesn't model this cost; every Translate is O(1) array index. TLB simulation is M14.2 (deferred).
 
 ## The mini implementation
 

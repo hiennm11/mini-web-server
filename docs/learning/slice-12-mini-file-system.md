@@ -236,6 +236,18 @@ The slice implements the textbook vsfs (Very Simple File System) layout from OSE
 
 The slice implements the OSEP §42 write-ahead log protocol: every disk write goes through a journal that records the change in a reserved region before checkpointing it to its final position. The journal lets the FS recover from crashes by replaying committed-but-not-checkpointed transactions and discarding uncommitted ones.
 
+### Alignment with OSEP §42.3
+
+OSEP §42.3 introduces **data journaling** (write everything — including user data — to the journal first) as opposed to **metadata journaling** / **ordered journaling** (only metadata goes to the journal; user data is written once to its final location). Our `Journal` does **data journaling** because every `WriteBlock` goes through it, regardless of whether the block holds user data or metadata. This matches the simpler of the two journaling modes OSEP describes.
+
+OSEP §42.3 "Recovery" describes the replay algorithm: scan the log for committed transactions (TxB followed by TxE with matching TIDs) and replay them by re-issuing the writes to their final disk locations. Our `Journal.Replay()` does exactly this.
+
+OSEP §42.3 "Batching Log Updates" describes the optimization of buffering multiple writes into one transaction instead of issuing one TxB+DATA+TxE per write. This is **slice 12.6**.
+
+OSEP §42.3 "Making the Log Finite" introduces the **circular log** concept — after a transaction is checkpointed, its space can be reused. Our Tail pointer (slice 12.6) implements this.
+
+OSEP §42.3 "Tricky Case: Block Reuse" introduces **revoke records** to handle the case where a block is freed and reallocated while its old contents are still in the journal. We defer this — our simulator never frees a block during a transaction, so the scenario cannot occur. Real Linux ext3 handles this with revoke records per §42.3.
+
 ### Layout
 
 Eight disk blocks are reserved for the journal at the start of the data region:
@@ -435,11 +447,18 @@ The new tx-level read consistency is essential: without `Journal.GetPendingWrite
 
 ### OSEP concept
 
-This slice implements the second OSEP §42 lesson that slice 12.5 deferred: **batching** (the §42.3 subsection "Batching Log Updates"):
+This slice implements OSEP §42.3 "Batching Log Updates":
 
 > "Linux ext3 does not commit each update to disk one at a time ... rather, one can buffer all updates into a global transaction. ... By buffering updates, a file system can avoid excessive write traffic to disk in many cases."
 
 We extend the buffering to span a multi-block logical operation (CreateFile) into a single transaction. This is the same pattern ext3 / ext4 use for `fsync()`: group the metadata updates of a single high-level operation into one journal commit.
+
+It also implements §42.3 "Making the Log Finite" — the circular-log concept with a Tail pointer that advances past checkpointed transactions so the journal space can be reused.
+
+### §42.3 sub-sections not yet covered
+
+- "Tricky Case: Block Reuse" — needs **revoke records**. Deferred.
+- "Wrapping Up Journaling: A Timeline" — the issue of write ordering within a journal write. Our implementation assumes sequential disk writes (the simulator uses an in-memory byte array; no real disk reordering). In a real disk, the OSEP aside on "Forcing Writes to Disk" applies.
 
 ### .NET mechanism
 

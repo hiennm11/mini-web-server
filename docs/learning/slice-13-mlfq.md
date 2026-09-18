@@ -6,18 +6,34 @@ OSEP Ch. 8 introduces MLFQ as the canonical "learned" CPU scheduler. Instead of
 prioritizing jobs by type or static rules, MLFQ watches each job's behavior and
 adjusts its priority over time.
 
-The classic rules (OSEP §8.2):
+The classic rules (OSEP §8.1, refined in §8.4):
 
-- **R1**: If `Priority(A) > Priority(B)`, run A.
-- **R2**: If `Priority(A) == Priority(B)`, round-robin between them.
-- **R3**: When a job enters the system, place it at the top queue (highest priority).
-- **R4**: If a job uses its entire time slice at its current queue level, demote it to the next lower queue.
-- **R5**: After some period S, move all jobs to the topmost queue (priority boost, prevents starvation).
+- **R1**: If `Priority(A) > Priority(B)`, A runs (B doesn't).
+- **R2**: If `Priority(A) = Priority(B)`, A & B run in round-robin using the time slice of the given queue.
+- **R3**: When a job enters the system, it is placed at the highest priority (the topmost queue).
+- **R4 (§8.4 final version)**: Once a job uses up its time allotment at a given level (**regardless of how many times it has given up the CPU**), its priority is reduced (i.e., it moves down one queue).
+- **R5**: After some time period S, move all jobs in the system to the topmost queue.
 
 MLFQ's strength: a job that yields the CPU quickly (e.g., interactive — waiting
 for keyboard input) stays at the top queue and gets serviced quickly. A job that
 uses the whole slice (e.g., CPU-bound compilation) gets demoted to longer, lower-priority
 queues. The boost (R5) prevents long-running CPU jobs from starving.
+
+### Implementation deviation vs. OSEP §8
+
+Our `Mlfq` class implements a simplified subset of the rules. The key simplifications:
+
+1. **R4 — single slice vs. allotment**: OSEP §8.4 explicitly refines the original §8.2 rules (Rule 4a + 4b) into a single Rule 4 that demotes based on **total CPU time consumed at a level** (the *allotment*), not on a single time slice. The allotment can span multiple time slices. The §8.4 Rule 4 prevents gaming: a job that yields the CPU just before its slice ends can no longer stay at the same priority.
+
+   Our implementation uses `YieldsEarly` as a per-job boolean hint. When `YieldsEarly=false`, we demote on the first slice expiry. When `YieldsEarly=true`, we never demote. This is the **original §8.2 Rule 4a/4b** behavior, not the §8.4 anti-gaming Rule 4. Documented as a simplification.
+
+2. **Boost default**: OSEP §8.3 example uses 100 ms; we default to 50 ticks (configurable). Tunable per workload.
+
+3. **Queue count and slices**: OSEP examples use 3 queues (10/20/40 ms slices). We use 4 queues (10/20/40/80 ticks). Doubling per level matches both the OSEP example and the Solaris TS default (§8.5: 60 queues, 20 ms to "a few hundred ms").
+
+4. **Solaris default**: §8.5 mentions "60 queues, with slowly increasing time-slice lengths from 20 milliseconds (highest priority) to a few hundred milliseconds (lowest), and priorities boosted around every 1 second or so". Our default is much smaller (4 queues, 50 ticks) — sized for the simulator, not for a real OS.
+
+5. **§8.5 "decay usage" schedulers** (FreeBSD): not implemented. OSEP notes these are an alternative approach that "adjust priorities using mathematical formulae" rather than discrete rules.
 
 ## The mini implementation
 
@@ -84,10 +100,7 @@ boosts=4 demotes=9 finishes=6
 
 ## OSEP concept
 
-This slice implements §8 in full: rules R1-R5 are all present. The trace output
-is exactly the kind of step-by-step analysis OSEP §8.6 uses to illustrate MLFQ's
-behavior. The synthetic workloads mirror §8.6's "long-running job + interactive
-job" and "I/O-aware jobs" examples.
+This slice implements §8.1-§8.3 (basic MLFQ with boost) and a simplification of §8.4 (anti-gaming accounting). The trace output is exactly the kind of step-by-step analysis OSEP §8.6 uses to illustrate MLFQ's behavior. The synthetic workloads mirror §8.6's "long-running job + interactive job" and "I/O-aware jobs" examples.
 
 ## .NET mechanism
 

@@ -41,6 +41,22 @@ public sealed class PhysicalMemory
         _bytes[pa] = value;
     }
 
+    /// <summary>Read a block of bytes from physical memory.</summary>
+    public void ReadBytes(int pa, byte[] dest, int count)
+    {
+        if (pa < 0 || pa + count > _bytes.Length)
+            throw new ArgumentOutOfRangeException(nameof(pa));
+        Array.Copy(_bytes, pa, dest, 0, count);
+    }
+
+    /// <summary>Write a block of bytes to physical memory.</summary>
+    public void WriteBytes(int pa, byte[] src)
+    {
+        if (pa < 0 || pa + src.Length > _bytes.Length)
+            throw new ArgumentOutOfRangeException(nameof(pa));
+        Array.Copy(src, 0, _bytes, pa, src.Length);
+    }
+
     /// <summary>Total physical memory in bytes.</summary>
     public int SizeBytes => _bytes.Length;
 }

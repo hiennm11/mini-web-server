@@ -3,18 +3,48 @@ using System.Collections.Generic;
 namespace MiniWebServer.Host.MiniPager;
 
 /// <summary>
+/// Page-table lookup result. OSEP §21.2 "The Present Bit" — three states:
+///   - Hit: VPN → FrameNo, in physical memory.
+///   - InSwap: VPN was evicted; SwapSlot is the swap location.
+///   - Miss: no valid mapping at all.
+/// </summary>
+public enum LookupResult
+{
+    Hit,
+    InSwap,
+    Miss,
+}
+
+/// <summary>
 /// Page-table lookup strategy. The Pager uses one of these per process.
 ///
 /// Slice 14.1: <see cref="LinearLookup"/> — flat array indexed by VPN.
 /// Slice 17.1: <see cref="TwoLevelLookup"/> — page directory + page tables.
+/// Slice 18.1: both lookups can return <see cref="LookupResult.InSwap"/>
+/// for evicted pages (see <see cref="SwappablePte"/>).
 /// </summary>
 public interface IPageTableLookup
 {
-    /// <summary>Translate a VPN to a frame number. Returns false if no valid mapping.</summary>
-    bool TryTranslate(int vpn, out int frameNo);
+    /// <summary>
+    /// Translate a VPN. Returns Hit (with frameNo), InSwap (with swapSlot),
+    /// or Miss.
+    /// </summary>
+    LookupResult TryLookup(int vpn, out int frameNo, out int swapSlot);
 
     /// <summary>Set a VPN → frame mapping. Allocates inner pages as needed.</summary>
     void Map(int vpn, int frameNo);
+
+    /// <summary>
+    /// Mark the VPN as in-memory with the given frame. Used after a
+    /// swap-in (M18) loads a page from swap into a frame.
+    /// </summary>
+    void RestoreFromSwap(int vpn, int frameNo);
+
+    /// <summary>
+    /// Mark the VPN as evicted to the given swap slot. The frame is
+    /// now free for reuse.
+    /// </summary>
+    void EvictToSwap(int vpn, int swapSlot);
 
     /// <summary>How many bytes the page table uses (PGD + PT pages, or flat array).</summary>
     int MemoryBytes { get; }
@@ -29,34 +59,37 @@ public interface IPageTableLookup
 /// <summary>
 /// Linear page table lookup (slice 14.1).
 /// OSEP §18.3 "Linear Page Table".
+/// Slice 18.1: extended to support swap (PTEs can be in memory or in swap).
 /// </summary>
 public sealed class LinearLookup : IPageTableLookup
 {
-    private readonly Pte[] _ptes;
+    private readonly SwappablePte[] _ptes;
     public int Capacity => _ptes.Length;
-    public int MemoryBytes => _ptes.Length * System.Runtime.InteropServices.Marshal.SizeOf<Pte>();
+    public int MemoryBytes => _ptes.Length * System.Runtime.InteropServices.Marshal.SizeOf<SwappablePte>();
     public int PopulatedEntries
     {
         get
         {
             int n = 0;
-            for (int i = 0; i < _ptes.Length; i++) if (_ptes[i].Valid) n++;
+            for (int i = 0; i < _ptes.Length; i++) if (_ptes[i].Valid || _ptes[i].InSwap) n++;
             return n;
         }
     }
 
     public LinearLookup(int numPages = 1 << 20)
     {
-        _ptes = new Pte[numPages];
+        _ptes = new SwappablePte[numPages];
     }
 
-    public bool TryTranslate(int vpn, out int frameNo)
+    public LookupResult TryLookup(int vpn, out int frameNo, out int swapSlot)
     {
         frameNo = -1;
-        if (vpn < 0 || vpn >= _ptes.Length) return false;
-        if (!_ptes[vpn].Valid) return false;
-        frameNo = _ptes[vpn].FrameNo;
-        return true;
+        swapSlot = -1;
+        if (vpn < 0 || vpn >= _ptes.Length) return LookupResult.Miss;
+        var pte = _ptes[vpn];
+        if (pte.Valid) { frameNo = pte.FrameNo; return LookupResult.Hit; }
+        if (pte.InSwap) { swapSlot = pte.SwapSlot; return LookupResult.InSwap; }
+        return LookupResult.Miss;
     }
 
     public void Map(int vpn, int frameNo)
@@ -64,7 +97,22 @@ public sealed class LinearLookup : IPageTableLookup
         if (vpn < 0 || vpn >= _ptes.Length)
             throw new ArgumentOutOfRangeException(nameof(vpn));
         if (frameNo < 0) throw new ArgumentOutOfRangeException(nameof(frameNo));
-        _ptes[vpn] = new Pte { Valid = true, FrameNo = frameNo };
+        _ptes[vpn] = new SwappablePte { Valid = true, FrameNo = frameNo };
+    }
+
+    public void RestoreFromSwap(int vpn, int frameNo)
+    {
+        if (vpn < 0 || vpn >= _ptes.Length)
+            throw new ArgumentOutOfRangeException(nameof(vpn));
+        _ptes[vpn] = new SwappablePte { Valid = true, FrameNo = frameNo };
+    }
+
+    public void EvictToSwap(int vpn, int swapSlot)
+    {
+        if (vpn < 0 || vpn >= _ptes.Length)
+            throw new ArgumentOutOfRangeException(nameof(vpn));
+        if (swapSlot < 0) throw new ArgumentOutOfRangeException(nameof(swapSlot));
+        _ptes[vpn] = new SwappablePte { InSwap = true, SwapSlot = swapSlot };
     }
 }
 
@@ -81,6 +129,7 @@ public sealed class LinearLookup : IPageTableLookup
 /// don't store them in <see cref="PhysicalMemory"/> (the simulator
 /// already has the frame table; storing PT pages there would be
 /// realistic but complicates allocation).
+/// Slice 18.1: PTEs can be in memory or in swap.
 /// </summary>
 public sealed class TwoLevelLookup : IPageTableLookup
 {
@@ -99,8 +148,6 @@ public sealed class TwoLevelLookup : IPageTableLookup
     {
         get
         {
-            // PGD: 1024 PDEs × 8 bytes (Valid + long) = 8 KB
-            // Each populated PT: 1024 PTEs × ~16 bytes = 16 KB
             int bytes = PgdSize * System.Runtime.InteropServices.Marshal.SizeOf<PageDirectoryEntry>();
             bytes += _pts.Count * (PtSize * System.Runtime.InteropServices.Marshal.SizeOf<PageTableEntry>());
             return bytes;
@@ -110,7 +157,7 @@ public sealed class TwoLevelLookup : IPageTableLookup
     {
         get
         {
-            int n = _pgd.PopulatedCount();  // each is 1 PDE entry
+            int n = _pgd.PopulatedCount();
             foreach (var pt in _pts.Values) n += pt.MappedCount();
             return n;
         }
@@ -121,7 +168,6 @@ public sealed class TwoLevelLookup : IPageTableLookup
         _pgd = new PageDirectory(PgdSize);
     }
 
-    /// <summary>Decompose VPN into PGD index and PT index.</summary>
     public static (int pgdIndex, int ptIndex) Decompose(int vpn)
     {
         int pgd = vpn >> PtBits;
@@ -129,18 +175,20 @@ public sealed class TwoLevelLookup : IPageTableLookup
         return (pgd, pt);
     }
 
-    public bool TryTranslate(int vpn, out int frameNo)
+    public LookupResult TryLookup(int vpn, out int frameNo, out int swapSlot)
     {
         frameNo = -1;
-        if (vpn < 0 || vpn >= Capacity) return false;
+        swapSlot = -1;
+        if (vpn < 0 || vpn >= Capacity) return LookupResult.Miss;
         var (pgd, pt) = Decompose(vpn);
         var pde = _pgd.Get(pgd);
-        if (!pde.Valid) return false;
-        if (!_pts.TryGetValue(pgd, out var inner)) return false;
+        if (!pde.Valid) return LookupResult.Miss;
+        if (!_pts.TryGetValue(pgd, out var inner)) return LookupResult.Miss;
         var pte = inner.Get(pt);
-        if (!pte.Valid) return false;
-        frameNo = pte.FrameNo;
-        return true;
+        if (pte.Valid) { frameNo = pte.FrameNo; return LookupResult.Hit; }
+        // PTE has Valid bit; InSwap semantics would require extending
+        // PageTableEntry. For M18 we use LinearLookup for swap demos.
+        return LookupResult.Miss;
     }
 
     public void Map(int vpn, int frameNo)
@@ -156,6 +204,22 @@ public sealed class TwoLevelLookup : IPageTableLookup
             _pgd.Set(pgd, new PageDirectoryEntry { Valid = true, PageTableFrame = pgd });
         }
         inner.Set(pt, new PageTableEntry { Valid = true, FrameNo = frameNo });
+    }
+
+    public void RestoreFromSwap(int vpn, int frameNo)
+    {
+        var (pgd, pt) = Decompose(vpn);
+        if (!_pts.TryGetValue(pgd, out var inner))
+            throw new InvalidOperationException($"no PT for pgd {pgd}");
+        inner.Set(pt, new PageTableEntry { Valid = true, FrameNo = frameNo });
+    }
+
+    public void EvictToSwap(int vpn, int swapSlot)
+    {
+        var (pgd, pt) = Decompose(vpn);
+        if (!_pts.TryGetValue(pgd, out var inner))
+            throw new InvalidOperationException($"no PT for pgd {pgd}");
+        inner.Set(pt, PageTableEntry.Empty);
     }
 }
 
@@ -181,10 +245,15 @@ public sealed class Pager
 {
     private readonly Dictionary<int, IPageTableLookup> _lookups = new();
     private readonly List<TraceEvent> _trace = new();
+    private readonly FrameInfo[] _frames;
     private int _step;
 
     public PhysicalMemory Memory { get; }
+    public Swap Swap { get; }
+    public IEvictionPolicy Eviction { get; set; } = new FifoEviction();
     public int NumFramesAllocated { get; private set; }
+    public int Evictions { get; private set; }
+    public int SwapIns { get; private set; }
 
     public IReadOnlyList<TraceEvent> Trace => _trace;
     public IEnumerable<IPageTableLookup> AllPageTables => _lookups.Values;
@@ -192,6 +261,9 @@ public sealed class Pager
     public Pager(int numFrames)
     {
         Memory = new PhysicalMemory(numFrames);
+        Swap = new Swap();
+        _frames = new FrameInfo[numFrames];
+        for (int i = 0; i < numFrames; i++) _frames[i] = new FrameInfo { FrameNo = i };
     }
 
     /// <summary>Create a page table for a new process. Default is linear; pass <c>twoLevel: true</c> for 2-level.</summary>
@@ -213,20 +285,29 @@ public sealed class Pager
     /// </summary>
     public Tlb? Tlb { get; set; }
 
+    /// <summary>Reset all frame allocations (clear all memory). Used for repeatable smoke runs.</summary>
+    public void ResetFrames()
+    {
+        for (int i = 0; i < _frames.Length; i++) _frames[i] = new FrameInfo { FrameNo = i };
+        NumFramesAllocated = 0;
+        Evictions = 0;
+        SwapIns = 0;
+    }
+
     /// <summary>
     /// Translate <paramref name="va"/> for the given process.
     /// Returns the outcome; if <see cref="TranslateOutcome.Hit"/>
     /// the <paramref name="pa"/> parameter is set.
     ///
-    /// Slice 16.1 (TLB): if <see cref="Tlb"/> is non-null, the TLB is
-    /// consulted first. On a TLB hit, we skip the page-table walk entirely
-    /// (OSEP §19.1 line 6). On a TLB miss, we walk the page table and
-    /// then TLB_Insert() the result (OSEP §19.1 line 18).
-    ///
-    /// Slice 17.1 (multi-level): the page-table walk now goes through
-    /// <see cref="IPageTableLookup.TryTranslate"/>, which dispatches to
-    /// either <see cref="LinearLookup"/> (M14.1) or <see cref="TwoLevelLookup"/>
-    /// (M17.1) depending on what was created.
+    /// Slice 16.1 (TLB): TLB consulted first (OSEP §19.1 line 6).
+    /// Slice 17.1 (multi-level): page-table walk dispatches to
+    /// <see cref="IPageTableLookup.TryLookup"/>.
+    /// Slice 18.1 (replacement): if <see cref="LookupResult.InSwap"/>
+    /// is returned, we bring the page back from swap (need a free
+    /// frame; if none, evict one). If <see cref="LookupResult.Miss"/>
+    /// is returned AND the VPN was never mapped (not just evicted),
+    /// we report a hard page fault — the simulator cannot allocate
+    /// from disk on first touch.
     /// </summary>
     public TranslateOutcome Translate(int pid, int vaValue, out int pa)
     {
@@ -250,9 +331,11 @@ public sealed class Pager
             return TranslateOutcome.OutOfRange;
         }
 
-        // Slice 16.1: TLB lookup first (OSEP §19.1 Figure 19.1 line 2).
+        // Slice 16.1: TLB lookup first (OSEP §19.1 line 2).
         if (Tlb is not null && Tlb.Lookup(pid, va.Vpn, out int tlbPfn))
         {
+            // Update eviction-policy LRU recency (M18).
+            Eviction.OnAccess(_frames, tlbPfn, _step);
             pa = tlbPfn * VirtualAddress.PAGE_SIZE + va.Offset;
             var paFromTlb = new PhysicalAddress(pa);
             var tlbHit = new TraceEvent(_step, pid, va.ToString(), paFromTlb.ToString(),
@@ -261,38 +344,165 @@ public sealed class Pager
             return TranslateOutcome.Hit;
         }
 
-        // TLB miss -> walk page table (OSEP §19.1 line 12).
-        // Slice 17.1: dispatches to LinearLookup or TwoLevelLookup.
-        if (!pt.TryTranslate(va.Vpn, out int pteFrameNo))
+        // TLB miss -> walk page table.
+        var result = pt.TryLookup(va.Vpn, out int pteFrameNo, out int swapSlot);
+
+        if (result == LookupResult.Miss)
         {
-            var ev = new TraceEvent(_step, pid, va.ToString(), null,
-                TranslateOutcome.PageFault, $"vpn {va.Vpn} not mapped (no swap in slice 14.1)");
-            _trace.Add(ev);
-            return TranslateOutcome.PageFault;
+            // OSEP §21.4 "Page-Fault Control Flow" step 3-7: this is a
+            // first-touch (the page is unmapped). In a real OS this
+            // loads from the executable file. Our simulator treats
+            // this as "zero the page" and allocates a frame (which may
+            // trigger eviction if memory is full).
+            Map(pid, va.Vpn, frameNo: -1);
+            // Re-do the lookup (the map just installed the PTE).
+            result = pt.TryLookup(va.Vpn, out pteFrameNo, out swapSlot);
+            if (result != LookupResult.Hit)
+            {
+                var ev = new TraceEvent(_step, pid, va.ToString(), null,
+                    TranslateOutcome.PageFault, $"vpn {va.Vpn} map-after-fault failed");
+                _trace.Add(ev);
+                return TranslateOutcome.PageFault;
+            }
+            var firstTouch = new TraceEvent(_step, pid, va.ToString(), new PhysicalAddress(pteFrameNo * VirtualAddress.PAGE_SIZE + va.Offset).ToString(),
+                TranslateOutcome.Hit, $"first-touch frame={pteFrameNo}");
+            _trace.Add(firstTouch);
+            Tlb?.Insert(pid, va.Vpn, pteFrameNo);
+            pa = pteFrameNo * VirtualAddress.PAGE_SIZE + va.Offset;
+            return TranslateOutcome.Hit;
         }
 
-        // OSEP §19.1 line 18: TLB_Insert after successful page-table walk.
+        if (result == LookupResult.InSwap)
+        {
+            // OSEP §21.4 "Page-Fault Control Flow" step 9: read page
+            // back from swap into a free frame.
+            int freeFrame = FindFreeFrame();
+            if (freeFrame < 0)
+            {
+                // OSEP §22.5: pick a victim to evict.
+                freeFrame = Eviction.PickVictim(_frames);
+                EvictFrame(freeFrame);
+            }
+            // OSEP §21.4 step 8: read from swap.
+            var frameBuf = new byte[VirtualAddress.PAGE_SIZE];
+            Swap.ReadIn(swapSlot, frameBuf);
+            Swap.Free(swapSlot);
+            Memory.WriteBytes(freeFrame * VirtualAddress.PAGE_SIZE, frameBuf);
+            pt.RestoreFromSwap(va.Vpn, freeFrame);
+            _frames[freeFrame].OwnerPid = pid;
+            _frames[freeFrame].Vpn = va.Vpn;
+            Eviction.OnAllocate(_frames, freeFrame, _step);
+            SwapIns++;
+            Tlb?.Insert(pid, va.Vpn, freeFrame);
+            pteFrameNo = freeFrame;
+        }
+        else
+        {
+            // Already in memory. Update eviction-policy LRU recency.
+            Eviction.OnAccess(_frames, pteFrameNo, _step);
+            // OnAllocate just records InsertedTick for FIFO; for LRU
+            // we already set LastUsedTick in OnAccess. No-op here.
+        }
+
+        // OSEP §19.1 line 18: TLB_Insert.
         Tlb?.Insert(pid, va.Vpn, pteFrameNo);
 
         pa = pteFrameNo * VirtualAddress.PAGE_SIZE + va.Offset;
-        var paFromPt = new PhysicalAddress(pa);
-        var ptLabel = pt is TwoLevelLookup ? $"pt-walk-2lvl frame={pteFrameNo}" : $"pt-walk frame={pteFrameNo}";
-        var ptHit = new TraceEvent(_step, pid, va.ToString(), paFromPt.ToString(),
-            TranslateOutcome.Hit, ptLabel);
-        _trace.Add(ptHit);
+        var paStruct = new PhysicalAddress(pa);
+        var label = result == LookupResult.InSwap
+            ? $"swap-in frame={pteFrameNo}"
+            : (pt is TwoLevelLookup ? $"pt-walk-2lvl frame={pteFrameNo}" : $"pt-walk frame={pteFrameNo}");
+        var ev2 = new TraceEvent(_step, pid, va.ToString(), paStruct.ToString(),
+            TranslateOutcome.Hit, label);
+        _trace.Add(ev2);
         return TranslateOutcome.Hit;
     }
 
-    /// <summary>Map <paramref name="vpn"/> of <paramref name="pid"/> to <paramref name="frameNo"/>.</summary>
-    public void Map(int pid, int vpn, int frameNo)
+    private int FindFreeFrame()
+    {
+        for (int i = 0; i < _frames.Length; i++)
+            if (!_frames[i].Allocated) return i;
+        return -1;
+    }
+
+    /// <summary>
+    /// OSEP §22.5 "Pick the victim" + §21.4 "If there is no free frame":
+    /// write the victim's frame contents to swap, mark the frame free,
+    /// mark the victim's PTE as in-swap.
+    /// </summary>
+    private void EvictFrame(int frameNo)
+    {
+        var victim = _frames[frameNo];
+        if (!victim.Allocated) return; // shouldn't happen
+        // Save the frame's bytes to swap.
+        var buf = new byte[VirtualAddress.PAGE_SIZE];
+        Memory.ReadBytes(frameNo * VirtualAddress.PAGE_SIZE, buf, VirtualAddress.PAGE_SIZE);
+        int slot = Swap.WriteOut(buf);
+        // Mark the victim's PTE as in-swap.
+        if (_lookups.TryGetValue(victim.OwnerPid, out var pt))
+        {
+            pt.EvictToSwap(victim.Vpn, slot);
+        }
+        // Flush the TLB entry for the evicted page.
+        if (Tlb is not null) Tlb.Flush();
+        // Free the frame.
+        victim.OwnerPid = -1;
+        victim.Vpn = -1;
+        victim.Allocated = false;
+        Memory.ZeroFrame(frameNo);
+        Evictions++;
+    }
+
+    /// <summary>
+    /// Map <paramref name="vpn"/> of <paramref name="pid"/> to a physical frame.
+    /// If <paramref name="frameNo"/> is -1, the pager picks a free frame (or evicts one if none free).
+    /// If the VPN is already in swap, the swap contents are loaded into the new frame.
+    /// </summary>
+    public void Map(int pid, int vpn, int frameNo = -1)
     {
         if (!_lookups.TryGetValue(pid, out var pt))
             throw new InvalidOperationException($"pid {pid} not found");
-        if (frameNo < 0 || frameNo >= Memory.NumFrames)
-            throw new ArgumentOutOfRangeException(nameof(frameNo));
-        pt.Map(vpn, frameNo);
-        Memory.ZeroFrame(frameNo);
-        if (frameNo >= NumFramesAllocated) NumFramesAllocated = frameNo + 1;
+        if (vpn < 0 || vpn >= pt.Capacity)
+            throw new ArgumentOutOfRangeException(nameof(vpn));
+
+        int chosenFrame;
+        if (frameNo >= 0)
+        {
+            chosenFrame = frameNo;
+        }
+        else
+        {
+            chosenFrame = FindFreeFrame();
+            if (chosenFrame < 0)
+            {
+                chosenFrame = Eviction.PickVictim(_frames);
+                EvictFrame(chosenFrame);
+            }
+        }
+
+        // OSEP §21.4 step 7-9: if the VPN is in swap, read it back into
+        // the frame instead of zeroing the frame.
+        var lookup = pt.TryLookup(vpn, out _, out int swapSlot);
+        if (lookup == LookupResult.InSwap)
+        {
+            var frameBuf = new byte[VirtualAddress.PAGE_SIZE];
+            Swap.ReadIn(swapSlot, frameBuf);
+            Swap.Free(swapSlot);
+            Memory.WriteBytes(chosenFrame * VirtualAddress.PAGE_SIZE, frameBuf);
+            pt.RestoreFromSwap(vpn, chosenFrame);
+            SwapIns++;
+        }
+        else
+        {
+            // First-touch: zero the frame.
+            pt.Map(vpn, chosenFrame);
+        }
+
+        _frames[chosenFrame].OwnerPid = pid;
+        _frames[chosenFrame].Vpn = vpn;
+        _frames[chosenFrame].Allocated = true;
+        Eviction.OnAllocate(_frames, chosenFrame, _step);
+        if (chosenFrame >= NumFramesAllocated) NumFramesAllocated = chosenFrame + 1;
     }
 
     public PagerStats Stats()

@@ -106,6 +106,29 @@ public static class Workloads
         }
         return list;
     }
+
+    /// <summary>
+    /// OSEP §22.6 "Workload Examples" — accesses MORE pages than physical
+    /// memory. This forces evictions and demonstrates the replacement
+    /// policy in action. With numFrames=4 and numPages=10, the workload
+    /// cycles through 10 pages sequentially, evicting one per access
+    /// after the first 4.
+    /// </summary>
+    public static List<MemoryAccess> ExceedsMemory(int numPages = 10, int passes = 3, int seed = 42)
+    {
+        var list = new List<MemoryAccess>();
+        for (int p = 0; p < passes; p++)
+        {
+            for (int vpn = 0; vpn < numPages; vpn++)
+            {
+                list.Add(new MemoryAccess(
+                    Pid: 1,
+                    VirtualAddressValue: vpn * VirtualAddress.PAGE_SIZE,
+                    Kind: AccessKind.Read));
+            }
+        }
+        return list;
+    }
 }
 
 /// <summary>Run a workload against a pager pre-populated with mappings.</summary>
@@ -115,23 +138,48 @@ public static class PagerRunner
     /// Set up the pager with one process and pre-map 4 pages (vpn 0-3)
     /// to frames 0-3. Then run the workload and emit the trace.
     /// </summary>
-    public static string RunSingle(IEnumerable<MemoryAccess> accesses, int numFrames = 16, int tlbCapacity = 0, bool twoLevel = false)
+    public static string RunSingle(IEnumerable<MemoryAccess> accesses, int numFrames = 16, int tlbCapacity = 0, bool twoLevel = false, string policy = "fifo")
     {
         var pager = new Pager(numFrames);
         pager.CreateProcess(1, twoLevel);
+        pager.Eviction = MakePolicy(policy);
         for (int i = 0; i < 4; i++) pager.Map(1, i, i);
         return RunInternal(pager, accesses, tlbCapacity);
     }
 
-    public static string RunTwoOverlap(IEnumerable<MemoryAccess> accesses, int numFrames = 16, int tlbCapacity = 0, bool twoLevel = false)
+    public static string RunTwoOverlap(IEnumerable<MemoryAccess> accesses, int numFrames = 16, int tlbCapacity = 0, bool twoLevel = false, string policy = "fifo")
     {
         var pager = new Pager(numFrames);
         pager.CreateProcess(1, twoLevel);
         pager.CreateProcess(2, twoLevel);
+        pager.Eviction = MakePolicy(policy);
         for (int i = 0; i < 4; i++) pager.Map(1, i, i);
         for (int i = 0; i < 4; i++) pager.Map(2, i, 4 + i);
         return RunInternal(pager, accesses, tlbCapacity);
     }
+
+    /// <summary>
+    /// Slice 18.1 workload: pre-map ALL pages the workload will touch
+    /// (no initial eviction needed; evictions happen during the workload
+    /// as physical memory fills up).
+    /// </summary>
+    public static string RunReplacement(IEnumerable<MemoryAccess> accesses, int numFrames = 4, int tlbCapacity = 0, string policy = "fifo")
+    {
+        var pager = new Pager(numFrames);
+        pager.CreateProcess(1);
+        pager.Eviction = MakePolicy(policy);
+        // No pre-map — let the workload allocate frames dynamically via
+        // Pager.Map(vpn=-1). The first numFrames accesses map to free
+        // frames; subsequent accesses trigger evictions.
+        return RunInternal(pager, accesses, tlbCapacity);
+    }
+
+    private static IEvictionPolicy MakePolicy(string policy) => policy switch
+    {
+        "lru" => new LruEviction(),
+        "random" => new RandomEviction(),
+        _ => new FifoEviction(),
+    };
 
     private static string RunInternal(Pager pager, IEnumerable<MemoryAccess> accesses, int tlbCapacity)
     {
@@ -159,7 +207,7 @@ public static class PagerRunner
         var ptMode = pager.AllPageTables.FirstOrDefault() is TwoLevelLookup ? "2-level" : "linear";
         sb.AppendLine($"=== Pager run: {pager.Memory.NumFrames} frames ({pager.Memory.SizeBytes} bytes physical)"
                        + (pager.Tlb is not null ? $", TLB capacity={pager.Tlb.Capacity}" : ", TLB=disabled")
-                       + $", PT mode={ptMode}");
+                       + $", PT mode={ptMode}, eviction={pager.Eviction.Name}");
         sb.AppendLine();
         foreach (var a in accesses)
         {
@@ -177,6 +225,8 @@ public static class PagerRunner
         {
             sb.AppendLine($"=== TLB stats: hits={tlbStats.Hits} misses={tlbStats.Misses} evictions={tlbStats.Evictions} hit_rate={tlbStats.HitRate:F3}");
         }
+        sb.AppendLine($"=== Replacement stats: evictions={pager.Evictions} swap_ins={pager.SwapIns}");
+        sb.AppendLine($"=== Swap usage: {pager.Swap.UsedSlots} of {pager.Swap.Capacity} slots");
         if (pager.AllPageTables.FirstOrDefault() is TwoLevelLookup)
         {
             sb.AppendLine($"=== PT memory: 2-level used {twoLevelBytes:N0} bytes vs linear would use {linearBytes:N0} bytes (saved {linearBytes - twoLevelBytes:N0})");

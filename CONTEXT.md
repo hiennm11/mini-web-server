@@ -29,11 +29,12 @@ Updated 2026-09-17. Legend: ✅ built + experimented + noted · 🟡 planned · 
 | M12 (12.7) | Mini FS atomic rmdir: empty-only check + Begin/Commit around DirUnlink + Idestroy | Ch. 40.7 (`rmdir`) | ✅ |
 | M13 (13.1) | Mini MLFQ: multi-level feedback queue with priority boost | Ch. 8 | ✅ |
 | M14 (14.1) | Mini Pager: linear page table + VA→PA translation + page fault | Ch. 18 | ✅ |
+| M15 | ArrayPool&lt;byte&gt; in async mode (receive + response buffers) | n/a (perf) | ✅ |
 
-**Milestones**: M1 ✅–M14 (14.1) ✅. M8–M14 are the post-roadmap extensions per `docs/adr/0004-extend-broad-concurrency-roadmap.md` (M8–M12), `docs/adr/0006-mini-scheduler-mlfq-proportional-multicpu.md` (M13), and `docs/adr/0007-mini-pager-mmu-tlb-multilevel-replacement.md` (M14); the original 12-slice roadmap is closed. M12 slices 12.5/12.6/12.7 (Mini FS journal + multi-block transactions + atomic rmdir), M13.1 (MLFQ scheduler), and M14.1 (linear page table + VA→PA translation) are now done.
+**Milestones**: M1 ✅–M15 ✅. M8–M15 are the post-roadmap extensions per `docs/adr/0004-extend-broad-concurrency-roadmap.md` (M8–M12), `docs/adr/0006-mini-scheduler-mlfq-proportional-multicpu.md` (M13), `docs/adr/0007-mini-pager-mmu-tlb-multilevel-replacement.md` (M14), and M15 is a standalone performance slice. The original 12-slice roadmap is closed. Latest: M12.5/12.6/12.7 (Mini FS journal + multi-block transactions + atomic rmdir), M13.1 (MLFQ scheduler), M14.1 (linear page table), M15 (ArrayPool in async mode — modest 9% reduction, see `docs/learning/slice-15-arraypool.md` for honest assessment).
 **Tests**: 15 passing (8 prior + 7 new for `HttpRequestReceiver`).
 **Code/runtime**: `net10.0`. Two run modes selectable via `--async` flag: default = bounded worker pool (8 threads) + producer/consumer queue, async = `AcceptAsync` + `Task` per connection with `ReceiveAsync` / `SendAsync`. Port 8080, static files under `wwwroot`.
-**Latest commit**: Milestone 14 (slice 14.1) — linear page table + VA→PA translation. New `MiniPager` library with `VirtualAddress` / `PhysicalAddress` (readonly record struct, decompose into VPN + offset), `Pte` (valid/frame/dirty/referenced), `PhysicalMemory` (flat byte array of `numFrames * PAGE_SIZE`), `PageTable` (per-process linear array of PTE), `Pager` (multi-process manager with Translate pipeline), and `Workloads` (Sequential/Random/TwoProcessesOverlap + PagerRunner). HTTP route `/pager/run?workload=seq|rand|two&frames=N` returns the trace as plain text. New ADR 0007 documents the paging roadmap (M14.1–M14.6 covering OSEP Ch. 18/19/20/21/22). Smoke: sequential = 16/0 hits/faults; random = 11/9 (only vpn 0-3 mapped); two-process = 12/0 hits/faults (pid 1 frames 0-3, pid 2 frames 4-7); unknown workload → 400. Build clean, 15/15 tests pass.
+**Latest commit**: Milestone 15 — ArrayPool<byte> in async mode. `AsyncServer.HandleClientAsync` now rents the 16 KB receive buffer from `ArrayPool<byte>.Shared.Rent` (instead of `new byte[MaxRequestBytes]`) and returns it in a finally block; the response is serialized via new `HttpResponse.WriteTo(byte[] dest)` into a 4 KB rented buffer. Measured under 150 parked /slow clients: working set 172 MB → 157 MB (~9% reduction). The expected 172 → 21 MB win did not materialize — the receive buffer wasn't the dominant cost; per-Task state machines parked at `Task.Delay(30000)` and per-request `HttpRequest` allocations dominate. Build clean, 15/15 tests pass.
 
 ## OSTEP Coverage
 
@@ -213,7 +214,7 @@ After both passes, every "Key point from OSEP §X.Y" should match the cited chap
 
 Useful directions that fit the project:
 
-- Extend concurrency via the next-milestones roadmap in `docs/adr/0004-extend-broad-concurrency-roadmap.md`. M8 (bounded queue + 503), M9 (reader-writer lock + cache), M10 (ThreadPool cap), M11 (raw open/read/close syscall demo), M12 (mini file system slices 12.1–12.7), M13.1 (MLFQ scheduler), and M14.1 (linear page table) are done.
+- Extend concurrency via the next-milestones roadmap in `docs/adr/0004-extend-broad-concurrency-roadmap.md`. M8 (bounded queue + 503), M9 (reader-writer lock + cache), M10 (ThreadPool cap), M11 (raw open/read/close syscall demo), M12 (mini file system slices 12.1–12.7), M13.1 (MLFQ scheduler), M14.1 (linear page table), and M15 (ArrayPool in async mode) are done.
 - Add `ArrayPool<byte>` to lower per-connection memory in async mode (would change the M7 numbers from 172 MB toward M6's 21 MB).
 - Add a `Retry-After` header to the M8 503 response so clients can back off intelligently.
 - Extend the **OSEP coverage gaps** in the OSEP Coverage section: scheduling (Ch. 7-10), paging (Ch. 14-23), full FS (Ch. 36-45), security (Ch. 53-57). Each new chapter group should get its own ADR before any slices start.

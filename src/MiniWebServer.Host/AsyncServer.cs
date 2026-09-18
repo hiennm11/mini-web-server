@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -60,46 +61,56 @@ public static class AsyncServer
                 // Use HttpRequestReceiver helpers to determine request
                 // completeness, but loop via ReceiveAsync so we never
                 // block the event thread.
-                byte[] buffer = new byte[ServerConfig.MaxRequestBytes];
-                int total = 0;
-                int headerEnd = -1;
-                int contentLength = 0;
-
-                while (total < ServerConfig.MaxRequestBytes && !ct.IsCancellationRequested)
+                //
+                // Slice 15 (M15): rent the receive buffer from
+                // ArrayPool<byte>.Shared instead of allocating a fresh
+                // buffer per connection. The pool recycles buffers
+                // across connections, dramatically lowering per-conn
+                // allocation pressure in async mode (which previously
+                // held M7's 172 MB under 150 parked slow clients).
+                byte[] buffer = ArrayPool<byte>.Shared.Rent(ServerConfig.MaxRequestBytes);
+                try
                 {
-                    int readBytes = await clientSocket.ReceiveAsync(
-                        new ArraySegment<byte>(buffer, total, buffer.Length - total),
-                        SocketFlags.None);
+                    int total = 0;
+                    int headerEnd = -1;
+                    int contentLength = 0;
 
-                    if (readBytes <= 0) break;
-                    total += readBytes;
-
-                    if (headerEnd < 0)
+                    while (total < ServerConfig.MaxRequestBytes && !ct.IsCancellationRequested)
                     {
-                        headerEnd = HttpRequestReceiver.FindHeaderEnd(buffer.AsSpan(0, total));
+                        int readBytes = await clientSocket.ReceiveAsync(
+                            new ArraySegment<byte>(buffer, total, buffer.Length - total),
+                            SocketFlags.None);
+
+                        if (readBytes <= 0) break;
+                        total += readBytes;
+
+                        if (headerEnd < 0)
+                        {
+                            headerEnd = HttpRequestReceiver.FindHeaderEnd(buffer.AsSpan(0, total));
+                        }
+                        if (headerEnd >= 0 && contentLength == 0)
+                        {
+                            contentLength = HttpRequestReceiver.ParseContentLength(buffer.AsSpan(0, headerEnd));
+                        }
+
+                        if (headerEnd >= 0)
+                        {
+                            int needed = headerEnd + HttpRequestReceiver.HeaderDelimiter.Length + contentLength;
+                            if (total >= needed) break;
+                        }
                     }
-                    if (headerEnd >= 0 && contentLength == 0)
+
+                    if (total == 0)
                     {
-                        contentLength = HttpRequestReceiver.ParseContentLength(buffer.AsSpan(0, headerEnd));
+                        return;
                     }
 
-                    if (headerEnd >= 0)
-                    {
-                        int needed = headerEnd + HttpRequestReceiver.HeaderDelimiter.Length + contentLength;
-                        if (total >= needed) break;
-                    }
-                }
+                    // Decode directly from the pooled buffer; no need
+                    // for an intermediate copy.
+                    string request = Encoding.UTF8.GetString(buffer.AsSpan(0, total));
 
-                if (total == 0)
-                {
-                    return;
-                }
-
-                byte[] requestBytes = buffer.AsSpan(0, total).ToArray();
-                string request = Encoding.UTF8.GetString(requestBytes);
-
-                HttpRequest parsedRequest = HttpRequestParser.Parse(request);
-                Console.WriteLine($"[async] [thread {threadId}] Path: {parsedRequest.Path}");
+                    HttpRequest parsedRequest = HttpRequestParser.Parse(request);
+                    Console.WriteLine($"[async] [thread {threadId}] Path: {parsedRequest.Path}");
 
                 if (parsedRequest.Path == "/slow")
                 {
@@ -164,12 +175,28 @@ public static class AsyncServer
                     response = StaticFileResponder.CreateResponse(parsedRequest, webRoot);
                 }
 
-                byte[] responseBytes = response.ToBytes();
-                await clientSocket.SendAsync(
-                    new ArraySegment<byte>(responseBytes),
-                    SocketFlags.None);
+                // Pool the response buffer too. Typical HTTP
+                // responses are <4 KB; a single 4 KB pool entry can
+                // serve many small responses without re-allocating.
+                byte[] responseBuf = ArrayPool<byte>.Shared.Rent(4096);
+                try
+                {
+                    int written = response.WriteTo(responseBuf);
+                    await clientSocket.SendAsync(
+                        new ArraySegment<byte>(responseBuf, 0, written),
+                        SocketFlags.None);
 
-                Console.WriteLine($"[async] [thread {threadId}] Sent {responseBytes.Length} response bytes.");
+                    Console.WriteLine($"[async] [thread {threadId}] Sent {written} response bytes.");
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(responseBuf);
+                }
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(buffer);
+                }
             }
             catch (OperationCanceledException)
             {

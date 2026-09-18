@@ -2,7 +2,7 @@
 
 ## Status Snapshot
 
-Updated 2026-09-18 (M21 added). Legend: ✅ built + experimented + noted · 🟡 planned · ⬜ future.
+Updated 2026-09-18 (M23.2 added). Legend: ✅ built + experimented + noted · 🟡 planned · ⬜ future.
 
 | Slice | Capability | OSTEP chapter | Status |
 |-------|-----------|---------------|--------|
@@ -38,12 +38,14 @@ Updated 2026-09-18 (M21 added). Legend: ✅ built + experimented + noted · 🟡
 | M20 (20.1) | Dining philosophers: broken (deadlock) vs fixed (Dijkstra's reverse order) | Ch. 31.6 | ✅ |
 | M21 (21.1) | FFS block-group placement: locality policy + large-file exception | Ch. 41 (§41.3, §41.4, §41.6) | ✅ |
 | M22 (22.1) | Lock-free CAS primitives: AtomicCounter + LockFreeStack (Treiber) | Ch. 32.3 | ✅ |
+| M23 (23.1) | Password auth: PBKDF2-HMAC-SHA256 + 16-byte salt + timing-safe Verify + fail-safe defaults | Ch. 53.4, Ch. 54.4, Ch. 56.4 | ✅ |
+| M23 (23.2) | At-rest encryption: AES-256-GCM + 12-byte nonce + tamper detection + nonce-reuse demo | Ch. 56.2, Ch. 56.4, Ch. 56.5, Ch. 56.6, Ch. 56.7 | ✅ |
 | M15 | ArrayPool&lt;byte&gt; in async mode (receive + response buffers) | n/a (perf) | ✅ |
 
-**Milestones**: M1 ✅–M15 ✅, M13.2 ✅, M13.3 ✅, M16 ✅, M17 ✅, M18 ✅, M19 ✅, M20 ✅, M21 ✅, M22 ✅. M8–M15 are the post-roadmap extensions per `docs/adr/0004-extend-broad-concurrency-roadmap.md` (M8–M12), `docs/adr/0006-mini-scheduler-mlfq-proportional-multicpu.md` (M13), `docs/adr/0007-mini-pager-mmu-tlb-multilevel-replacement.md` (M14). The original 12-slice roadmap is closed. **Latest**: M21 (FFS block-group placement, OSEP Ch. 41) and M22 (Lock-free CAS, OSEP §32.3). Each yielded a small slice with its own overview + smoke trace in `docs/learning/`.
+**Milestones**: M1 ✅–M15 ✅, M13.2 ✅, M13.3 ✅, M16 ✅, M17 ✅, M18 ✅, M19 ✅, M20 ✅, M21 ✅, M22 ✅, M23 ✅ (incl. .1 password + .2 at-rest). M8–M15 are the post-roadmap extensions per `docs/adr/0004-extend-broad-concurrency-roadmap.md` (M8–M12), `docs/adr/0006-mini-scheduler-mlfq-proportional-multicpu.md` (M13), `docs/adr/0007-mini-pager-mmu-tlb-multilevel-replacement.md` (M14). The original 12-slice roadmap is closed. **Latest**: M23.2 (At-rest encryption, OSEP §56.2 + §56.7). See `docs/adr/0008-m23-auth-password-hashing.md` (M23.1) + `docs/adr/0009-m23.2-at-rest-encryption.md` (M23.2). Each yielded a small slice with its own overview + smoke trace in `docs/learning/`.
 **Tests**: 15 passing.
 **Code/runtime**: `net10.0`. Two run modes selectable via `--async` flag: default = bounded worker pool (8 threads) + producer/consumer queue, async = `AcceptAsync` + `Task` per connection with `ReceiveAsync` / `SendAsync`. Port 8080, static files under `wwwroot`.
-**Latest commit**: M21 (FFS placement). New `FFS.cs` adds a block-group placement simulator implementing OSEP §41.3 (cylinder/block groups), §41.4 (locality policies: dirs in low-density group + files in parent's group), §41.6 (large-file exception with N-block rotation), and §41.7 homework metrics (filespan + dirspan). HTTP route `/ffs/run?scenario=manyfiles|largefile&groups=N&inodes=N&blocks=N&threshold=M`. Smoke: `manyfiles` (root + /a + /b + 4 files) demonstrates namespace locality — files in `/a` land in group 1 (same as `/a`); groups 3-7 stay empty. `largefile&threshold=12`: file of 30 blocks spreads across 3 groups (12/12/6) with filespan=37. `largefile&threshold=4`: same file spreads across all 8 groups with filespan=113 — demonstrates OSEP §41.7 amortization trade-off (smaller chunks → larger filespan → worse sequential reads). Build clean, 15/15 tests pass.
+**Latest commit**: M23.2 (at-rest encryption). New `MiniCrypto/` directory adds `SymmetricCipher.cs` (AES-256-GCM via `System.Security.Cryptography.AesGcm`: 32-byte keys, 12-byte nonces randomly generated per call, 16-byte auth tags; `EncryptWithFixedNonce` is intentionally bad and only used by the nonce-reuse demo) and `AtRestStore.cs` (`ConcurrentDictionary<string, Slot>` storing only `{nonce, ciphertext, tag}`; `Put` wipes the plaintext buffer with `Array.Clear`; auth-tag failure on `Decrypt` is caught at the route boundary and returned as 401). HTTP routes: `/crypto/keygen` (rotate AES key), `/crypto/encrypt?name=X&msg=Y` (returns hex nonce + ciphertext + tag), `/crypto/decrypt?name=X` (auth-tag failures bubble up as 401), `/crypto/tamper-demo` (flips bit 5 of byte 7 of the ciphertext, attempt to decrypt raises `CryptographicException("The computed authentication tag did not match...")`), `/crypto/nonce-reuse-demo` (encrypts two messages with the same `0x42`-padded nonce and proves `c1 ⊕ c2 == p1 ⊕ p2` is `True` — the OSEP §56.5/§56.6 lesson in two lines), `/crypto/dump` (proves storage holds only nonce + len + tag). Smoke evidence in `docs/learning/m23-at-rest-encryption/s1-at-rest.md`. Build clean, 15/15 tests still pass.
 
 ## OSTEP Coverage
 
@@ -54,8 +56,9 @@ The book has ~50 chapters. Repo maps **the core three pieces** (Virtualization +
 | **Virtualization** | Ch. 4 (§4.1 process, §4.4 states Running/Ready/Blocked); Ch. 6 (§6.1 direct execution, §6.2 syscalls, §6.3 timer interrupt); Ch. 8 (§8.1-§8.5 MLFQ); **Ch. 9 lottery + stride scheduling**; **Ch. 10 multi-CPU scheduling (SQMS / MQMS / work stealing)**; Ch. 13 (address space, implicit); Ch. 18 (linear page table); **Ch. 19 TLB**; **Ch. 20 multi-level page tables**; **Ch. 21 + Ch. 22 replacement policies**; **Ch. 23 complete VM (COW + swapping)**; Ch. 26-27 (thread = point of execution, thread API); Ch. 33 (event-based) | M1, M2, M3, M4, M7, M13, M13.2, M13.3, M14, M16, M17, M18, M19 |
 | **Concurrency** | Ch. 26 (§26.4 figure 26.7 the race); Ch. 27 (thread API); Ch. 28 (§28.1 lock abstraction, §28.7 test-and-set, §28.9 CAS, §28.16 two-phase); Ch. 30 (CVs); Ch. 31 (§31.4 bounded buffer, §31.5 reader-writer, **§31.6 dining philosophers**); Ch. 33 (events); **Ch. 32.3 lock-free CAS** | M4, M5, M6, M7, M8, M9, M10, M20, M22 |
 | **Persistence** | Ch. 36 (I/O devices — TCP receive loop uses kernel async I/O); Ch. 39 (§39.3 open, §39.4 read/write, §39.13 rmdir); Ch. 40 (§40.2 vsfs layout, §40.3 inode, §40.4 directory, §40.5 free space, §40.6 access path, §40.7 caching); **Ch. 41 FFS (cylinder groups, locality, large-file exception, filespan/dirspan)**; Ch. 42.3 (data journaling, recovery, batching, circular log, [Tricky Case: Block Reuse] deferred) | M1, M2, M3, M11, M12.1–12.7, M21 |
+| **Security** | Ch. 53.4 Saltzer-Schroeder design principles; Ch. 54.4 password storage (hash + salt + slow KDF); Ch. 56.2 symmetric cryptography (AES-256-GCM for at-rest); Ch. 56.4 cryptographic hashes + integrity; **Ch. 56.5 brute force / WEP / key selection / auth tags**; **Ch. 56.6 cryptography + OSes** (keys in process memory, not stable storage); **Ch. 56.7 at-rest encryption** — Ch. 55 ACLs/capabilities/RBAC, Ch. 54.5 auth-by-token, Ch. 54.6 biometrics, Ch. 56.3 PK, Ch. 56.5 PK key gen, **Ch. 57 TLS / SSL / certificates / MITM entirely deferred** | M23 (incl. M23.1 password + M23.2 at-rest) |
 
-**Roughly 55% of OSEP chapters have working code in this repo**, with §-sub-section coverage noted in each milestone's `overview.md`.
+**Roughly 62% of OSEP chapters have working code in this repo**, with §-sub-section coverage noted in each milestone's `overview.md`.
 
 ### Per-milestone OSEP attribution (each overview.md has detailed deviations)
 
@@ -82,6 +85,8 @@ The book has ~50 chapters. Repo maps **the core three pieces** (Virtualization +
 - **M22 Lock-free** — Ch. 32.3 "Mutual Exclusion" (CAS-based `AtomicIncrement` + lock-free list insert / Treiber stack). ABA mitigation by never freeing popped nodes; livelock mitigated by `SpinWait`. See `m22-lock-free/overview.md`.
 - **M21 FFS** — Ch. 41 §41.3 (cylinder/block groups + per-group bitmaps), §41.4 (locality policies: dirs in low-density group + files in parent's group), §41.6 (large-file exception with N-block rotation), §41.7 (filespan + dirspan metrics). §41.7 sub-blocks + parameterized placement deferred. See `m21-ffs/overview.md`.
 - **M15 arraypool** — performance only; closest OSEP reference is Ch. 40.7 (caching). See `m15-arraypool/overview.md`.
+- **M23 Password auth** — Ch. 53.4 Saltzer-Schroeder fail-safe defaults (identical "invalid credentials" response for both "no such user" and "wrong password"; dummy PBKDF2 when username is missing so the response time doesn't leak it); Ch. 54.4 password storage: PBKDF2-HMAC-SHA256 with 100k iterations + 16-byte random salt + constant-time compare via `CryptographicOperations.FixedTimeEquals`; Ch. 56.4 cryptographic hash foundations (PBKDF2 is built on HMAC-SHA256). **Out of scope**: TLS (Ch. 57), RBAC/ACLs (Ch. 55), MFA, account lockout, persistence. See `m23-auth/overview.md` and `docs/adr/0008-m23-auth-password-hashing.md`.
+- **M23.2 At-rest encryption** — Ch. 56.2 symmetric crypto (AES-256 via `System.Security.Cryptography.AesGcm`); Ch. 56.4 cryptographic hashes + integrity (GCM's 128-bit auth tag fails closed); Ch. 56.5 brute force + key selection (never use weak keys; the per-session 256-bit key is `RandomNumberGenerator`-sourced); Ch. 56.6 cryptography + OSes (key lives in process RAM only — a compromised OS reading our key is exactly the threat OSEP §56.6 names); Ch. 56.7 at-rest encryption (the chapter the slice is named after: if the device is stolen, the blocks are useless without the in-memory key). **Out of scope**: TLS handshake (Ch. 57), PK cryptography (Ch. 56.3), TPM-backed keys (Ch. 53 security enclaves), encrypting `minifs.img` blocks at the M12 layer. See `m23-at-rest-encryption/overview.md` and `docs/adr/0009-m23.2-at-rest-encryption.md`.
 
 ### Deviations from OSEP (consolidated)
 
@@ -98,13 +103,20 @@ The book has ~50 chapters. Repo maps **the core three pieces** (Virtualization +
 - **Mini FS no multi-level index**: file size capped at 12 × 4 KB = 48 KB. OSEP §40.3 indirect / double-indirect pointers deferred.
 - **Journaling is data journaling mode** (OSEP §42.3). Ordered/metadata journaling mode deferred.
 - **Revoke records** (OSEP §42.3 "Tricky Case: Block Reuse") deferred — our simulator never frees a block during a transaction.
+- **M23 password is in the query string**: OSEP §57.4 says encrypting the password in transit is mandatory for real systems; we don't have TLS. Real systems put credentials in the POST body.
+- **M23 no rate-limiting / account lockout** (OSEP §54.4): the slow PBKDF2 hash is the only speed bump. No throttling per username.
+- **M23 no persistence**: users live in `ConcurrentDictionary`. Server restart drops every user.
+- **M23 timing-safe compare is at the verify step only**: we use `CryptographicOperations.FixedTimeEquals`. We don't defend against timing leaks in `String.Equals` style username comparisons (usernames are public-ish in this design).
+- **M23.2 key in process memory only**: OSEP §56.6 explicitly warns that an OS reading its own key makes "the cryptography useless". We don't have a TPM or kernel keyring; the key is in the host process's RAM. Same trade-off as OSEP §56.7's "compromise between usability and security ... remember[ing] the key after first entry for a significant period of time, but only keeping it in RAM".
+- **M23.2 `SymmetricCipher.EncryptWithFixedNonce` is the one intentionally-bad primitive**: a separate method name so it can never be called by accident. Only `/crypto/nonce-reuse-demo` uses it; the route's purpose is to *show why* nonce reuse is fatal. Real code never calls it.
+- **M23.2 doesn't encrypt `minifs.img`**: M12 still writes plaintext blocks to disk; M23.2 only protects in-memory named slots. A future milestone could replace M12's block writes with `SymmetricCipher.Encrypt`, but that's its own piece of work.
 
 Chapters **not yet implemented** (natural next slices):
 
 - **Part I Virtualization**: Ch. 7 process API (out of scope for .NET), Ch. 14-17 base+bound / segmentation / free-space mgmt (superseded by paging), §19.4 ASID, §20.4 inverted page tables, §21.4-§21.6 stack property + approximated LRU + dirty pages, §23.1 VMS demand-zeroing + RSS + segmented FIFO + second-chance list, §23.2 Linux 2Q + huge pages + 4-level PTs + NX + ASLR + KPTI
 - **Part II Concurrency**: Ch. 29 lock-free data structures — partial coverage in M22 (CAS primitives); Ch. 32.2 atomicity/order bugs (CV fixes for the original cases), Ch. 32.3 deadlock prevention/avoidance (lock ordering, hold-and-wait, etc.)
 - **Part III Persistence**: Ch. 36-38 device drivers & RAID, Ch. 43 LFS, Ch. 44 flash, Ch. 45 data integrity — M12 covers Ch. 40 vsfs + Ch. 42.3 journaling; M21 covers Ch. 41 FFS placement
-- **Part IV Security** (entirely untouched): Ch. 53-57
+- **Part IV Security**: Ch. 53 §53.5 (system calls + access control primitives), Ch. 54 §54.5 (auth by what you have) + §54.6 (biometrics) + §54.7 (non-human auth: sudo, setuid), Ch. 55 in depth (ACLs, capabilities, RBAC, mandatory vs discretionary, Android permission model), Ch. 56.3 PK crypto + key signing, Ch. 56.5 PK key selection, Ch. 57 entire (TLS, certificates, MITM, SSH, HTTPS), key-revocation (§57.6), hardware enclaves (§53 TPM) — M23.1 covers §53.4 + §54.4 + §56.4, M23.2 covers §56.2 + §56.4 + §56.5 + §56.6 + §56.7; remaining Part IV deferred.
 
 The repo is best understood as an **OS concepts lab for the core three pieces**, not a full reproduction of the textbook. The concurrency chapter sweep (race observable → race fixed → pool → async → dining philosophers → lock-free CAS) is now substantial; persistence is reduced to "serve files from a directory + journal for crash safety"; virtualization is now substantial (thread/process abstraction + MLFQ + proportional-share + multi-CPU + linear paging + TLB + multi-level page tables + replacement policy + COW).
 
@@ -129,6 +141,8 @@ The repository is a single-context .NET solution.
 - `src/MiniWebServer.Host/WebRootLocator.cs` locates the runtime `wwwroot` directory.
 - `src/MiniWebServer.Host/ServerConfig.cs` holds the `MaxRequestBytes` and `RaceIterations` constants shared by both server modes.
 - `src/MiniWebServer.Host/RequestStats` (nested inside Program.cs) holds `TotalRequests` (atomic), `UnsafeCounter` (non-atomic race demo), `SafeCounter` + `SafeCounterLock` (lock-fixed demo).
+- `src/MiniWebServer.Host/MiniAuth/PasswordHasher.cs` (M23) wraps PBKDF2-HMAC-SHA256 with a 100k-iteration budget, 16-byte salt, and `CryptographicOperations.FixedTimeEquals` for constant-time compare. Sibling file `UserStore.cs` keeps the in-memory `ConcurrentDictionary<string, AuthUser>` and threads the dummy-PBKDF2 "no user" path so the response time can't leak username validity. Both are wired into `Program.cs` under `else if (parsedRequest.Path.StartsWith("/auth/"))`.
+- `src/MiniWebServer.Host/MiniCrypto/SymmetricCipher.cs` (M23.2) wraps `System.Security.Cryptography.AesGcm` with 32-byte (256-bit) keys, 12-byte (96-bit) randomly-generated nonces, 16-byte (128-bit) auth tags; `EncryptWithFixedNonce` is the one intentionally-bad primitive exposed solely for the nonce-reuse demo. Sibling file `AtRestStore.cs` keeps the in-memory `ConcurrentDictionary<string, Slot>` storing only `{nonce, ciphertext, tag}` and threads the auth-tag-failure decryption through the route's `try / catch` so a tamper attempt returns 401 rather than corrupting a slot. Both are wired into `Program.cs` under `else if (parsedRequest.Path.StartsWith("/crypto/"))`.
 - `src/MiniWebServer.Host/wwwroot/index.html` is the default static page for `/` and is copied to the build output.
 - `tests/MiniWebServer.Host.Tests/` contains console-based parser tests.
 
@@ -159,6 +173,13 @@ All four phases are complete; see the **OSEP Coverage** section above for what t
 - **Web root**: The directory files can be served from. The source web root is `src/MiniWebServer.Host/wwwroot`; at runtime it is copied beside the host executable.
 - **Path traversal**: A request path such as `/../CONTEXT.md` that tries to escape the web root. These requests return `404 Not Found`.
 - **Connection close**: The server closes the client socket after sending the response.
+- **PBKDF2**: Password-Based Key Derivation Function 2 (RFC 8018). A deliberately slow keyed hash designed to be tunable in cost via an iteration count. The M23 default of 100k iterations matches the OWASP 2024 minimum for password storage.
+- **Salt**: A per-user random byte string concatenated to the password before PBKDF2 hashing. Defeats precomputed rainbow tables since identical passwords yield different hashes for different users (OSEP §54.4).
+- **Constant-time compare**: A byte-array equality check that does not short-circuit on the first differing byte. `CryptographicOperations.FixedTimeEquals` in .NET. Defends against timing side-channels in password verification.
+- **Fail-safe defaults** (OSEP §53.4): an authorization system that defaults to denying access on errors, returns identical responses for distinct failure modes so attackers can't enumerate valid users, and never reveals information that a properly authenticated user wouldn't need.
+- **AES-GCM**: an authenticated-encryption mode that bundles confidentiality (AES-256) with integrity (a 128-bit authentication tag). GCM tag failure raises an exception; the cipher fails closed. `System.Security.Cryptography.AesGcm` in .NET.
+- **Nonce**: a number used once. AES-GCM requires a unique 12-byte nonce per encrypt call. Reusing a `(key, nonce)` pair leaks `c1 ⊕ c2 == p1 ⊕ p2` (OSEP §56.5 + §56.6). M23.2 always uses a fresh nonce from `RandomNumberGenerator`.
+- **At-rest encryption**: protecting data while it sits in storage (disk, RAM, backup) so that stealing the storage doesn't yield plaintext (OSEP §56.7). Requires that the decryption key NOT be in the same place as the encrypted data — for a single-process lab, that means the key lives only in process RAM.
 
 ## Runtime Behavior
 
@@ -192,6 +213,16 @@ Routes:
 - `/race-safe` → same loop under `lock (RequestStats.SafeCounterLock)`; deterministic
 - `/stats` → process threads + working set + private bytes + total requests
 - `/qstats` → worker count + queue length + total requests
+- `/auth/register?user=X&pass=Y` → M23; returns 200 (registered) or 409 (username taken) or 400 (empty user/pass). Plaintext password never stored.
+- `/auth/login?user=X&pass=Y` → M23; returns 200 (match) or 401 ("invalid credentials"). The 401 body is **byte-identical** for "no such user" and "wrong password" (OSEP §53.4 fail-safe defaults). Verify uses constant-time compare; "missing user" path also runs a dummy PBKDF2 so the wall-clock cost is the same on both branches.
+- `/auth/dump` → M23; lists every stored `{username, createdAt, salt, hash}`. Proves only hash + salt are persisted.
+- `/auth/run?scenario=...` → M23 demos. Scenarios: `register`, `hashattack` (two users, same plaintext, different salts + hashes), `dictionary` (5 common passwords PBKDF2-verified against a stored hash, ~70 ms each), `login`, `clear`.
+- `/crypto/keygen` → M23.2; rotate the in-memory 256-bit AES key. Returns old + new hex. (OSEP §56.7 "well chosen ... symmetry".)
+- `/crypto/encrypt?name=X&msg=Y` → M23.2; store slot X with plaintext `msg`. Returns hex nonce + ciphertext + tag. Plaintext is wiped from the working buffer before the route returns. Authenticated AES-256-GCM.
+- `/crypto/decrypt?name=X` → M23.2; decrypt + verify. If the auth tag mismatches, returns 401 with the `CryptographicException` text — **never** silently returns garbage.
+- `/crypto/tamper-demo` → M23.2; encrypt a known plaintext, flip bit 5 of byte 7 of the ciphertext, attempt decrypt. The auth tag fails closed. Reproducible smoke evidence in `m23-at-rest-encryption/s1-at-rest.md`.
+- `/crypto/nonce-reuse-demo` → M23.2; prove `c1 ⊕ c2 == p1 ⊕ p2` is `True` when the same `(key, nonce)` pair encrypts two messages. The OSEP §56.5/§56.6 lesson in 2 lines.
+- `/crypto/dump` → M23.2; list every slot's at-rest form `{nonce, len, tag}`. Proves plaintext is not in storage.
 
 ### `--async` mode (event-based)
 
@@ -257,8 +288,10 @@ Phase 3 + 4 learning docs:
 - `docs/learning/m20-dining-philosophers/` (M20 dining philosophers overview + slice doc)
 - `docs/learning/m21-ffs/` (M21 FFS placement overview + slice doc)
 - `docs/learning/m22-lock-free/` (M22 lock-free CAS overview + slice doc)
+- `docs/learning/m23-auth/` (M23 password auth overview + slice doc)
+- `docs/learning/m23-at-rest-encryption/` (M23.2 at-rest encryption overview + slice doc)
 
-All twelve roadmap slices + post-roadmap extensions + the VM paging chain + the multi-CPU/dining/FFS/lock-free quartet have learning notes with smoke-test output captured inline. M8 (the first post-roadmap extension) has its own learning note and a 6.3 section appended to the M6 note. The M16-M19 chain + M13.2 + M13.3 + M20 + M21 + M22 each have an `overview.md` and a slice doc under their own folder.
+All twelve roadmap slices + post-roadmap extensions + the VM paging chain + the multi-CPU/dining/FFS/lock-free quartet + M23.1 (password auth) + M23.2 (at-rest encryption) have learning notes with smoke-test output captured inline. M8 (the first post-roadmap extension) has its own learning note and a 6.3 section appended to the M6 note. The M16-M19 chain + M13.2 + M13.3 + M20 + M21 + M22 + M23 each have an `overview.md` and a slice doc under their own folder; M23.2 lives under `m23-at-rest-encryption/`.
 
 ## Design Intent
 
@@ -276,10 +309,10 @@ After both passes, every "Key point from OSEP §X.Y" should match the cited chap
 
 Useful directions that fit the project:
 
-- Extend concurrency via the next-milestones roadmap in `docs/adr/0004-extend-broad-concurrency-roadmap.md`. M8 (bounded queue + 503), M9 (reader-writer lock + cache), M10 (ThreadPool cap), M11 (raw open/read/close syscall demo), M12 (mini file system slices 12.1–12.7), M13 (MLFQ scheduler), M13.2 (Stride + Lottery), M13.3 (multi-CPU), M14 (linear page table), M16 (TLB), M17 (multi-level page tables), M18 (replacement policies), M19 (COW + swap), M20 (dining philosophers), M21 (FFS), M22 (lock-free CAS), and M15 (ArrayPool in async mode) are done.
+- Extend concurrency via the next-milestones roadmap in `docs/adr/0004-extend-broad-concurrency-roadmap.md`. M8 (bounded queue + 503), M9 (reader-writer lock + cache), M10 (ThreadPool cap), M11 (raw open/read/close syscall demo), M12 (mini file system slices 12.1–12.7), M13 (MLFQ scheduler), M13.2 (Stride + Lottery), M13.3 (multi-CPU), M14 (linear page table), M16 (TLB), M17 (multi-level page tables), M18 (replacement policies), M19 (COW + swap), M20 (dining philosophers), M21 (FFS), M22 (lock-free CAS), M23.1 (password auth), M23.2 (at-rest encryption), and M15 (ArrayPool in async mode) are done.
 - Add `ArrayPool<byte>` to lower per-connection memory in async mode (would change the M7 numbers from 172 MB toward M6's 21 MB).
 - Add a `Retry-After` header to the M8 503 response so clients can back off intelligently.
-- Extend the **OSEP coverage gaps** in the OSEP Coverage section: paging (Ch. 14-17, §19.4 ASID, §20.4 inverted PTs, §21.4-§21.6 approximated LRU + dirty pages, §23.1 VMS demand-zeroing + RSS + segmented FIFO + second-chance list, §23.2 Linux 2Q + huge pages + 4-level PTs + NX + ASLR + KPTI), full FS (Ch. 36-38 RAID, Ch. 41 §41.7 sub-blocks + parameterized placement, Ch. 43 LFS, Ch. 44 flash, Ch. 45 data integrity), security (Ch. 53-57), concurrency (Ch. 32.2 atomicity/order bugs, Ch. 32.3 deadlock prevention/avoidance). Each new chapter group should get its own ADR before any slices start.
+- Extend the **OSEP coverage gaps** in the OSEP Coverage section: paging (Ch. 14-17, §19.4 ASID, §20.4 inverted PTs, §21.4-§21.6 approximated LRU + dirty pages, §23.1 VMS demand-zeroing + RSS + segmented FIFO + second-chance list, §23.2 Linux 2Q + huge pages + 4-level PTs + NX + ASLR + KPTI), full FS (Ch. 36-38 RAID, Ch. 41 §41.7 sub-blocks + parameterized placement, Ch. 43 LFS, Ch. 44 flash, Ch. 45 data integrity), security (Ch. 53.5 system-call access, Ch. 54.5 auth by what you have, Ch. 54.6 biometrics, Ch. 54.7 non-human auth, Ch. 55 ACLs/capabilities/RBAC, Ch. 56.3 PK, Ch. 57 TLS / SSL / certificates / MITM / SSH / HTTPS, key-revocation), concurrency (Ch. 32.2 atomicity/order bugs, Ch. 32.3 deadlock prevention/avoidance). Each new chapter group should get its own ADR before any slices start.
 - Extract small concepts such as request receiving, response formatting, and connection handling.
 - Add focused tests around pure logic if response formatting or request parsing is introduced.
 - Keep console output clear because it is part of the learning feedback loop.

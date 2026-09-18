@@ -1098,6 +1098,189 @@ static void HandleClient(Socket clientSocket, string webRoot)
                 }
             }
         }
+        else if (parsedRequest.Path.StartsWith("/crypto/"))
+        {
+            // M23.2: AES-256-GCM at-rest encryption + tamper detection (OSEP §56.2 + §56.7).
+            //   /crypto/keygen              rotate the in-memory key
+            //   /crypto/encrypt?name=X&msg=Y   store slot X with plaintext msg Y (URL-decoded)
+            //   /crypto/decrypt?name=X      retrieve + verify slot X
+            //   /crypto/tamper-demo?name=X  flip 1 byte of the ciphertext, attempt decrypt
+            //   /crypto/nonce-reuse-demo    encrypt two msgs with the same nonce → XOR trick
+            //   /crypto/dump                list stored at-rest form (nonce + len + tag, no plaintext)
+            var cryptoPath = parsedRequest.Path;
+            int cQ = cryptoPath.IndexOf('?');
+            string cryptoQuery = cQ >= 0 ? cryptoPath.Substring(cQ + 1) : "";
+            string cryptoName = "";
+            string cryptoMsg = "";
+            foreach (var kv in cryptoQuery.Split('&'))
+            {
+                int eq = kv.IndexOf('=');
+                if (eq <= 0) continue;
+                var k = Uri.UnescapeDataString(kv.Substring(0, eq));
+                var v = Uri.UnescapeDataString(kv.Substring(eq + 1));
+                if      (k == "name") cryptoName = v;
+                else if (k == "msg")  cryptoMsg = v;
+            }
+            string cryptoRoute = cryptoPath.Substring("/crypto/".Length);
+            int cRouteQ = cryptoRoute.IndexOf('?');
+            if (cRouteQ >= 0) cryptoRoute = cryptoRoute.Substring(0, cRouteQ);
+
+            response = null!;
+            string cryptoBody;
+            try
+            {
+                switch (cryptoRoute)
+                {
+                    case "keygen":
+                    {
+                        var oldKey = MiniWebServer.Host.MiniCrypto.AtRestStore.CurrentKey;
+                        MiniWebServer.Host.MiniCrypto.AtRestStore.RotateKey();
+                        var newKey = MiniWebServer.Host.MiniCrypto.AtRestStore.CurrentKey;
+                        cryptoBody = $"old key: {MiniWebServer.Host.MiniCrypto.SymmetricCipher.ToHex(oldKey)}\n" +
+                                     $"new key: {MiniWebServer.Host.MiniCrypto.SymmetricCipher.ToHex(newKey)}\n" +
+                                     $"OSEP §56.6: a key freshly chosen gives perfect forward secrecy for data not yet encrypted under it.\n";
+                        response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                            Encoding.UTF8.GetBytes(cryptoBody));
+                        break;
+                    }
+                    case "encrypt":
+                    {
+                        if (string.IsNullOrEmpty(cryptoName) || string.IsNullOrEmpty(cryptoMsg))
+                        {
+                            response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8",
+                                Encoding.UTF8.GetBytes("name and msg required\n"));
+                            break;
+                        }
+                        var pt = Encoding.UTF8.GetBytes(cryptoMsg);
+                        var slot = MiniWebServer.Host.MiniCrypto.AtRestStore.Put(cryptoName, pt);
+                        cryptoBody = $"stored slot '{cryptoName}'\n" +
+                                     $"  created    = {slot.CreatedAt:O}\n" +
+                                     $"  nonce       = {MiniWebServer.Host.MiniCrypto.SymmetricCipher.ToHex(slot.Block.Nonce)}\n" +
+                                     $"  ciphertext  = {MiniWebServer.Host.MiniCrypto.SymmetricCipher.ToHex(slot.Block.Ciphertext)}\n" +
+                                     $"  auth tag    = {MiniWebServer.Host.MiniCrypto.SymmetricCipher.ToHex(slot.Block.Tag)}\n" +
+                                     $"OSEP §56.7: only the ciphertext + tag + nonce are persisted; plaintext is not.\n";
+                        response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                            Encoding.UTF8.GetBytes(cryptoBody));
+                        break;
+                    }
+                    case "decrypt":
+                    {
+                        var pt = MiniWebServer.Host.MiniCrypto.AtRestStore.Get(cryptoName);
+                        cryptoBody = $"decrypted slot '{cryptoName}':\n  plaintext = {Encoding.UTF8.GetString(pt)}\n";
+                        response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                            Encoding.UTF8.GetBytes(cryptoBody));
+                        break;
+                    }
+                    case "tamper-demo":
+                    {
+                        // Encrypt a known plaintext, flip 1 byte of the ciphertext, try to decrypt.
+                        if (string.IsNullOrEmpty(cryptoName))
+                        {
+                            cryptoName = "tamper-target";
+                        }
+                        var slots = new System.Collections.Generic.List<MiniWebServer.Host.MiniCrypto.AtRestStore.Slot>(
+                            MiniWebServer.Host.MiniCrypto.AtRestStore.AllSlots());
+                        if (slots.Count != 1)
+                        {
+                            // No slot yet, or more than one \u2014 make it deterministic: clear and seed.
+                            MiniWebServer.Host.MiniCrypto.AtRestStore.ClearForTests();
+                            MiniWebServer.Host.MiniCrypto.AtRestStore.Put(cryptoName, Encoding.UTF8.GetBytes("transfer $100 to savings"));
+                            slots = new System.Collections.Generic.List<MiniWebServer.Host.MiniCrypto.AtRestStore.Slot>(
+                                MiniWebServer.Host.MiniCrypto.AtRestStore.AllSlots());
+                        }
+                        var realSlot = slots[0];
+                        // Flip bit 5 of byte 7 of the ciphertext.
+                        var brokenCt = (byte[])realSlot.Block.Ciphertext.Clone();
+                        brokenCt[7] ^= 0x20;
+                        var tamperedBlock = new MiniWebServer.Host.MiniCrypto.SymmetricCipher.EncryptedBlock(
+                            realSlot.Block.Nonce, brokenCt, realSlot.Block.Tag);
+                        cryptoBody = $"slot '{cryptoName}' ciphertext, byte 7 bit 5 flipped.\n" +
+                                     $"now attempting decrypt with the original tag...\n";
+                        try
+                        {
+                            var attempted = MiniWebServer.Host.MiniCrypto.SymmetricCipher.Decrypt(
+                                tamperedBlock, MiniWebServer.Host.MiniCrypto.AtRestStore.CurrentKey);
+                            // Should never reach here \u2014 GCM authenticates the ciphertext.
+                            cryptoBody += $"UNEXPECTED: decryption succeeded with tampered ciphertext: {Encoding.UTF8.GetString(attempted)}\n";
+                            response = new HttpResponse(500, "Internal Server Error", "text/plain; charset=UTF-8",
+                                Encoding.UTF8.GetBytes(cryptoBody));
+                        }
+                        catch (System.Security.Cryptography.CryptographicException ex)
+                        {
+                            cryptoBody += $"caught CryptographicException: {ex.Message}\n" +
+                                          $"OSEP \u00a756.4: AES-GCM tag mismatch fails closed. The flipped byte broke the auth tag.\n";
+                            response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                                Encoding.UTF8.GetBytes(cryptoBody));
+                        }
+                        break;
+                    }
+                    case "nonce-reuse-demo":
+                    {
+                        // OSEP §56.6 / §56.5: reusing a (key, nonce) pair lets an
+                        // attacker XOR two ciphertexts to get the XOR of the
+                        // plaintexts. With one known plaintext, the other falls.
+                        var key = MiniWebServer.Host.MiniCrypto.AtRestStore.CurrentKey;
+                        var nonce = new byte[MiniWebServer.Host.MiniCrypto.SymmetricCipher.NonceLength];
+                        // Use a fixed, all-zero nonce for this demo so the
+                        // auth-tag check still passes (AesGcm doesn't reject
+                        // reuse, only the application has to avoid it).
+                        Array.Fill<byte>(nonce, 0x42);
+                        var p1 = Encoding.UTF8.GetBytes("budget meeting 2026 income");
+                        var p2 = Encoding.UTF8.GetBytes("budget meeting 2026 losses");
+                        var c1 = MiniWebServer.Host.MiniCrypto.SymmetricCipher.EncryptWithFixedNonce(p1, key, nonce);
+                        var c2 = MiniWebServer.Host.MiniCrypto.SymmetricCipher.EncryptWithFixedNonce(p2, key, nonce);
+                        // c1 ⊕ c2 == p1 ⊕ p2 (because same keystream).
+                        var xor_c = MiniWebServer.Host.MiniCrypto.SymmetricCipher.Xor(c1.Ciphertext, c2.Ciphertext);
+                        var xor_p = MiniWebServer.Host.MiniCrypto.SymmetricCipher.Xor(p1, p2);
+                        cryptoBody = "OSEP §56.5 / §56.6: nonce-reuse attack\n" +
+                                     $"  p1: \"{Encoding.UTF8.GetString(p1)}\"\n" +
+                                     $"  p2: \"{Encoding.UTF8.GetString(p2)}\"\n" +
+                                     $"  ciphertext XOR  = {MiniWebServer.Host.MiniCrypto.SymmetricCipher.ToHex(xor_c)}\n" +
+                                     $"  plaintext XOR  = {MiniWebServer.Host.MiniCrypto.SymmetricCipher.ToHex(xor_p)}\n" +
+                                     $"  equal?         = {System.Linq.Enumerable.SequenceEqual(xor_c, xor_p)}\n" +
+                                     "If an attacker learns p1, they recover p2 = (p1 ⊕ p2) ⊕ p1 in O(n).\n" +
+                                     "Real systems generate a fresh nonce per encrypt call (we do by default).\n";
+                        response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                            Encoding.UTF8.GetBytes(cryptoBody));
+                        break;
+                    }
+                    case "dump":
+                    {
+                        var (n, lines) = MiniWebServer.Host.MiniCrypto.AtRestStore.DumpSummary();
+                        var sb = new System.Text.StringBuilder();
+                        sb.Append("slots: ").Append(n).Append('\n');
+                        sb.Append("at-rest form: nonce + ciphertext + 128-bit auth tag (never plaintext)\n");
+                        sb.Append("---\n");
+                        foreach (var ln in lines) sb.Append(ln).Append('\n');
+                        response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                            Encoding.UTF8.GetBytes(sb.ToString()));
+                        break;
+                    }
+                    default:
+                    {
+                        response = new HttpResponse(404, "Not Found", "text/plain; charset=UTF-8",
+                            Encoding.UTF8.GetBytes($"unknown /crypto/* route '{cryptoRoute}'\n"));
+                        break;
+                    }
+                }
+            }
+            catch (System.Security.Cryptography.CryptographicException ex)
+            {
+                // Auth-tag failure on a decrypt / tamper-demo — report as 401-style.
+                response = new HttpResponse(401, "Unauthorized", "text/plain; charset=UTF-8",
+                    Encoding.UTF8.GetBytes($"decryption failed: {ex.Message}\n"));
+            }
+            catch (KeyNotFoundException ex)
+            {
+                response = new HttpResponse(404, "Not Found", "text/plain; charset=UTF-8",
+                    Encoding.UTF8.GetBytes($"{ex.Message}\n"));
+            }
+
+            // Make sure response is always assigned (the compiler can't track it through
+            // every switch arm under nested control flow + try/catch).
+            response ??= new HttpResponse(500, "Internal Server Error", "text/plain; charset=UTF-8",
+                Encoding.UTF8.GetBytes("(crypto route fell through)\n"));
+        }
         else if (parsedRequest.Path.StartsWith("/qstats"))
         {
             int q = WorkerPool.QueueLength;

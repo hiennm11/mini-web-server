@@ -32,7 +32,7 @@ We organize the Mini Web Server learning path into four OSTEP-aligned phases:
 
 This ADR does not replace the existing milestone documents. It groups them into a simpler learning arc and adds one missing Phase 1 slice: robust multi-call request receiving.
 
-Each phase is implemented through lesson slices following `docs/learning/lesson-slices.md`.
+Each phase is implemented through lesson slices following `docs/learning/README.md`.
 
 ## Phase 1: The Process & The Byte Stream
 
@@ -55,7 +55,7 @@ TCP gives the server an ordered byte stream, not complete HTTP request objects. 
 
 ## Phase 2: Threads: Multiple Points of Execution
 
-Status: complete (7/7 features done; slices 4.1-4.6 + milestone-5 race lab).
+| Status: complete (7/7 features done; slices 4.1-4.6 + m5 race lab).
 
 ### Features
 
@@ -160,4 +160,4 @@ The roadmap is complete. Future slices (none of which are required to follow the
 - Inode + bitmap + journaling mini file system (`Ch. 40-45`).
 - Array-pooled receive buffers to lower memory in both modes.
 
-Each future slice should follow `docs/learning/lesson-slices.md`: small build-first exercise, observable experiment, learning note.
+Each future slice should follow `docs/learning/README.md`: small build-first exercise, observable experiment, learning note.

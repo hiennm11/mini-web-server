@@ -64,4 +64,4 @@ curl http://localhost:8080/
 
 The `/` request should wait if it is started while `/slow` is sleeping.
 
-The slice plan and observation note live in `docs/learning/slice-4.1-single-thread-blocking.md`.
+The slice plan and observation note live in `docs/learning/s4.1-single-thread-blocking.md`.

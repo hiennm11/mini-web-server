@@ -27,7 +27,7 @@ We will add a `MiniScheduler` library plus a series of lesson slices, one per ma
 
 Ordering rationale:
 
-- **M13.1 (MLFQ)** is the most famous algorithm in OSEP Part I and demonstrates the key OS pattern of multi-queue + history-based demotion + periodic anti-starvation boost. It's the natural first slice.
+- **M13 (MLFQ)** is the most famous algorithm in OSEP Part I and demonstrates the key OS pattern of multi-queue + history-based demotion + periodic anti-starvation boost. It's the natural first slice.
 - **M13.2 (stride / lottery)** contrasts with MLFQ: deterministic (stride) vs randomized (lottery), proportional-share instead of priority-class. The two implementations are small enough to fit in one slice.
 - **M13.3 (multi-CPU)** introduces the cross-CPU load-balancing problem (work stealing vs single shared queue). Closes Ch. 10.
 - **M13.4 (HTTP integration)** wires the scheduler into the running server as a `/scheduler/run` route, so we can run a synthetic workload and inspect the trace through a normal HTTP client. Mirrors how M12 routes were added per-slice.
@@ -85,13 +85,13 @@ Tradeoffs:
 
 ## Verification
 
-- A new slice doc under `docs/learning/` is the unit of work. Each is independently testable per `lesson-slices.md`.
+- A new slice doc under `docs/learning/` is the unit of work. Each is independently testable per `README.md`.
 - `dotnet build MiniWebServer.sln` and the existing test project remain the green bar.
 - Each slice adds its own smoke (PowerShell) and learning note.
 - The roadmap is complete when the Status column here is all Done.
 
 ## Next Steps
 
-1. Land M13.1 (MLFQ) first. This ADR is committed alongside slice 13.1's code so the roadmap and the first slice land together.
+1. Land M13 (MLFQ) first. This ADR is committed alongside slice 13.1's code so the roadmap and the first slice land together.
 2. After MLFQ, evaluate whether stride/lottery (M13.2) should come before multi-CPU (M13.3). Both are small.
 3. M13.4 (HTTP integration) lands last and wires all three into a `/scheduler/run` route.

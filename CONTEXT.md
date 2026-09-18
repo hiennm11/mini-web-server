@@ -31,7 +31,7 @@ Updated 2026-09-17. Legend: ✅ built + experimented + noted · 🟡 planned · 
 | M14 (14.1) | Mini Pager: linear page table + VA→PA translation + page fault | Ch. 18 | ✅ |
 | M15 | ArrayPool&lt;byte&gt; in async mode (receive + response buffers) | n/a (perf) | ✅ |
 
-**Milestones**: M1 ✅–M15 ✅. M8–M15 are the post-roadmap extensions per `docs/adr/0004-extend-broad-concurrency-roadmap.md` (M8–M12), `docs/adr/0006-mini-scheduler-mlfq-proportional-multicpu.md` (M13), `docs/adr/0007-mini-pager-mmu-tlb-multilevel-replacement.md` (M14), and M15 is a standalone performance slice. The original 12-slice roadmap is closed. Latest: M12.5/12.6/12.7 (Mini FS journal + multi-block transactions + atomic rmdir), M13.1 (MLFQ scheduler), M14.1 (linear page table), M15 (ArrayPool in async mode — modest 9% reduction, see `docs/learning/slice-15-arraypool.md` for honest assessment).
+**Milestones**: M1 ✅–M15 ✅. M8–M15 are the post-roadmap extensions per `docs/adr/0004-extend-broad-concurrency-roadmap.md` (M8–M12), `docs/adr/0006-mini-scheduler-mlfq-proportional-multicpu.md` (M13), `docs/adr/0007-mini-pager-mmu-tlb-multilevel-replacement.md` (M14), and M15 is a standalone performance slice. The original 12-slice roadmap is closed. Latest: M12.5/12.6/12.7 (Mini FS journal + multi-block transactions + atomic rmdir), M13 (MLFQ scheduler), M14 (linear page table), M15 (ArrayPool in async mode — modest 9% reduction, see `docs/learning/s15-arraypool.md` for honest assessment).
 **Tests**: 15 passing (8 prior + 7 new for `HttpRequestReceiver`).
 **Code/runtime**: `net10.0`. Two run modes selectable via `--async` flag: default = bounded worker pool (8 threads) + producer/consumer queue, async = `AcceptAsync` + `Task` per connection with `ReceiveAsync` / `SendAsync`. Port 8080, static files under `wwwroot`.
 **Latest commit**: Milestone 15 — ArrayPool<byte> in async mode. `AsyncServer.HandleClientAsync` now rents the 16 KB receive buffer from `ArrayPool<byte>.Shared.Rent` (instead of `new byte[MaxRequestBytes]`) and returns it in a finally block; the response is serialized via new `HttpResponse.WriteTo(byte[] dest)` into a 4 KB rented buffer. Measured under 150 parked /slow clients: working set 172 MB → 157 MB (~9% reduction). The expected 172 → 21 MB win did not materialize — the receive buffer wasn't the dominant cost; per-Task state machines parked at `Task.Delay(30000)` and per-request `HttpRequest` allocations dominate. Build clean, 15/15 tests pass.
@@ -42,7 +42,7 @@ The book has ~50 chapters. Repo maps **the core three pieces** (Virtualization +
 
 | Piece | Coverage | Roadmap slices |
 |---|---|---|
-| **Virtualization** | Ch. 4 process, 6 LDE, 13 address space, 26-27 thread = point of execution, 33 event-based, **Ch. 8 MLFQ (basic + boost, R1-R3 + simplified R4)**, **Ch. 18 linear page table** | 1.1, 1.4, 4.4, M7, M13.1, M14.1 |
+| **Virtualization** | Ch. 4 process, 6 LDE, 13 address space, 26-27 thread = point of execution, 33 event-based, **Ch. 8 MLFQ (basic + boost, R1-R3 + simplified R4)**, **Ch. 18 linear page table** | 1.1, 1.4, 4.4, M7, M13, M14 |
 | **Concurrency** | Ch. 26 race, 27 thread API, 28 locks, 30 condition variables, 31 semaphores, 31.5 reader-writer, 33 event-based | 4.1–4.6, M5, M6, M7, M8, M9, M10 |
 | **Persistence** | Ch. 36 I/O devices (TCP receive loop), 39 file API (basic static files; M11 covers open/read/close syscalls; no write/seek/unlink demo), Ch. 40 vsfs layout / inode / bitmap / directory, Ch. 42.3 crash consistency / journaling / data journaling mode / write-ahead log / batching / circular log | 1.3, 1.4, M11, M12.1–12.7 |
 
@@ -52,9 +52,9 @@ The book has ~50 chapters. Repo maps **the core three pieces** (Virtualization +
 
 Each slice doc notes its OSEP chapter and §-sub-section with explicit deviations:
 
-- **M13.1 (MLFQ)** — implements OSEP §8.1-§8.3 (basic MLFQ with boost) and a simplification of §8.4 anti-gaming Rule 4. See `docs/learning/slice-13-mlfq.md` "Implementation deviation vs. OSEP §8" for the gap.
-- **M14.1 (linear page table)** — implements OSEP §18.3 + §18.4 translation pipeline. Simplifications in `docs/learning/slice-14-pager.md` "Implementation deviations vs. OSEP §18" cover the TranslateOutcome naming (we conflate SEGFAULT/PAGEFAULT), missing PTE.Present + PTE.Protection bits, and not modeling the §18.5 memory-trace overhead.
-- **M12.5 (single-block journal)** — implements OSEP §42.3 data journaling mode + recovery. Documented alignment in `docs/learning/slice-12-mini-file-system.md` slice 12.5 section.
+- **M13 (MLFQ)** — implements OSEP §8.1-§8.3 (basic MLFQ with boost) and a simplification of §8.4 anti-gaming Rule 4. See `docs/learning/s13-mlfq.md` "Implementation deviation vs. OSEP §8" for the gap.
+- **M14 (linear page table)** — implements OSEP §18.3 + §18.4 translation pipeline. Simplifications in `docs/learning/s14-pager.md` "Implementation deviations vs. OSEP §18" cover the TranslateOutcome naming (we conflate SEGFAULT/PAGEFAULT), missing PTE.Present + PTE.Protection bits, and not modeling the §18.5 memory-trace overhead.
+- **M12.5 (single-block journal)** — implements OSEP §42.3 data journaling mode + recovery. Documented alignment in `docs/learning/m12-mini-file-system.md` slice 12.5 section.
 - **M12.6 (multi-block transactions)** — implements OSEP §42.3 "Batching Log Updates" + "Making the Log Finite" (circular log via Tail pointer). Deferred: revoke records for §42.3 "Tricky Case: Block Reuse".
 - **M12.7 (rmdir)** — implements POSIX `rmdir` semantics per OSEP §40.7 (`mkdir`/`rmdir` semantics). Deferred: indirect/double-indirect block pointers.
 
@@ -175,36 +175,36 @@ Each lesson slice should include:
 
 A lesson slice is 30–90 minutes of focused work: read a concept, build a tiny behavior, run an experiment, and capture what was observed. Milestones exist so the server's evolution direction stays visible; lesson slices exist so daily work is concrete and completable.
 
-Every lesson slice must follow `docs/learning/lesson-slices.md`: start with a concrete question, query OSTEP NotebookLM, design the experiment before code, build one observable behavior, run the experiment, write the note, and pass the 10-rule checklist. The three-question test for every slice is: what is the OS doing, which .NET API exposes it, and where does it break at scale?
+Every lesson slice must follow `docs/learning/README.md`: start with a concrete question, query OSTEP NotebookLM, design the experiment before code, build one observable behavior, run the experiment, write the note, and pass the 10-rule checklist. The three-question test for every slice is: what is the OS doing, which .NET API exposes it, and where does it break at scale?
 
 The current OSTEP-connected notebook is in NotebookLM: `Operating Systems: Three Easy Pieces` (id `74bcbca0-6161-48cd-92bb-9dd39032794e`, 69 sources).
 
 Phase 1 learning docs (The Process & The Byte Stream):
 
-- `docs/learning/slice-1.1-raw-socket-server.md`
-- `docs/learning/slice-1.2-http-request-understanding.md`
-- `docs/learning/slice-1.3-static-file-server.md`
-- `docs/learning/slice-1.4-robust-request-receive.md`
+- `docs/learning/s1.1-raw-socket-server.md`
+- `docs/learning/s1.2-http-request.md`
+- `docs/learning/s1.3-static-file-server.md`
+- `docs/learning/s1.4-robust-request-receive.md`
 
 Phase 2 learning docs (Threads: Multiple Points of Execution):
 
-- `docs/learning/slice-4.1-single-thread-blocking.md`
-- `docs/learning/slice-4.2-spawn-thread-per-client.md`
-- `docs/learning/slice-4.3-scheduling-non-determinism.md`
-- `docs/learning/slice-4.4-shared-address-space.md`
-- `docs/learning/slice-4.5-race-condition-prep.md`
-- `docs/learning/slice-4.6-thread-per-connection-limits.md`
+- `docs/learning/s4.1-single-thread-blocking.md`
+- `docs/learning/s4.2-thread-per-connection.md`
+- `docs/learning/s4.3-scheduling-non-determinism.md`
+- `docs/learning/s4.4-shared-address-space.md`
+- `docs/learning/s4.5-race-condition-prep.md`
+- `docs/learning/s4.6-thread-per-connection-limits.md`
 
 Phase 3 + 4 learning docs:
 
-- `docs/learning/milestone-5-race-lab.md` (race fixed with `lock`)
-- `docs/learning/milestone-6-bounded-worker-pool.md` (bounded pool + producer/consumer; M8 bounded queue appended as section 6.3)
-- `docs/learning/slice-6.3-bounded-queue-and-backpressure.md` (M8 full learning note)
-- `docs/learning/slice-9-reader-writer-lock.md` (M9 full learning note)
-- `docs/learning/slice-10-threadpool-cap.md` (M10 full learning note)
-- `docs/learning/slice-11-raw-syscall-demo.md` (M11 full learning note)
-- `docs/learning/slice-12-mini-file-system.md` (M12 mini-FS plan + learning note for slices 12.1–12.4)
-- `docs/learning/milestone-7-async-event-based.md` (event-based server)
+- `docs/learning/m5-race-lab.md` (race fixed with `lock`)
+- `docs/learning/m6-bounded-worker-pool.md` (bounded pool + producer/consumer; M8 bounded queue appended as section 6.3)
+- `docs/learning/s6.3-bounded-queue.md` (M8 full learning note)
+- `docs/learning/s9-reader-writer-lock.md` (M9 full learning note)
+- `docs/learning/s10-threadpool-cap.md` (M10 full learning note)
+- `docs/learning/s11-raw-syscall-demo.md` (M11 full learning note)
+- `docs/learning/m12-mini-file-system.md` (M12 mini-FS plan + learning note for slices 12.1–12.4)
+- `docs/learning/m7-async-event-based.md` (event-based server)
 
 All twelve roadmap slices + milestones have learning notes with smoke-test output captured inline. M8 (the first post-roadmap extension) has its own learning note and a 6.3 section appended to the M6 note.
 
@@ -212,19 +212,19 @@ All twelve roadmap slices + milestones have learning notes with smoke-test outpu
 
 Prefer preserving the educational, low-level socket-server character of the project unless a task explicitly asks for a higher-level framework. When adding behavior, make the network lifecycle easy to see and reason about.
 
-The repo follows **build-first learning** (per `docs/learning/lesson-slices.md`): each new behavior is a 30-90 min slice with one observable OS phenomenon, a smoke test, and a learning note. Chapters of OSEP are read on demand when a slice needs them, not end-to-end.
+The repo follows **build-first learning** (per `docs/learning/README.md`): each new behavior is a 30-90 min slice with one observable OS phenomenon, a smoke test, and a learning note. Chapters of OSEP are read on demand when a slice needs them, not end-to-end.
 
 **Source provenance**: slice docs cite specific OSEP sections. A two-pass doc sweep was done in 2026-09 against the source PDFs (`pages.cs.wisc.edu/~remzi/OSTEP/*.pdf`):
 
 1. **Pass 1 (M9–M12)**: verified Ch. 30 (condition variables), 31 (semaphores + 31.5 reader-writer), 33 (event-based), 39 (files & directories), 40 (vsfs). Several errors found and corrected: §30.4 misattribution for the "while not if" / "two CVs" / "hold lock while signaling" lessons (those are §30.1 / §30.2); the "vsfs = xv6" mistake in M12 (vsfs is OSEP's own design, xv6 is a separate OS); the bogus "log" claim in M12 (vsfs has no log; that's Ch. 42).
 
-2. **Pass 2 (M1–M5)**: verified Ch. 4 (process + 4.4 states), 6 (LDE), 13 (address space), 26 (concurrency), 27 (thread API), 28 (locks), 36 (I/O). One error found: slice-4.3 cited §26.4 figure 26.7 (the race example) for scheduler non-determinism, but the right citation is §26.2 t0.c + figures 26.3/26.4/26.5 (the non-deterministic ordering example). The M5 race-lab citations for §28.1-2 / §28.7-9 / §28.12-14 are accurate to the chapter's actual section breakdown.
+2. **Pass 2 (M1–M5)**: verified Ch. 4 (process + 4.4 states), 6 (LDE), 13 (address space), 26 (concurrency), 27 (thread API), 28 (locks), 36 (I/O). One error found: s4.3 cited §26.4 figure 26.7 (the race example) for scheduler non-determinism, but the right citation is §26.2 t0.c + figures 26.3/26.4/26.5 (the non-deterministic ordering example). The M5 race-lab citations for §28.1-2 / §28.7-9 / §28.12-14 are accurate to the chapter's actual section breakdown.
 
 After both passes, every "Key point from OSEP §X.Y" should match the cited chapter's actual table of contents. Future readers should still treat the citations as a pointer to where the lesson lives, not as an authoritative cross-reference, but the section numbers should now be correct.
 
 Useful directions that fit the project:
 
-- Extend concurrency via the next-milestones roadmap in `docs/adr/0004-extend-broad-concurrency-roadmap.md`. M8 (bounded queue + 503), M9 (reader-writer lock + cache), M10 (ThreadPool cap), M11 (raw open/read/close syscall demo), M12 (mini file system slices 12.1–12.7), M13.1 (MLFQ scheduler), M14.1 (linear page table), and M15 (ArrayPool in async mode) are done.
+- Extend concurrency via the next-milestones roadmap in `docs/adr/0004-extend-broad-concurrency-roadmap.md`. M8 (bounded queue + 503), M9 (reader-writer lock + cache), M10 (ThreadPool cap), M11 (raw open/read/close syscall demo), M12 (mini file system slices 12.1–12.7), M13 (MLFQ scheduler), M14 (linear page table), and M15 (ArrayPool in async mode) are done.
 - Add `ArrayPool<byte>` to lower per-connection memory in async mode (would change the M7 numbers from 172 MB toward M6's 21 MB).
 - Add a `Retry-After` header to the M8 503 response so clients can back off intelligently.
 - Extend the **OSEP coverage gaps** in the OSEP Coverage section: scheduling (Ch. 7-10), paging (Ch. 14-23), full FS (Ch. 36-45), security (Ch. 53-57). Each new chapter group should get its own ADR before any slices start.

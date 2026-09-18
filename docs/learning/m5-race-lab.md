@@ -18,7 +18,7 @@ How do we fix the data race exposed by slice 4.5?
 
 ## Build
 
-Add a `/race-safe` route that increments under the lock. The existing `/race` (non-atomic) route stays as the slice-4.5 negative control.
+Add a `/race-safe` route that increments under the lock. The existing `/race` (non-atomic) route stays as the s4.5 negative control.
 
 File affected:
 

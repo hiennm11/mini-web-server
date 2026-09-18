@@ -20,7 +20,7 @@ We will extend the concurrency / OSEP-chapter-30+ roadmap with the following mil
 
 | ID | Name | OSEP chapter(s) | Lesson slices | Status |
 |---|---|---|---|---|
-| **M8** | Bounded queue + backpressure in worker pool | Ch. 30, 31 | slice-6.3-bounded-queue-and-backpressure (planned) | Future |
+| **M8** | Bounded queue + backpressure in worker pool | Ch. 30, 31 | s6.3-bounded-queue (planned) | Future |
 | **M9** | Reader-writer lock + shared cache demo | Ch. 30 | 2-3 slices (rwlock primitive, /stats cache, smoke) | Future |
 | **M10** | Async mode overload + ThreadPool cap | Ch. 33 | 1-2 slices (cap observation, stress under cap) | Future |
 | **M11** | Real `open`/`read`/`write`/`close` syscall demo | Ch. 39 | 2 slices (replace `File.ReadAllBytes` with raw `FileStream`; observable syscalls) | Future |
@@ -34,7 +34,7 @@ Ordering rationale:
 - **M11** is the persistence counterpart of slice 1.3 — replacing the high-level `File.ReadAllBytes` with the lower-level syscall narrative.
 - **M12** is the biggest piece; the slices deliberately mirror OSEP Ch. 40-42 chapter ordering.
 
-These milestones do **not** change the project's status as an OS concepts lab. Each one adds observable behavior, has a smoke test, and lands as its own commit(s) following `docs/learning/lesson-slices.md`.
+These milestones do **not** change the project's status as an OS concepts lab. Each one adds observable behavior, has a smoke test, and lands as its own commit(s) following `docs/learning/README.md`.
 
 ## Out of scope for this ADR
 
@@ -58,12 +58,12 @@ Tradeoffs:
 
 ## Verification
 
-- A new slice doc under `docs/learning/` is the unit of work. Each is independently testable per `lesson-slices.md`.
+- A new slice doc under `docs/learning/` is the unit of work. Each is independently testable per `README.md`.
 - `dotnet build MiniWebServer.sln` and the existing test project remain the green bar.
 - The roadmap is complete when the Status column here is all Done. That will likely be months away; updating this ADR is a per-milestone event.
 
 ## Next Steps
 
-1. Land M8 (bounded queue + 503) first. The detailed plan lives at `docs/learning/slice-6.3-bounded-queue-and-backpressure.md`.
+1. Land M8 (bounded queue + 503) first. The detailed plan lives at `docs/learning/s6.3-bounded-queue.md`.
 2. After M8, evaluate whether M10 (async-mode overload) should run before M9 (reader-writer lock + cache). Both are reasonable.
 3. After the concurrency additions land, consider an ADR for Part III extension (Ch. 39-45) and a separate one for Part I extension (Ch. 7-10 scheduling).

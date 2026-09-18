@@ -3,14 +3,17 @@ using System.Collections.Generic;
 namespace MiniWebServer.Host.MiniPager;
 
 /// <summary>
-/// Page-table lookup result. OSEP §21.2 "The Present Bit" — three states:
-///   - Hit: VPN → FrameNo, in physical memory.
+/// Page-table lookup result. OSEP §21.2 "The Present Bit" — four states:
+///   - Hit: VPN → FrameNo, in physical memory, writable.
+///   - HitReadOnly: VPN → FrameNo, in physical memory, COW-shared (slice 19.1).
+///     Caller's write will trigger copy-on-write.
 ///   - InSwap: VPN was evicted; SwapSlot is the swap location.
 ///   - Miss: no valid mapping at all.
 /// </summary>
 public enum LookupResult
 {
     Hit,
+    HitReadOnly,
     InSwap,
     Miss,
 }
@@ -22,12 +25,14 @@ public enum LookupResult
 /// Slice 17.1: <see cref="TwoLevelLookup"/> — page directory + page tables.
 /// Slice 18.1: both lookups can return <see cref="LookupResult.InSwap"/>
 /// for evicted pages (see <see cref="SwappablePte"/>).
+/// Slice 19.1: COW support (see <see cref="CowPte"/>) — LinearLookup
+/// can return <see cref="LookupResult.HitReadOnly"/> to trigger COW.
 /// </summary>
 public interface IPageTableLookup
 {
     /// <summary>
     /// Translate a VPN. Returns Hit (with frameNo), InSwap (with swapSlot),
-    /// or Miss.
+    /// Miss, or HitReadOnly (with frameNo — caller's write will COW).
     /// </summary>
     LookupResult TryLookup(int vpn, out int frameNo, out int swapSlot);
 
@@ -46,6 +51,15 @@ public interface IPageTableLookup
     /// </summary>
     void EvictToSwap(int vpn, int swapSlot);
 
+    /// <summary>Slice 19.1: mark a VPN as sharing a frame (COW).</summary>
+    void ShareFrame(int vpn, int frameNo);
+
+    /// <summary>Slice 19.1: clear the COW flag for a VPN (after private copy).</summary>
+    void UnshareFrame(int vpn);
+
+    /// <summary>Slice 19.1: is this VPN currently in COW mode?</summary>
+    bool IsCowShared(int vpn);
+
     /// <summary>How many bytes the page table uses (PGD + PT pages, or flat array).</summary>
     int MemoryBytes { get; }
 
@@ -60,6 +74,7 @@ public interface IPageTableLookup
 /// Linear page table lookup (slice 14.1).
 /// OSEP §18.3 "Linear Page Table".
 /// Slice 18.1: extended to support swap (PTEs can be in memory or in swap).
+/// Slice 19.1: extended with COW support (ReadOnly bit + tracking).
 /// </summary>
 public sealed class LinearLookup : IPageTableLookup
 {
@@ -87,7 +102,12 @@ public sealed class LinearLookup : IPageTableLookup
         swapSlot = -1;
         if (vpn < 0 || vpn >= _ptes.Length) return LookupResult.Miss;
         var pte = _ptes[vpn];
-        if (pte.Valid) { frameNo = pte.FrameNo; return LookupResult.Hit; }
+        if (pte.Valid)
+        {
+            frameNo = pte.FrameNo;
+            // Slice 19.1: ReadOnly flag means COW-shared.
+            return pte.ReadOnly ? LookupResult.HitReadOnly : LookupResult.Hit;
+        }
         if (pte.InSwap) { swapSlot = pte.SwapSlot; return LookupResult.InSwap; }
         return LookupResult.Miss;
     }
@@ -113,6 +133,37 @@ public sealed class LinearLookup : IPageTableLookup
             throw new ArgumentOutOfRangeException(nameof(vpn));
         if (swapSlot < 0) throw new ArgumentOutOfRangeException(nameof(swapSlot));
         _ptes[vpn] = new SwappablePte { InSwap = true, SwapSlot = swapSlot };
+    }
+
+    /// <summary>Slice 19.1: mark this VPN as COW-shared with another VPN.</summary>
+    public void ShareFrame(int vpn, int frameNo)
+    {
+        if (vpn < 0 || vpn >= _ptes.Length)
+            throw new ArgumentOutOfRangeException(nameof(vpn));
+        if (frameNo < 0) throw new ArgumentOutOfRangeException(nameof(frameNo));
+        var pte = _ptes[vpn];
+        _ptes[vpn] = new SwappablePte
+        {
+            Valid = true,
+            FrameNo = frameNo,
+            Dirty = pte.Dirty,
+            Referenced = pte.Referenced,
+            ReadOnly = true,  // slice 19.1: COW marker
+        };
+    }
+
+    public void UnshareFrame(int vpn)
+    {
+        var pte = _ptes[vpn];
+        if (pte.Valid)
+            _ptes[vpn] = new SwappablePte { Valid = true, FrameNo = pte.FrameNo, Dirty = pte.Dirty };
+    }
+
+    public bool IsCowShared(int vpn)
+    {
+        if (vpn < 0 || vpn >= _ptes.Length) return false;
+        var pte = _ptes[vpn];
+        return pte.Valid && pte.ReadOnly;
     }
 }
 
@@ -221,6 +272,17 @@ public sealed class TwoLevelLookup : IPageTableLookup
             throw new InvalidOperationException($"no PT for pgd {pgd}");
         inner.Set(pt, PageTableEntry.Empty);
     }
+
+    // Slice 19.1 COW stubs — TwoLevelLookup doesn't yet support COW
+    // (PTEs are PageTableEntry which only has Valid bit). Documented as
+    // deferred in m19 overview.
+    public void ShareFrame(int vpn, int frameNo)
+        => throw new NotSupportedException("TwoLevelLookup does not yet support COW; use LinearLookup for COW demos");
+
+    public void UnshareFrame(int vpn)
+        => throw new NotSupportedException("TwoLevelLookup does not yet support COW; use LinearLookup for COW demos");
+
+    public bool IsCowShared(int vpn) => false;
 }
 
 /// <summary>
@@ -503,6 +565,98 @@ public sealed class Pager
         _frames[chosenFrame].Allocated = true;
         Eviction.OnAllocate(_frames, chosenFrame, _step);
         if (chosenFrame >= NumFramesAllocated) NumFramesAllocated = chosenFrame + 1;
+    }
+
+    /// <summary>
+    /// Slice 19.1: copy-on-write fork. Make <paramref name="destVpn"/> in
+    /// <paramref name="destPid"/> share the same physical frame as
+    /// <paramref name="sourceVpn"/> in <paramref name="sourcePid"/>.
+    /// The page is marked ReadOnly in both PTEs; the first write to
+    /// either will trigger a copy.
+    ///
+    /// OSEP §23.1 VMS "Other Neat Tricks":
+    ///   "when the OS needs to copy a page from one address space to
+    ///    another, instead of copying it, it can map it into the
+    ///    target address space and mark it read-only in both address
+    ///    spaces."
+    /// </summary>
+    public void ShareFrame(int sourcePid, int sourceVpn, int destPid, int destVpn)
+    {
+        if (!_lookups.TryGetValue(sourcePid, out var srcPt))
+            throw new InvalidOperationException($"source pid {sourcePid} not found");
+        if (!_lookups.TryGetValue(destPid, out var dstPt))
+            throw new InvalidOperationException($"dest pid {destPid} not found");
+        var srcLookup = srcPt.TryLookup(sourceVpn, out int srcFrame, out _);
+        if (srcLookup != LookupResult.Hit && srcLookup != LookupResult.HitReadOnly)
+            throw new InvalidOperationException($"source vpn {sourceVpn} not in memory (lookup={srcLookup})");
+        // Mark source as ReadOnly (already-writable) AND install the dest
+        // as a shared, ReadOnly PTE pointing to the same frame.
+        srcPt.ShareFrame(sourceVpn, srcFrame);  // marks source ReadOnly
+        dstPt.ShareFrame(destVpn, srcFrame);
+        // Update frame owner to track the most recent sharee (frame
+        // ownership becomes ambiguous; for simplicity, destPid becomes
+        // the primary owner).
+        _frames[srcFrame].OwnerPid = destPid;
+        _frames[srcFrame].Vpn = destVpn;
+    }
+
+    /// <summary>
+    /// Slice 19.1: write <paramref name="data"/> to the physical page
+    /// backing <paramref name="pid"/>'s <paramref name="vpn"/>.
+    /// Triggers copy-on-write if the page is shared (OSEP §23.1).
+    /// </summary>
+    public bool Write(int pid, int vpn, byte[] data)
+    {
+        if (data.Length != VirtualAddress.PAGE_SIZE)
+            throw new ArgumentException($"data must be {VirtualAddress.PAGE_SIZE} bytes", nameof(data));
+        if (!_lookups.TryGetValue(pid, out var pt))
+            throw new InvalidOperationException($"pid {pid} not found");
+
+        var lookup = pt.TryLookup(vpn, out int frame, out _);
+        if (lookup == LookupResult.Miss || lookup == LookupResult.InSwap)
+        {
+            // Lazy first-touch / swap-in.
+            Map(pid, vpn, frameNo: -1);
+            lookup = pt.TryLookup(vpn, out frame, out _);
+            if (lookup != LookupResult.Hit && lookup != LookupResult.HitReadOnly)
+                throw new InvalidOperationException($"write to unmapped vpn {vpn}");
+        }
+
+        // OSEP §23.1: if the page is ReadOnly (shared), we must COW
+        // before writing. Allocate a new frame, copy the old contents
+        // into it, update this process's PTE to point to the new frame
+        // (marked writable), then write.
+        if (lookup == LookupResult.HitReadOnly || pt.IsCowShared(vpn))
+        {
+            // Find a free frame (or evict one).
+            int newFrame = FindFreeFrame();
+            if (newFrame < 0)
+            {
+                newFrame = Eviction.PickVictim(_frames);
+                EvictFrame(newFrame);
+            }
+            // Copy old contents into the new frame.
+            var oldBuf = new byte[VirtualAddress.PAGE_SIZE];
+            Memory.ReadBytes(frame * VirtualAddress.PAGE_SIZE, oldBuf, VirtualAddress.PAGE_SIZE);
+            Memory.WriteBytes(newFrame * VirtualAddress.PAGE_SIZE, oldBuf);
+            // Update this PTE to point to the new frame (writable).
+            pt.UnshareFrame(vpn);
+            pt.Map(vpn, newFrame);  // sets Valid + FrameNo, no ReadOnly
+            // The other PTE (the partner) keeps the old frame and stays ReadOnly.
+            _frames[newFrame].OwnerPid = pid;
+            _frames[newFrame].Vpn = vpn;
+            _frames[newFrame].Allocated = true;
+            Eviction.OnAllocate(_frames, newFrame, _step);
+            frame = newFrame;
+            Evictions++;  // count COW as an eviction-like event
+        }
+
+        // OSEP §23.1 write to the now-private page.
+        Memory.WriteBytes(frame * VirtualAddress.PAGE_SIZE, data);
+        var ev = new TraceEvent(_step, pid, $"0x{vpn * VirtualAddress.PAGE_SIZE:X8}", $"0x{frame * VirtualAddress.PAGE_SIZE:X8}",
+            TranslateOutcome.Hit, $"write frame={frame}");
+        _trace.Add(ev);
+        return true;
     }
 
     public PagerStats Stats()

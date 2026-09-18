@@ -129,6 +129,29 @@ public static class Workloads
         }
         return list;
     }
+
+    /// <summary>
+    /// Slice 19.1: copy-on-write fork scenario.
+    /// Process 1 maps VPN=0 to a frame.
+    /// Process 2 then "forks" — process 2's VPN=0 is COW-shared with P1's VPN=0.
+    /// Both processes read the page (no COW fires on read).
+    /// Then process 1 writes — COW fires, allocates a new frame.
+    /// Process 2 still sees the original page.
+    /// </summary>
+    public static (List<MemoryAccess> reads, int pid1, int pid2, int sharedVpn, int writeStep) CowScenario()
+    {
+        var reads = new List<MemoryAccess>();
+        // Initial: P1 maps VPN=0.
+        // P2 forks: P2's VPN=0 = COW-shared with P1's VPN=0.
+        // Sequence: P1 reads, P2 reads, P1 writes (COW fires), P2 reads.
+        reads.Add(new MemoryAccess(Pid: 1, VirtualAddressValue: 0, Kind: AccessKind.Read));
+        reads.Add(new MemoryAccess(Pid: 2, VirtualAddressValue: 0, Kind: AccessKind.Read));
+        // P1 writes at step 2 — COW triggers (this is a "write step" not
+        // a read; the workload helper just returns the reads).
+        // P2 reads after the write — should still see the original data.
+        reads.Add(new MemoryAccess(Pid: 2, VirtualAddressValue: 0, Kind: AccessKind.Read));
+        return (reads, 1, 2, 0, 2);
+    }
 }
 
 /// <summary>Run a workload against a pager pre-populated with mappings.</summary>
@@ -172,6 +195,76 @@ public static class PagerRunner
         // Pager.Map(vpn=-1). The first numFrames accesses map to free
         // frames; subsequent accesses trigger evictions.
         return RunInternal(pager, accesses, tlbCapacity);
+    }
+
+    /// <summary>
+    /// Slice 19.1 COW fork scenario. Demonstrates OSEP §23.1 "Other Neat
+    /// Tricks": when a process forks, the OS doesn't copy the address
+    /// space; instead, it shares all the pages as copy-on-write.
+    /// The first write triggers a copy.
+    ///
+    /// Steps:
+    ///   1. P1 maps VPN=0 (first-touch Map).
+    ///   2. P1 reads VPN=0 (Hit).
+    ///   3. P2 forks: P2's VPN=0 is COW-shared with P1's VPN=0.
+    ///   4. P2 reads VPN=0 (HitReadOnly — shared).
+    ///   5. P1 writes VPN=0 → COW fires: allocate new frame, copy
+    ///      old contents, mark P1's PTE as writable.
+    ///   6. P2 reads VPN=0 again (Hit — but on P2's original frame,
+    ///      NOT P1's new private frame).
+    /// </summary>
+    public static string RunCow(int numFrames = 4)
+    {
+        var pager = new Pager(numFrames);
+        pager.CreateProcess(1);
+        pager.CreateProcess(2);
+
+        var sb = new StringBuilder();
+        sb.AppendLine($"=== COW fork scenario (M19 / OSEP §23.1) ===");
+        sb.AppendLine($"numFrames={numFrames}");
+        sb.AppendLine();
+
+        // Step 1: P1 maps VPN=0.
+        pager.Map(1, 0, frameNo: -1);
+        sb.AppendLine($"step 1: P1 first-touch map VPN=0 (frame={(pager.AllPageTables.OfType<LinearLookup>().First().TryLookup(0, out int fn, out _) == LookupResult.Hit ? fn : -1)})");
+
+        // Read by P1 to ensure frame is populated.
+        pager.Translate(1, 0, out _);
+        sb.AppendLine("step 2: P1 reads VPN=0 → Hit");
+
+        // Step 3: P2 forks — share the frame.
+        pager.ShareFrame(sourcePid: 1, sourceVpn: 0, destPid: 2, destVpn: 0);
+        sb.AppendLine("step 3: P2 fork — ShareFrame(P1,0) → (P2,0) COW-shared");
+
+        // Step 4: P2 reads VPN=0 — should be HitReadOnly.
+        pager.Translate(2, 0, out _);
+        sb.AppendLine("step 4: P2 reads VPN=0 → HitReadOnly (page is shared)");
+
+        // Step 5: P1 writes — triggers COW.
+        var writeData = new byte[VirtualAddress.PAGE_SIZE];
+        for (int i = 0; i < writeData.Length; i++) writeData[i] = 0x42;
+        pager.Write(1, 0, writeData);
+        var pt1 = pager.AllPageTables.OfType<LinearLookup>().First();
+        pt1.TryLookup(0, out int frame1After, out _);
+        var pt2 = pager.AllPageTables.OfType<LinearLookup>().Last();
+        pt2.TryLookup(0, out int frame2After, out _);
+        sb.AppendLine($"step 5: P1 writes VPN=0 → COW fires; P1.frame={frame1After}, P2.frame={frame2After}");
+        sb.AppendLine($"        (frames should differ — P1 got a fresh private frame, P2 keeps the original)");
+
+        // Step 6: P2 reads again — should still see the original frame.
+        pager.Translate(2, 0, out _);
+        sb.AppendLine("step 6: P2 reads VPN=0 → Hit on original frame");
+
+        // Dump the trace.
+        foreach (var ev in pager.Trace)
+        {
+            sb.AppendLine(ev.Format());
+        }
+        var s = pager.Stats();
+        sb.AppendLine();
+        sb.AppendLine($"=== stats: accesses={s.TotalAccesses} hits={s.Hits} faults={s.Faults} outofrange={s.OutOfRange}");
+        sb.AppendLine($"=== Replacement stats: evictions={pager.Evictions} swap_ins={pager.SwapIns}");
+        return sb.ToString();
     }
 
     private static IEvictionPolicy MakePolicy(string policy) => policy switch

@@ -34,6 +34,8 @@ public struct Pte
 /// (evicted to swap). If both are false, the PTE is invalid (no
 /// mapping). If Valid is true, FrameNo points to a frame. If InSwap
 /// is true, SwapSlot points to a swap slot.
+///
+/// Slice 19.1: ReadOnly bit added for copy-on-write (OSEP §23.1).
 /// </summary>
 public struct SwappablePte
 {
@@ -43,6 +45,7 @@ public struct SwappablePte
     public int SwapSlot;       // valid only when InSwap
     public bool Dirty;
     public bool Referenced;
+    public bool ReadOnly;      // M19.1: true if this PTE is COW-shared with another
 
     public static readonly SwappablePte Empty = new() { Valid = false, InSwap = false, FrameNo = -1, SwapSlot = -1 };
 }

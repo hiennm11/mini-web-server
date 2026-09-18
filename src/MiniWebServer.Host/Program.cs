@@ -44,6 +44,7 @@ if (maxThreads.HasValue || minThreads.HasValue)
 string webRoot = WebRootLocator.GetWebRoot(AppContext.BaseDirectory);
 
 MiniWebServer.Host.MiniFs.MiniFs.Mount();
+MiniWebServer.Host.MiniFs.MiniFs.InitRoot();
 Console.WriteLine($"[minifs] mounted: {MiniWebServer.Host.MiniFs.MiniFs.Superblock.NumDataBlocks} data blocks free of {MiniWebServer.Host.MiniFs.MiniFs.Superblock.TotalBlocks} total blocks");
 
 if (asyncMode)
@@ -243,6 +244,209 @@ static void HandleClient(Socket clientSocket, string webRoot)
                 "OK",
                 "text/plain; charset=UTF-8",
                 Encoding.UTF8.GetBytes(body));
+        }
+        else if (parsedRequest.Path.StartsWith("/fs/list"))
+        {
+            string param = "";
+            int qIdx = parsedRequest.Path.IndexOf('?');
+            if (qIdx >= 0)
+            {
+                foreach (var kv in parsedRequest.Path.Substring(qIdx + 1).Split('&'))
+                {
+                    int eq = kv.IndexOf('=');
+                    if (eq > 0 && kv.Substring(0, eq) == "path") { param = Uri.UnescapeDataString(kv.Substring(eq + 1)); break; }
+                }
+            }
+            string listPath = string.IsNullOrEmpty(param) ? "/" : param;
+            int dirIno = MiniWebServer.Host.MiniFs.MiniFs.WalkPath(listPath);
+            if (dirIno == 0)
+            {
+                response = new HttpResponse(404, "Not Found", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("Not Found\n"));
+            }
+            else
+            {
+                var entries = MiniWebServer.Host.MiniFs.MiniFs.Readdir(dirIno);
+                var sb = new StringBuilder();
+                sb.AppendLine($"path: {listPath}");
+                sb.AppendLine($"entries: {entries.Length}");
+                foreach (var (name, ino) in entries)
+                {
+                    var inode = MiniWebServer.Host.MiniFs.MiniFs.Iget(ino);
+                    string typeStr = inode.Type switch
+                    {
+                        MiniWebServer.Host.MiniFs.Inode.TYPE_FILE => "file",
+                        MiniWebServer.Host.MiniFs.Inode.TYPE_DIR => "dir",
+                        _ => "free"
+                    };
+                    sb.AppendLine($"  ino={ino,4}  type={typeStr,-4}  size={inode.Size,8}  name={name}");
+                }
+                response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes(sb.ToString()));
+            }
+        }
+        else if (parsedRequest.Path.StartsWith("/fs/stat"))
+        {
+            string param = "";
+            int qIdx = parsedRequest.Path.IndexOf('?');
+            if (qIdx >= 0)
+            {
+                foreach (var kv in parsedRequest.Path.Substring(qIdx + 1).Split('&'))
+                {
+                    int eq = kv.IndexOf('=');
+                    if (eq > 0 && kv.Substring(0, eq) == "path") { param = Uri.UnescapeDataString(kv.Substring(eq + 1)); break; }
+                }
+            }
+            int ino = MiniWebServer.Host.MiniFs.MiniFs.WalkPath(param);
+            if (ino == 0)
+            {
+                response = new HttpResponse(404, "Not Found", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("Not Found\n"));
+            }
+            else
+            {
+                var inode = MiniWebServer.Host.MiniFs.MiniFs.Iget(ino);
+                string typeStr = inode.Type switch
+                {
+                    MiniWebServer.Host.MiniFs.Inode.TYPE_FILE => "file",
+                    MiniWebServer.Host.MiniFs.Inode.TYPE_DIR => "dir",
+                    _ => "free"
+                };
+                string body = $"ino = {ino}\ntype = {typeStr}\nsize = {inode.Size}\nnlink = {inode.Nlink}\ndirect_blocks = ";
+                for (int i = 0; i < MiniWebServer.Host.MiniFs.Constants.NDIRECT; i++)
+                    body += (inode.DirectBlocks[i] >= 0 ? inode.DirectBlocks[i].ToString() : "-") + (i < MiniWebServer.Host.MiniFs.Constants.NDIRECT - 1 ? "," : "");
+                body += "\n";
+                response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes(body));
+            }
+        }
+        else if (parsedRequest.Path.StartsWith("/fs/create"))
+        {
+            string param = "";
+            int qIdx = parsedRequest.Path.IndexOf('?');
+            if (qIdx >= 0)
+            {
+                foreach (var kv in parsedRequest.Path.Substring(qIdx + 1).Split('&'))
+                {
+                    int eq = kv.IndexOf('=');
+                    if (eq > 0 && kv.Substring(0, eq) == "path") { param = Uri.UnescapeDataString(kv.Substring(eq + 1)); break; }
+                }
+            }
+            if (string.IsNullOrEmpty(param))
+            {
+                response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("path required\n"));
+            }
+            else
+            {
+                int ino = MiniWebServer.Host.MiniFs.MiniFs.CreateFile(param);
+                if (ino < 0) response = new HttpResponse(500, "Internal Server Error", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("create failed\n"));
+                else response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes($"created ino={ino}\n"));
+            }
+        }
+        else if (parsedRequest.Path.StartsWith("/fs/write"))
+        {
+            // POST body is the content; ?path= sets the path
+            string param = "";
+            int qIdx = parsedRequest.Path.IndexOf('?');
+            if (qIdx >= 0)
+            {
+                foreach (var kv in parsedRequest.Path.Substring(qIdx + 1).Split('&'))
+                {
+                    int eq = kv.IndexOf('=');
+                    if (eq > 0 && kv.Substring(0, eq) == "path") { param = Uri.UnescapeDataString(kv.Substring(eq + 1)); break; }
+                }
+            }
+            if (string.IsNullOrEmpty(param))
+            {
+                response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("path required\n"));
+            }
+            else
+            {
+                int ino = MiniWebServer.Host.MiniFs.MiniFs.WalkPath(param);
+                if (ino == 0)
+                {
+                    response = new HttpResponse(404, "Not Found", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("Not Found\n"));
+                }
+                else
+                {
+                    var inode = MiniWebServer.Host.MiniFs.MiniFs.Iget(ino);
+                    if (inode.Type != MiniWebServer.Host.MiniFs.Inode.TYPE_FILE)
+                    {
+                        response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("not a file\n"));
+                    }
+                    else
+                    {
+                        // Body starts after \r\n\r\n
+                        int hdrEnd = HttpRequestReceiver.FindHeaderEnd(requestBytes);
+                        if (hdrEnd < 0)
+                        {
+                            response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("missing header terminator\n"));
+                        }
+                        else
+                        {
+                            int bodyOff = hdrEnd + 4;
+                            int bodyLen = requestBytes.Length - bodyOff;
+                            // Copy body to its own buffer so Writei's offset param
+                            // means "file offset" not "buffer offset"
+                            var body = new byte[bodyLen];
+                            Array.Copy(requestBytes, bodyOff, body, 0, bodyLen);
+                            int n = MiniWebServer.Host.MiniFs.MiniFs.Writei(ino, body, 0, bodyLen);
+                            response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes($"wrote {n} bytes\n"));
+                        }
+                    }
+                }
+            }
+        }
+        else if (parsedRequest.Path.StartsWith("/fs/read"))
+        {
+            string param = "";
+            int qIdx = parsedRequest.Path.IndexOf('?');
+            if (qIdx >= 0)
+            {
+                foreach (var kv in parsedRequest.Path.Substring(qIdx + 1).Split('&'))
+                {
+                    int eq = kv.IndexOf('=');
+                    if (eq > 0 && kv.Substring(0, eq) == "path") { param = Uri.UnescapeDataString(kv.Substring(eq + 1)); break; }
+                }
+            }
+            int ino = MiniWebServer.Host.MiniFs.MiniFs.WalkPath(param);
+            if (ino == 0)
+            {
+                response = new HttpResponse(404, "Not Found", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("Not Found\n"));
+            }
+            else
+            {
+                var inode = MiniWebServer.Host.MiniFs.MiniFs.Iget(ino);
+                if (inode.Type != MiniWebServer.Host.MiniFs.Inode.TYPE_FILE)
+                {
+                    response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("not a file\n"));
+                }
+                else
+                {
+                    var buf = new byte[inode.Size];
+                    int n = MiniWebServer.Host.MiniFs.MiniFs.Readi(ino, buf, 0, buf.Length);
+                    response = new HttpResponse(200, "OK", "application/octet-stream", new ReadOnlySpan<byte>(buf, 0, n).ToArray());
+                }
+            }
+        }
+        else if (parsedRequest.Path.StartsWith("/fs/unlink"))
+        {
+            string param = "";
+            int qIdx = parsedRequest.Path.IndexOf('?');
+            if (qIdx >= 0)
+            {
+                foreach (var kv in parsedRequest.Path.Substring(qIdx + 1).Split('&'))
+                {
+                    int eq = kv.IndexOf('=');
+                    if (eq > 0 && kv.Substring(0, eq) == "path") { param = Uri.UnescapeDataString(kv.Substring(eq + 1)); break; }
+                }
+            }
+            if (string.IsNullOrEmpty(param))
+            {
+                response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("path required\n"));
+            }
+            else
+            {
+                bool ok = MiniWebServer.Host.MiniFs.MiniFs.UnlinkFile(param);
+                if (!ok) response = new HttpResponse(404, "Not Found", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("not found or not a file\n"));
+                else response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("unlinked\n"));
+            }
         }
         else if (parsedRequest.Path == "/qstats")
         {

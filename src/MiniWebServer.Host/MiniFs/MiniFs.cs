@@ -344,6 +344,7 @@ public static class MiniFs
         inode.Size = 0;
         inode.Nlink = 0;
         Iput(ino, inode);
+        Ifree(ino);
     }
 
     // --- File read/write ---
@@ -416,5 +417,261 @@ public static class MiniFs
             inode.Size = offset + bytesWritten;
         Iput(ino, inode);
         return bytesWritten;
+    }
+
+    // --- Directory operations ---
+
+    /// <summary>
+    /// Inode number of the FS root. Allocated on first mount; persists
+    /// for the lifetime of the FS. OSEP §40.7.
+    /// </summary>
+    public const int ROOT_INO = 1;
+
+    /// <summary>
+    /// Initialize the root directory: allocate inode 1 (if not yet),
+    /// mark it as a directory, write '.' and '..' entries pointing
+    /// at itself.
+    /// </summary>
+    public static void InitRoot()
+    {
+        // Reserve inode 1 as root if not yet allocated
+        if (InodesInUse() <= 1)
+        {
+            // First mount - allocate inode 1
+            int allocated = Ialloc();
+            if (allocated != ROOT_INO)
+                throw new InvalidOperationException($"first ialloc returned {allocated}, expected {ROOT_INO}");
+        }
+
+        var root = Iget(ROOT_INO);
+        if (root.IsFree)
+        {
+            Iinit(ROOT_INO, Inode.TYPE_DIR);
+            // Write '.' and '..' entries
+            var dot = new DirEntry { Ino = ROOT_INO, Name = "." };
+            var dotdot = new DirEntry { Ino = ROOT_INO, Name = ".." };
+            Writei(ROOT_INO, dot.ToBytes(), 0, DirEntry.RECORD_SIZE);
+            Writei(ROOT_INO, dotdot.ToBytes(), DirEntry.RECORD_SIZE, DirEntry.RECORD_SIZE);
+        }
+    }
+
+    /// <summary>
+    /// Look up a name in a directory inode. Returns the inode number
+    /// of the matching entry, or 0 if not found.
+    /// </summary>
+    public static int Lookup(int dirIno, string name)
+    {
+        var dir = Iget(dirIno);
+        if (dir.Type != Inode.TYPE_DIR) return 0;
+        if (dir.Size == 0) return 0;
+
+        var buf = new byte[BLOCK_SIZE];
+        int off = 0;
+        while (off < dir.Size)
+        {
+            int n = Readi(dirIno, buf, off, BLOCK_SIZE);
+            if (n == 0) break;
+            for (int i = 0; i + DirEntry.RECORD_SIZE <= n; i += DirEntry.RECORD_SIZE)
+            {
+                var entry = DirEntry.FromBytes(buf, i);
+                if (entry.Ino != 0 && entry.Name == name) return entry.Ino;
+            }
+            off += n;
+        }
+        return 0;
+    }
+
+    /// <summary>
+    /// Add a name -> ino entry to a directory. Returns true if added,
+    /// false if the name already exists.
+    /// </summary>
+    public static bool DirLink(int dirIno, string name, int ino)
+    {
+        if (string.IsNullOrEmpty(name) || name.Length > DirEntry.MAX_NAME)
+            throw new ArgumentException("invalid name", nameof(name));
+        if (Lookup(dirIno, name) != 0) return false;  // already exists
+
+        var dir = Iget(dirIno);
+        if (dir.Type != Inode.TYPE_DIR) throw new InvalidOperationException("not a directory");
+
+        // Find first free slot, or append at the end
+        var buf = new byte[BLOCK_SIZE];
+        int off = 0;
+        while (off < dir.Size)
+        {
+            int n = Readi(dirIno, buf, off, BLOCK_SIZE);
+            if (n == 0) break;
+            for (int i = 0; i + DirEntry.RECORD_SIZE <= n; i += DirEntry.RECORD_SIZE)
+            {
+                var entry = DirEntry.FromBytes(buf, i);
+                if (entry.Ino == 0)
+                {
+                    // Free slot - rewrite
+                    var newEntry = new DirEntry { Ino = (ushort)ino, Name = name };
+                    Writei(dirIno, newEntry.ToBytes(), off + i, DirEntry.RECORD_SIZE);
+                    return true;
+                }
+            }
+            off += n;
+        }
+
+        // No free slot - append at end
+        var append = new DirEntry { Ino = (ushort)ino, Name = name };
+        Writei(dirIno, append.ToBytes(), dir.Size, DirEntry.RECORD_SIZE);
+        return true;
+    }
+
+    /// <summary>
+    /// Remove a name -> ino entry from a directory. Frees the slot
+    /// by zeroing the ino field. Returns true if removed, false if
+    /// the name was not found.
+    /// </summary>
+    public static bool DirUnlink(int dirIno, string name)
+    {
+        var dir = Iget(dirIno);
+        if (dir.Type != Inode.TYPE_DIR) return false;
+
+        var buf = new byte[BLOCK_SIZE];
+        int off = 0;
+        while (off < dir.Size)
+        {
+            int n = Readi(dirIno, buf, off, BLOCK_SIZE);
+            if (n == 0) break;
+            for (int i = 0; i + DirEntry.RECORD_SIZE <= n; i += DirEntry.RECORD_SIZE)
+            {
+                var entry = DirEntry.FromBytes(buf, i);
+                if (entry.Ino != 0 && entry.Name == name)
+                {
+                    // Zero out the slot
+                    var zero = new DirEntry { Ino = 0, Name = "" };
+                    Writei(dirIno, zero.ToBytes(), off + i, DirEntry.RECORD_SIZE);
+                    return true;
+                }
+            }
+            off += n;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Enumerate the entries of a directory. Returns an array of
+    /// (name, ino) pairs for non-free entries.
+    /// </summary>
+    public static (string name, int ino)[] Readdir(int dirIno)
+    {
+        var dir = Iget(dirIno);
+        if (dir.Type != Inode.TYPE_DIR) return Array.Empty<(string, int)>();
+        if (dir.Size == 0) return Array.Empty<(string, int)>();
+
+        var result = new System.Collections.Generic.List<(string, int)>();
+        var buf = new byte[BLOCK_SIZE];
+        int off = 0;
+        while (off < dir.Size)
+        {
+            int n = Readi(dirIno, buf, off, BLOCK_SIZE);
+            if (n == 0) break;
+            for (int i = 0; i + DirEntry.RECORD_SIZE <= n; i += DirEntry.RECORD_SIZE)
+            {
+                var entry = DirEntry.FromBytes(buf, i);
+                if (entry.Ino != 0) result.Add((entry.Name, entry.Ino));
+            }
+            off += n;
+        }
+        return result.ToArray();
+    }
+
+    /// <summary>
+    /// Walk a slash-separated path starting from the root. Returns the
+    /// inode number of the final component, or 0 if any component is
+    /// not found. An absolute path starting with '/' begins at ROOT_INO.
+    /// </summary>
+    public static int WalkPath(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return 0;
+        if (path[0] != '/') return 0;  // only absolute paths supported
+        var parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        int current = ROOT_INO;
+        foreach (var part in parts)
+        {
+            current = Lookup(current, part);
+            if (current == 0) return 0;
+        }
+        return current;
+    }
+
+    /// <summary>
+    /// Create a new file at the given absolute path. Parent directory
+    /// must exist. Returns the new inode number or -1 on failure.
+    /// </summary>
+    public static int CreateFile(string path)
+    {
+        int slash = path.LastIndexOf('/');
+        if (slash < 0) return -1;
+        string parentPath = slash == 0 ? "/" : path.Substring(0, slash);
+        string name = path.Substring(slash + 1);
+        if (string.IsNullOrEmpty(name)) return -1;
+
+        int parentIno = WalkPath(parentPath);
+        if (parentIno == 0) return -1;
+        var parent = Iget(parentIno);
+        if (parent.Type != Inode.TYPE_DIR) return -1;
+
+        int existing = Lookup(parentIno, name);
+        if (existing != 0) return existing;  // already exists
+
+        int newIno = Ialloc();
+        if (newIno < 0) return -1;
+        Iinit(newIno, Inode.TYPE_FILE);
+        DirLink(parentIno, name, newIno);
+        return newIno;
+    }
+
+    /// <summary>
+    /// Create a new directory at the given absolute path.
+    /// </summary>
+    public static int CreateDir(string path)
+    {
+        int slash = path.LastIndexOf('/');
+        if (slash < 0) return -1;
+        string parentPath = slash == 0 ? "/" : path.Substring(0, slash);
+        string name = path.Substring(slash + 1);
+        if (string.IsNullOrEmpty(name)) return -1;
+
+        int parentIno = WalkPath(parentPath);
+        if (parentIno == 0) return -1;
+
+        int newIno = Ialloc();
+        if (newIno < 0) return -1;
+        Iinit(newIno, Inode.TYPE_DIR);
+        // Write '.' and '..'
+        var dot = new DirEntry { Ino = (ushort)newIno, Name = "." };
+        var dotdot = new DirEntry { Ino = (ushort)parentIno, Name = ".." };
+        Writei(newIno, dot.ToBytes(), 0, DirEntry.RECORD_SIZE);
+        Writei(newIno, dotdot.ToBytes(), DirEntry.RECORD_SIZE, DirEntry.RECORD_SIZE);
+        DirLink(parentIno, name, newIno);
+        return newIno;
+    }
+
+    /// <summary>
+    /// Remove a file (not a directory) at the given absolute path.
+    /// </summary>
+    public static bool UnlinkFile(string path)
+    {
+        int slash = path.LastIndexOf('/');
+        if (slash < 0) return false;
+        string parentPath = slash == 0 ? "/" : path.Substring(0, slash);
+        string name = path.Substring(slash + 1);
+        int parentIno = WalkPath(parentPath);
+        if (parentIno == 0) return false;
+
+        int targetIno = Lookup(parentIno, name);
+        if (targetIno == 0) return false;
+
+        var target = Iget(targetIno);
+        if (target.Type != Inode.TYPE_FILE) return false;
+
+        DirUnlink(parentIno, name);
+        Idestroy(targetIno);
+        return true;
     }
 }

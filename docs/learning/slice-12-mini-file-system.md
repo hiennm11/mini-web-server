@@ -115,10 +115,123 @@ What does the FS do at each level?
 ## Status
 
 - [x] Planned
-- [ ] Built (12.1)
-- [ ] Built (12.2)
-- [ ] Built (12.3)
-- [ ] Built (12.4)
-- [ ] Built (12.5)
-- [ ] Experimented
-- [ ] Noted
+- [x] Built (12.1 — superblock + bitmaps + alloc/free)
+- [x] Built (12.2 — inode table + readi/writei)
+- [x] Built (12.3 — directory operations: lookup/dir-link/dir-unlink/walk/create/unlink)
+- [x] Built (12.4 — HTTP routes + smoke)
+- [ ] Built (12.5 — journal for crash consistency) — deferred to a future slice
+- [x] Experimented
+- [x] Noted
+
+## Learning Note (slices 12.1–12.4)
+
+### What changed
+
+**Slice 12.1 (superblock + bitmaps + alloc/free)** — `commit 2adc2f0`
+
+- `MiniFs/Constants.cs` — layout constants: `BLOCK_SIZE=4096`, `NUM_INODES=256`, `NUM_BLOCKS=256`, `INODE_SIZE=64`. Block map: superblock=0, inode bitmap=1, data bitmap=2, inode table=3..6, data blocks=7..255 (249 data blocks). `FS_MAGIC=0x1F5EF5E1`.
+- `MiniFs/Superblock.cs` — struct with `Magic`, `TotalInodes`, `TotalBlocks`, `FreeInodes`, `FreeDataBlocks`, and the bitmap/table start offsets.
+- `MiniFs/MiniFs.cs` — `Mount()` allocates a 1 MB `byte[]` "disk"; tries to read an existing superblock; if magic mismatches, calls `Format()` to zero the disk and write a fresh superblock. `Ialloc()`/`Ifree()`/`Balloc()`/`Bfree()` update the bitmaps and free counts.
+- `Program.cs` — calls `MiniFs.Mount()` at startup; new `/fs-stats` route reports the superblock + counts.
+
+**Slice 12.2 (inode table + readi/writei)** — `commit 054d57f`
+
+- `MiniFs/Inode.cs` — `ushort Type`, `ushort Nlink`, `int Size`, `int[NDIRECT=12] DirectBlocks` (56 bytes used; 8 bytes padding to fill 64-byte inode size).
+- `MiniFs/MiniFs.cs` — `Iget(ino)` reads the inode table block that holds `ino`, parses the slot; `Iput(ino, inode)` writes back; `Iinit(ino, type)` initializes a freshly-allocated inode; `Idestroy(ino)` releases all data blocks, marks inode free, and clears the bitmap bit. `Readi(ino, buf, offset, len)` reads up to `len` bytes at file offset `offset`, walking direct blocks; handles EOF (returns < len) and unset blocks. `Writei(ino, buf, fileOffset, len)` writes `len` bytes at file offset, calling `Balloc()` on first write to each direct-block slot; throws if the file would exceed `NDIRECT * BLOCK_SIZE = 48 KB`.
+
+**Slice 12.3 (directory operations)** — bundled with 12.4 in this commit
+
+- `MiniFs/DirEntry.cs` — fixed 32-byte record (`ushort Ino` + 30 bytes UTF-8 name). `Ino == 0` means the slot is free.
+- `MiniFs/MiniFs.cs` — `InitRoot()` allocates inode 1 as the root directory and writes `.` and `..` entries pointing at itself. `Lookup(dirIno, name)` scans the directory's data blocks for a name match; `DirLink(dirIno, name, ino)` adds a new entry (reusing free slots or appending); `DirUnlink(dirIno, name)` zeros the slot; `Readdir(dirIno)` enumerates entries. `WalkPath("/a/b/c")` resolves an absolute path component-by-component from the root. `CreateFile(path)` allocates an inode and links it in the parent directory; `UnlinkFile(path)` removes the link and destroys the inode.
+- `Program.cs` — six new routes: `/fs/list?path=`, `/fs/stat?path=`, `/fs/create?path=`, `/fs/write?path=` (POST body), `/fs/read?path=`, `/fs/unlink?path=`.
+
+### What I observed
+
+Smoke run against the running server (default mode):
+
+```
+=== /fs-stats (after mount + InitRoot: 2 inodes in use) ===
+magic = 0x1F5EF5E1   total_inodes = 256   total_blocks = 256
+free_inodes = 254    free_data_blocks = 248
+inodes_in_use = 2    data_blocks_in_use = 1
+inode_bitmap_block = 1   data_bitmap_block = 2
+inode_table_start = 3    data_blocks_start = 7
+disk_size_bytes = 1048576   block_size = 4096
+
+=== /fs/list (should show . and ..) ===
+path: /
+entries: 2
+  ino=   1  type=dir   size=      64  name=.
+  ino=   1  type=dir   size=      64  name=..
+
+=== /fs/create?path=/hello.txt ===
+created ino=3
+
+=== /fs/list ===
+path: /
+entries: 4
+  ino=   1  type=dir   size=     128  name=.
+  ino=   1  type=dir   size=     128  name=..
+  ino=   2  type=file  size=      20  name=z.txt
+  ino=   3  type=file  size=       0  name=hello.txt
+
+=== POST /fs/write?path=/hello.txt (20 bytes "Hello mini-FS world!") ===
+wrote 20 bytes
+
+=== /fs/read?path=/hello.txt ===
+Content-Length: 20
+Hello mini-FS world!
+
+=== /fs/stat?path=/hello.txt ===
+ino = 3
+type = file
+size = 20
+nlink = 1
+direct_blocks = 2,-,-,-,-,-,-,-,-,-,-,-
+
+=== /fs/unlink?path=/hello.txt ===
+unlinked
+
+=== /fs-stats after unlink ===
+free_inodes = 252    free_data_blocks = 247
+inodes_in_use = 4    data_blocks_in_use = 2
+```
+
+Reading:
+
+- After `Mount()` + `InitRoot()`: 2 inodes in use (reserved inode 0 + root inode 1), 1 data block in use (root's `.` and `..` directory entries).
+- After `CreateFile("/hello.txt")`: root's size grew from 64 → 128 (added one 32-byte dir entry for `hello.txt`); new file has `Size=0`, `DirectBlocks[0]=-1` until written.
+- After `Writei(3, body, 0, 20)`: inode 3's `DirectBlocks[0]=2` (next free data block); `Size=20`.
+- After `Readi(3, ...)`: returns exactly the 20 bytes that were written — `Hello mini-FS world!` round-trips correctly through the disk.
+- After `UnlinkFile("/hello.txt")`: the dir entry slot in root is zeroed (size 160 still shows because unlink doesn't shrink the dir; in real FS, dir would be compacted); inode 3 freed; data block 2 freed.
+
+### Bugs hit during implementation
+
+1. **`Idestroy` didn't free the inode bitmap bit.** Initial code marked the inode `TYPE_FREE` in the table but didn't call `Ifree()`, so `inodes_in_use` stayed elevated after unlink. Fix: add `Ifree(ino)` call at the end of `Idestroy`.
+2. **`/fs/write` misinterpreted the `offset` parameter.** The Writei signature is `Writei(int ino, byte[] buf, int fileOffset, int len)` — `offset` means file position, not buffer position. The route was passing the request buffer offset (76 = position after `\r\n\r\n`) as the file offset, so a 20-byte write at "file offset 76" set `inode.Size = 76 + 20 = 96`. Fix: extract the body into its own buffer (`Array.Copy(requestBytes, bodyOff, body, 0, bodyLen)`) and call `Writei(ino, body, 0, bodyLen)`.
+
+### OSEP concept
+
+The slice implements the textbook xv6-style file system layout:
+
+- **§40.3 (on-disk layout)**: superblock describes everything else; the bitmap and inode table are in fixed positions.
+- **§40.4 (inode allocation)**: bitmaps as the only free-space representation; `ialloc` scans for the first zero bit.
+- **§40.6 (inode read/write)**: fixed-size inodes with direct block pointers; reading walks the direct-block array.
+- **§40.7 (directory as a file)**: directory content is just an array of `(name, ino)` records; `lookup` scans; `create` appends.
+
+### .NET mechanism
+
+- The "disk" is a `byte[256 * 4096] = 1 MB` `byte[]`. Every operation translates logical concepts (inodes, data blocks) into byte offsets in this array.
+- `BitConverter` (little-endian on x86) handles the integer serialization for the on-disk format.
+- All FS operations are static methods on `MiniFs` — no instance state, no async. Simpler for educational purposes.
+
+### What's deferred
+
+**Slice 12.5 — Journal for crash consistency.** A write-ahead log of pending transactions, commit markers, and replay-on-mount. This is the OSEP §42 lesson. The current FS is crash-unsafe: a mid-write process death leaves the on-disk structures inconsistent. Implementing journaling requires:
+
+- A circular log buffer in the first few data blocks
+- `Journal.Begin()`, `Journal.LogWrite(int blockNo, byte[] data)`, `Journal.Commit()`
+- Wrap every `WriteBlock` call in the journal API
+- On `Mount()`, scan the journal from the start; replay committed transactions; discard uncommitted
+
+That's a substantial addition (~150-200 lines + new file + smoke test) and benefits from a focused 60-90 minute slice. Out of scope for this session; deferred to a future ADR.

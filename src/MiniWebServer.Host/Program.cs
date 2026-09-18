@@ -10,6 +10,37 @@ const int WorkerCount = 8;
 
 bool asyncMode = args.Contains("--async");
 
+int? maxThreads = null;
+int? minThreads = null;
+for (int i = 0; i < args.Length; i++)
+{
+    if (args[i] == "--max-threads" && i + 1 < args.Length && int.TryParse(args[++i], out var mx))
+    {
+        maxThreads = mx;
+    }
+    else if (args[i] == "--min-threads" && i + 1 < args.Length && int.TryParse(args[++i], out var mn))
+    {
+        minThreads = mn;
+    }
+}
+
+if (maxThreads.HasValue || minThreads.HasValue)
+{
+    ThreadPool.GetMinThreads(out var curMin, out var curIo);
+    ThreadPool.GetMaxThreads(out var curMax, out var curIoMax);
+    int newMin = minThreads ?? curMin;
+    int newMax = maxThreads ?? curMax;
+    bool okMin = ThreadPool.SetMinThreads(newMin, curIo);
+    bool okMax = ThreadPool.SetMaxThreads(newMax, curIoMax);
+    if (!okMin || !okMax)
+    {
+        Console.Error.WriteLine($"[threadpool] failed to set min={newMin} max={newMax}");
+    }
+    ThreadPool.GetMinThreads(out var appliedMin, out _);
+    ThreadPool.GetMaxThreads(out var appliedMax, out _);
+    Console.WriteLine($"[threadpool] cap applied: min={appliedMin} max={appliedMax} worker threads (was min={curMin} max={curMax})");
+}
+
 string webRoot = WebRootLocator.GetWebRoot(AppContext.BaseDirectory);
 
 if (asyncMode)
@@ -144,10 +175,17 @@ static void HandleClient(Socket clientSocket, string webRoot)
             int threads = p.Threads.Count;
             long workingSet = p.WorkingSet64;
             long privateBytes = p.PrivateMemorySize64;
+            ThreadPool.GetMinThreads(out var tpMin, out _);
+            ThreadPool.GetMaxThreads(out var tpMax, out _);
+            ThreadPool.GetAvailableThreads(out var tpAvail, out _);
+            int tpActive = tpMax - tpAvail;
             string body =
                 $"threads = {threads}\n" +
                 $"working_set_bytes = {workingSet}\n" +
                 $"private_bytes = {privateBytes}\n" +
+                $"threadpool_min = {tpMin}\n" +
+                $"threadpool_max = {tpMax}\n" +
+                $"threadpool_active = {tpActive}\n" +
                 $"total_requests = {RequestStats.TotalRequests}\n";
             response = new HttpResponse(
                 200,

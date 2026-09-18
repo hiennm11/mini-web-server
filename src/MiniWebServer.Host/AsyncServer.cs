@@ -136,10 +136,17 @@ public static class AsyncServer
                 else if (parsedRequest.Path == "/stats")
                 {
                     var p = System.Diagnostics.Process.GetCurrentProcess();
+                    ThreadPool.GetMinThreads(out var tpMin, out _);
+                    ThreadPool.GetMaxThreads(out var tpMax, out _);
+                    ThreadPool.GetAvailableThreads(out var tpAvail, out _);
+                    int tpActive = tpMax - tpAvail;
                     string body =
                         $"threads = {p.Threads.Count}\n" +
                         $"working_set_bytes = {p.WorkingSet64}\n" +
                         $"private_bytes = {p.PrivateMemorySize64}\n" +
+                        $"threadpool_min = {tpMin}\n" +
+                        $"threadpool_max = {tpMax}\n" +
+                        $"threadpool_active = {tpActive}\n" +
                         $"total_requests = {RequestStats.TotalRequests}\n" +
                         $"async_active_tasks = {localRequestId}\n";
                     response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes(body));

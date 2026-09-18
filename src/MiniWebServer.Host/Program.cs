@@ -609,6 +609,46 @@ static void HandleClient(Socket clientSocket, string webRoot)
                 response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes(sb.ToString()));
             }
         }
+        else if (parsedRequest.Path.StartsWith("/pager/run"))
+        {
+            // MiniPager demo. ?workload=seq|rand|two&frames=N
+            string workload = "seq";
+            int numFrames = 16;
+            int qIdx = parsedRequest.Path.IndexOf('?');
+            if (qIdx >= 0)
+            {
+                foreach (var kv in parsedRequest.Path.Substring(qIdx + 1).Split('&'))
+                {
+                    int eq = kv.IndexOf('=');
+                    if (eq <= 0) continue;
+                    var k = kv.Substring(0, eq);
+                    var v = kv.Substring(eq + 1);
+                    if (k == "workload") workload = v;
+                    else if (k == "frames" && int.TryParse(v, out var nf)) numFrames = nf;
+                }
+            }
+
+            string output = workload switch
+            {
+                "seq" => MiniWebServer.Host.MiniPager.PagerRunner.RunSingle(
+                    MiniWebServer.Host.MiniPager.Workloads.SequentialSingleProcess(), numFrames),
+                "rand" => MiniWebServer.Host.MiniPager.PagerRunner.RunSingle(
+                    MiniWebServer.Host.MiniPager.Workloads.RandomSingleProcess(), numFrames),
+                "two" => MiniWebServer.Host.MiniPager.PagerRunner.RunTwoOverlap(
+                    MiniWebServer.Host.MiniPager.Workloads.TwoProcessesOverlap(), numFrames),
+                _ => "",
+            };
+            if (string.IsNullOrEmpty(output))
+            {
+                response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8",
+                    Encoding.UTF8.GetBytes("unknown workload (use seq|rand|two)\n"));
+            }
+            else
+            {
+                response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                    Encoding.UTF8.GetBytes(output));
+            }
+        }
         else if (parsedRequest.Path.StartsWith("/scheduler/run"))
         {
             // MiniScheduler demo. ?workload=two|mixed|cpu&ticks=N&q=N&boost=M

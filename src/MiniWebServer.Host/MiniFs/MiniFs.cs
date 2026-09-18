@@ -264,4 +264,157 @@ public static class MiniFs
     /// <summary>Total bytes on the "disk".</summary>
     public static int DiskSizeBytes
         => _disk?.Length ?? 0;
+
+    // --- Inode table ---
+
+    /// <summary>
+    /// Absolute block number of the inode table block that holds
+    /// inode number <paramref name="ino"/>.
+    /// </summary>
+    private static int InodeBlock(int ino)
+        => _sb.InodeTableStart + (ino * INODE_SIZE) / BLOCK_SIZE;
+
+    /// <summary>Byte offset within that inode-table block.</summary>
+    private static int InodeBlockOffset(int ino)
+        => (ino * INODE_SIZE) % BLOCK_SIZE;
+
+    /// <summary>
+    /// Read an inode from the inode table. Returns an Inode with
+    /// Type=TYPE_FREE if the slot is free. OSEP §40.6.
+    /// </summary>
+    public static Inode Iget(int ino)
+    {
+        if (_disk == null) throw new InvalidOperationException("not mounted");
+        if (ino < 0 || ino >= NUM_INODES) throw new ArgumentOutOfRangeException(nameof(ino));
+        var block = new byte[BLOCK_SIZE];
+        ReadBlock(InodeBlock(ino), block);
+        int off = InodeBlockOffset(ino);
+        var inode = new Inode
+        {
+            Type = BitConverter.ToUInt16(block, off),
+            Nlink = BitConverter.ToUInt16(block, off + 2),
+            Size = BitConverter.ToInt32(block, off + 4),
+        };
+        for (int i = 0; i < NDIRECT; i++)
+            inode.DirectBlocks[i] = BitConverter.ToInt32(block, off + 8 + i * 4);
+        return inode;
+    }
+
+    /// <summary>Write an inode to the inode table.</summary>
+    public static void Iput(int ino, Inode inode)
+    {
+        if (_disk == null) throw new InvalidOperationException("not mounted");
+        if (ino < 0 || ino >= NUM_INODES) throw new ArgumentOutOfRangeException(nameof(ino));
+        var block = new byte[BLOCK_SIZE];
+        ReadBlock(InodeBlock(ino), block);
+        int off = InodeBlockOffset(ino);
+        BitConverter.GetBytes(inode.Type).CopyTo(block, off);
+        BitConverter.GetBytes(inode.Nlink).CopyTo(block, off + 2);
+        BitConverter.GetBytes(inode.Size).CopyTo(block, off + 4);
+        for (int i = 0; i < NDIRECT; i++)
+            BitConverter.GetBytes(inode.DirectBlocks[i]).CopyTo(block, off + 8 + i * 4);
+        WriteBlock(InodeBlock(ino), block);
+    }
+
+    /// <summary>
+    /// Initialize a newly-allocated inode in the inode table. Sets
+    /// type, nlink=1, size=0, zeros all direct block pointers.
+    /// </summary>
+    public static void Iinit(int ino, ushort type)
+    {
+        var inode = new Inode { Type = type, Nlink = 1, Size = 0 };
+        for (int i = 0; i < NDIRECT; i++) inode.DirectBlocks[i] = -1;
+        Iput(ino, inode);
+    }
+
+    /// <summary>Mark an inode as free in the table and release its blocks.</summary>
+    public static void Idestroy(int ino)
+    {
+        var inode = Iget(ino);
+        if (inode.IsFree) return;
+        for (int i = 0; i < NDIRECT; i++)
+        {
+            if (inode.DirectBlocks[i] >= 0)
+            {
+                Bfree(inode.DirectBlocks[i]);
+                inode.DirectBlocks[i] = -1;
+            }
+        }
+        inode.Type = Inode.TYPE_FREE;
+        inode.Size = 0;
+        inode.Nlink = 0;
+        Iput(ino, inode);
+    }
+
+    // --- File read/write ---
+
+    /// <summary>
+    /// Read <paramref name="len"/> bytes from the file at offset
+    /// <paramref name="offset"/> into <paramref name="buf"/>. Returns
+    /// the number of bytes read (may be less than <paramref name="len"/>
+    /// at EOF). OSEP §40.6 readi.
+    /// </summary>
+    public static int Readi(int ino, byte[] buf, int offset, int len)
+    {
+        var inode = Iget(ino);
+        if (inode.IsFree) return 0;
+        if (offset >= inode.Size) return 0;
+        if (offset + len > inode.Size) len = inode.Size - offset;
+
+        int bytesRead = 0;
+        while (bytesRead < len)
+        {
+            int logicalBlock = (offset + bytesRead) / BLOCK_SIZE;
+            int blockOffset = (offset + bytesRead) % BLOCK_SIZE;
+            int chunk = Math.Min(len - bytesRead, BLOCK_SIZE - blockOffset);
+            if (logicalBlock >= NDIRECT || inode.DirectBlocks[logicalBlock] < 0) break;
+
+            var blk = new byte[BLOCK_SIZE];
+            ReadBlock(DataBlockAbsolute(inode.DirectBlocks[logicalBlock]), blk);
+            Array.Copy(blk, blockOffset, buf, bytesRead, chunk);
+            bytesRead += chunk;
+        }
+        return bytesRead;
+    }
+
+    /// <summary>
+    /// Write <paramref name="len"/> bytes from <paramref name="buf"/>
+    /// to the file at offset <paramref name="offset"/>. Allocates new
+    /// data blocks as needed. OSEP §40.6 writei.
+    /// </summary>
+    public static int Writei(int ino, byte[] buf, int offset, int len)
+    {
+        var inode = Iget(ino);
+        if (inode.IsFree) return 0;
+
+        int bytesWritten = 0;
+        while (bytesWritten < len)
+        {
+            int logicalBlock = (offset + bytesWritten) / BLOCK_SIZE;
+            int blockOffset = (offset + bytesWritten) % BLOCK_SIZE;
+            int chunk = Math.Min(len - bytesWritten, BLOCK_SIZE - blockOffset);
+
+            if (logicalBlock >= NDIRECT)
+                throw new InvalidOperationException($"file too large (max {NDIRECT * BLOCK_SIZE} bytes)");
+
+            // Allocate a data block on first write to this slot
+            if (inode.DirectBlocks[logicalBlock] < 0)
+            {
+                int newBlock = Balloc();
+                if (newBlock < 0) throw new InvalidOperationException("out of data blocks");
+                inode.DirectBlocks[logicalBlock] = newBlock;
+            }
+
+            var blk = new byte[BLOCK_SIZE];
+            ReadBlock(DataBlockAbsolute(inode.DirectBlocks[logicalBlock]), blk);
+            Array.Copy(buf, bytesWritten, blk, blockOffset, chunk);
+            WriteBlock(DataBlockAbsolute(inode.DirectBlocks[logicalBlock]), blk);
+            bytesWritten += chunk;
+        }
+
+        if (offset + bytesWritten > inode.Size)
+            inode.Size = offset + bytesWritten;
+        Iput(ino, inode);
+        return bytesWritten;
+    }
 }

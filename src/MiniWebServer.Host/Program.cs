@@ -839,6 +839,55 @@ static void HandleClient(Socket clientSocket, string webRoot)
             response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
                 Encoding.UTF8.GetBytes(output));
         }
+        else if (parsedRequest.Path.StartsWith("/ffs/run"))
+        {
+            // FFS placement simulator. ?scenario=manyfiles|largefile&groups=N&inodes=N&blocks=N&threshold=M
+            string scenario = "manyfiles";
+            int groups = 8;
+            int inodesPerGroup = 5;
+            int blocksPerGroup = 16;
+            int threshold = 12;
+            int qIdx = parsedRequest.Path.IndexOf('?');
+            if (qIdx >= 0)
+            {
+                foreach (var kv in parsedRequest.Path.Substring(qIdx + 1).Split('&'))
+                {
+                    int eq = kv.IndexOf('=');
+                    if (eq <= 0) continue;
+                    var k = kv.Substring(0, eq);
+                    var v = kv.Substring(eq + 1);
+                    if (k == "scenario") scenario = v;
+                    else if (k == "groups" && int.TryParse(v, out var gv)) groups = gv;
+                    else if (k == "inodes" && int.TryParse(v, out var iv)) inodesPerGroup = iv;
+                    else if (k == "blocks" && int.TryParse(v, out var bv)) blocksPerGroup = bv;
+                    else if (k == "threshold" && int.TryParse(v, out var tv)) threshold = tv;
+                }
+            }
+
+            var ffs = new MiniWebServer.Host.MiniScheduler.FFS(groups, inodesPerGroup, blocksPerGroup, threshold);
+
+            if (scenario == "largefile")
+            {
+                // Single big file: /a with 30 blocks (matches OSEP §41.6 example).
+                ffs.CreateDir("/", parent: null);
+                ffs.CreateFile("/a", "/", 30);
+            }
+            else
+            {
+                // manyfiles scenario (OSEP §41.7 question 4):
+                // root + /a + /b, files /a/c, /a/d, /a/e, /b/f — each 2 blocks.
+                ffs.CreateDir("/", parent: null);
+                ffs.CreateDir("/a", parent: "/");
+                ffs.CreateDir("/b", parent: "/");
+                ffs.CreateFile("/a/c", "/a", 2);
+                ffs.CreateFile("/a/d", "/a", 2);
+                ffs.CreateFile("/a/e", "/a", 2);
+                ffs.CreateFile("/b/f", "/b", 2);
+            }
+            string output = ffs.FormatLayout();
+            response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                Encoding.UTF8.GetBytes(output));
+        }
         else if (parsedRequest.Path.StartsWith("/qstats"))
         {
             int q = WorkerPool.QueueLength;

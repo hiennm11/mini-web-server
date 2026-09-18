@@ -1111,15 +1111,24 @@ static void HandleClient(Socket clientSocket, string webRoot)
                             foreach (var guess in guesses)
                             {
                                 // Time one PBKDF2 verify call so the per-guess cost is visible.
-                                // Worst case for the attacker: identical cost on every guess.
+// Worst case for the attacker: identical cost on every guess.
                                 byte[] salt;
                                 byte[] expectedHash;
                                 {
                                     var (count, lines) = MiniWebServer.Host.MiniAuth.UserStore.DumpSummary();
                                     // victim is the only user, just registered above.
-                                    var parts = lines[0].Split('\t');
-                                    salt         = MiniWebServer.Host.MiniAuth.PasswordHasher.FromHex(parts[2].Substring("salt=".Length));
-                                    expectedHash = MiniWebServer.Host.MiniAuth.PasswordHasher.FromHex(parts[3].Substring("sha256(pbkdf2)=".Length));
+                                    // The dump line adds a `role=` column (M23.3); use a name-based
+                                    // parse instead of fixed tab indices so adding columns stays safe.
+                                    string saltHex = "", hashHex = "";
+                                    foreach (var field in lines[0].Split('\t'))
+                                    {
+                                        const string saltPrefix = "salt=";
+                                        const string hashPrefix = "sha256(pbkdf2)=";
+                                        if (field.StartsWith(saltPrefix)) saltHex = field.Substring(saltPrefix.Length);
+                                        else if (field.StartsWith(hashPrefix)) hashHex = field.Substring(hashPrefix.Length);
+                                    }
+                                    salt         = MiniWebServer.Host.MiniAuth.PasswordHasher.FromHex(saltHex);
+                                    expectedHash = MiniWebServer.Host.MiniAuth.PasswordHasher.FromHex(hashHex);
                                 }
                                 var sw = System.Diagnostics.Stopwatch.StartNew();
                                 MiniWebServer.Host.MiniAuth.PasswordHasher.Verify(guess, salt, expectedHash);

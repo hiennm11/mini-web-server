@@ -94,7 +94,7 @@ In-memory `ConcurrentDictionary`. OSEP §54.4 doesn't require persistence; it ju
 
 ## Verification
 
-- 15/15 existing tests still pass (no test changes).
+- 14/14 existing tests still pass (no test changes).
 - Smoke script `/auth/run?scenario=hashattack` produces two users with different salts + different hashes for the same plaintext password (mirrors `overview.md` and `s1-password-auth.md`).
 - Smoke script `/auth/run?scenario=dictionary` measures 71-101 ms per PBKDF2 verify call (matches the expected ~50-100 ms range for 100k iterations of HMAC-SHA256 on this hardware).
 - Smoke script `/auth/login?user=ghost&pass=...` and `/auth/login?user=alice&pass=WRONG` produce byte-identical responses.

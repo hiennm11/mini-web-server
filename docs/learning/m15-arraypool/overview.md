@@ -14,9 +14,15 @@ In the async server (`AsyncServer`), rent the receive buffer (16 KB) and respons
 
 - **[s1-arraypool.md](./s1-arraypool.md)** — `AsyncServer.HandleClientAsync` uses `ArrayPool<byte>.Shared.Rent()` for receive + response buffers. `HttpResponse.WriteTo(byte[] dest)` enables in-place serialization. Measure under stress.
 
+## OSEP coverage
+
+None directly — this is a .NET-runtime performance optimization.
+
+The closest OSEP chapter is **Ch. 40.7 Caching and Buffering** (write-back cache + unified page cache), which discusses the same kind of "pool buffers to avoid allocation" idea but at the OS level. Our pool is at the .NET managed-heap level.
+
 ## Results (honest measurement)
 
-| | Baseline | Under 150 parked /slow | Delta | Per-conn |
+| | baseline | under 150 parked /slow | delta | per-conn |
 |---|---|---|---|---|
 | M7 (pre-pool) | ~27 MB | **~172 MB** | +145 MB | ~970 KB |
 | M15 (pooled) | ~27 MB | **~157 MB** | +130 MB | ~890 KB |
@@ -28,6 +34,12 @@ In the async server (`AsyncServer`), rent the receive buffer (16 KB) and respons
 
 The `ArrayPool<byte>` change saves the predicted ~2.4 MB across 150 conns. To win more would require an `HttpRequest` object pool, replacing `Task.Delay` with a custom timer, or refactoring for `ValueTask` — out of scope for this slice.
 
+## Key OSEP quote
+
+> "Modern systems... employ a dynamic partitioning approach. Specifically, many modern operating systems integrate virtual memory pages and file system pages into a unified page cache." (OSEP §40.7)
+
+Same idea, different level — we pool buffers at the .NET managed-heap level.
+
 ## .NET mechanism
 
 - `ArrayPool<byte>.Shared.Rent(int minSize)` — returns a buffer of length ≥ `minSize`. Often rounds up to the next power of 2.
@@ -38,3 +50,9 @@ The `ArrayPool<byte>` change saves the predicted ~2.4 MB across 150 conns. To wi
 
 - `src/MiniWebServer.Host/AsyncServer.cs` — `Rent` + `Return` for both buffers, wrapped in try/finally.
 - `src/MiniWebServer.Host/HttpResponse.cs` — adds `TotalLength` getter + `WriteTo(byte[] dest)` returning int (bytes written).
+
+## What this slice does NOT do
+
+- Doesn't add an `HttpRequest` object pool (bigger win but more refactoring).
+- Doesn't replace `Task.Delay` with a custom timer (would reduce parked-Task overhead).
+- Doesn't refactor for `ValueTask` (reduces allocations in short paths).

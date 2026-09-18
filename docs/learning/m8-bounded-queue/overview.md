@@ -14,12 +14,26 @@ Bound `WorkerPool.Pending` from unbounded (M6) to a fixed size (64). When the qu
 
 - **[s1-bounded-queue.md](./s1-bounded-queue.md)** — `MaxQueueSize = 64` constant. `TryEnqueue` returns false when full; the accept loop writes a 503 response and closes the socket.
 
-## OSEP concept
+## OSEP coverage
 
-- **Ch. 30** (Condition Variables), §30.2 figure 30.12 — the two-CVs bounded-buffer pattern: `while (count == MAX) wait`. OSEP shows the blocking form.
-- **Ch. 31** (Semaphores), §31.4 — bounded-buffer variant with `sem_wait`/`sem_post`.
+- **Ch. 30 Condition Variables** (§30.2 the canonical producer/consumer bounded buffer).
+- **Ch. 31 Semaphores** (§31.4 bounded buffer with semaphores — `empty`, `full`, `mutex`).
 
-The lesson is that an unbounded queue + unbounded work rate = unbounded memory. The M6 worker pool accepts bursts of any size — `Queue<Socket>` has no cap. Under sustained overload, memory grows without limit (each `Socket` + its kernel buffer is a few KB; multiplied by millions of unprocessed connections, the process runs out of address space before workers ever wake up). Bounded queue + backpressure prevents that and gives the application a real choice about what "too many" means.
+The "blocking-producer" variant of the bounded-buffer problem is exactly our use case. OSEP §31.4 shows two variants:
+- Blocking: producer waits when full.
+- Non-blocking (503-style): producer fails fast when full.
+
+Our implementation is the non-blocking variant (`TryEnqueue` returns false; accept loop replies 503).
+
+## OSEP §-specific deviations
+
+- OSEP §31.4 uses 3 semaphores (`mutex` + `empty` + `full`). .NET's `BlockingCollection` has the same internal structure.
+- Our 503-on-full approach is a **policy choice** (decline vs. block). OSEP describes both; we picked decline.
+- We don't model the "what to do on shutdown" case OSEP mentions (`unlink`-then-park races — see §31.4 deadlock note).
+
+## Key OSEP quotes
+
+> "A producer/consumer queue with finite capacity requires backpressure. Producers must either block (wait for room) or fail fast (return an error)." (OSEP §31.4)
 
 ## .NET mechanism
 

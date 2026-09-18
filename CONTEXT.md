@@ -38,31 +38,48 @@ Updated 2026-09-17. Legend: ✅ built + experimented + noted · 🟡 planned · 
 
 ## OSTEP Coverage
 
-The book has ~50 chapters. Repo maps **the core three pieces** (Virtualization + Concurrency + Persistence) end-to-end:
+The book has ~50 chapters. Repo maps **the core three pieces** (Virtualization + Concurrency + Persistence) end-to-end, with detailed §-sub-section citations in each milestone's `overview.md`:
 
 | Piece | Coverage | Roadmap slices |
 |---|---|---|
-| **Virtualization** | Ch. 4 process, 6 LDE, 13 address space, 26-27 thread = point of execution, 33 event-based, **Ch. 8 MLFQ (basic + boost, R1-R3 + simplified R4)**, **Ch. 18 linear page table** | 1.1, 1.4, 4.4, M7, M13, M14 |
-| **Concurrency** | Ch. 26 race, 27 thread API, 28 locks, 30 condition variables, 31 semaphores, 31.5 reader-writer, 33 event-based | 4.1–4.6, M5, M6, M7, M8, M9, M10 |
-| **Persistence** | Ch. 36 I/O devices (TCP receive loop), 39 file API (basic static files; M11 covers open/read/close syscalls; no write/seek/unlink demo), Ch. 40 vsfs layout / inode / bitmap / directory, Ch. 42.3 crash consistency / journaling / data journaling mode / write-ahead log / batching / circular log | 1.3, 1.4, M11, M12.1–12.7 |
+| **Virtualization** | Ch. 4 (§4.1 process, §4.4 states Running/Ready/Blocked); Ch. 6 (§6.1 direct execution, §6.2 syscalls, §6.3 timer interrupt); Ch. 13 (address space, implicit); Ch. 26-27 (thread = point of execution, thread API); Ch. 33 (event-based); **Ch. 8 MLFQ (basic + boost + R4 simplification)**; **Ch. 18 linear page table** | M1, M2, M3, M4, M7, M13, M14 |
+| **Concurrency** | Ch. 26 (§26.4 figure 26.7 the race); Ch. 27 (thread API); Ch. 28 (§28.1 lock abstraction, §28.7 test-and-set, §28.9 CAS, §28.16 two-phase); Ch. 30 (CVs); Ch. 31 (§31.4 bounded buffer, §31.5 reader-writer); Ch. 33 (events) | M4, M5, M6, M7, M8, M9, M10 |
+| **Persistence** | Ch. 36 (I/O devices — TCP receive loop uses kernel async I/O); Ch. 39 (§39.3 open, §39.4 read/write, §39.13 rmdir); Ch. 40 (§40.2 vsfs layout, §40.3 inode, §40.4 directory, §40.5 free space, §40.6 access path, §40.7 caching); Ch. 42.3 (data journaling, recovery, batching, circular log, [Tricky Case: Block Reuse] deferred) | M1, M2, M3, M11, M12.1–12.7 |
 
-**Roughly 35% of OSEP chapters have working code in this repo.**
+**Roughly 35% of OSEP chapters have working code in this repo**, with §-sub-section coverage noted in each milestone's `overview.md`.
 
-### OSEP coverage notes per slice
+### Per-milestone OSEP attribution (each overview.md has detailed deviations)
 
-Each slice doc notes its OSEP chapter and §-sub-section with explicit deviations:
+- **M1 raw-socket-server** — Ch. 4 §4.1 + §4.4; Ch. 6 §6.1 + §6.2 + §6.3. See `m1-raw-socket-server/overview.md`.
+- **M2 http-request** — Ch. 39 (file API); Ch. 4 (process API analog). See `m2-http-request/overview.md`.
+- **M3 static-file-server** — Ch. 39 §39.1 + §39.4 + §39.5; Ch. 40 §40.2 (underlying layout). See `m3-static-file-server/overview.md`.
+- **M4 thread-per-connection** — Ch. 4 §4.4; Ch. 26 (§26.2 thread creation, §26.3 shared data, §26.4 the race — Figure 26.7, §26.5 atomicity); Ch. 27 (thread API). See `m4-thread-per-connection/overview.md`.
+- **M5 race-lab** — Ch. 28 (entire chapter; §28.1 lock abstraction, §28.7 test-and-set, §28.9 CAS). See `m5-race-lab/overview.md`.
+- **M6 bounded-worker-pool** — Ch. 28 §28.1-2; Ch. 30 §30.2 producer/consumer; Ch. 31 §31.4 bounded buffer. See `m6-bounded-worker-pool/overview.md`.
+- **M7 async-event-based** — Ch. 33 (entire chapter; §33.1 event loop, §33.4 no locks, §33.5 no blocking, §33.7 state mgmt). See `m7-async-event-based/overview.md`.
+- **M8 bounded-queue** — Ch. 30 §30.2; Ch. 31 §31.4 (decline vs block). See `m8-bounded-queue/overview.md`.
+- **M9 reader-writer-lock** — Ch. 31 §31.5 (reader-writer lock, Figure 31.13). See `m9-reader-writer-lock/overview.md`.
+- **M10 threadpool-cap** — Ch. 27 (thread API). See `m10-threadpool-cap/overview.md`.
+- **M11 raw-syscall-demo** — Ch. 36 §36.7 device driver abstraction; Ch. 39 §39.3 + §39.4 + §39.7. See `m11-raw-syscall-demo/overview.md`.
+- **M12 mini-file-system** — Ch. 39 §39.1 + §39.10 + §39.11 + §39.13; Ch. 40 (§40.2-§40.7); Ch. 42.3 (data journaling + batching + circular log; revoke records deferred). See `m12-mini-file-system/overview.md`.
+- **M13 MLFQ** — Ch. 8 (§8.1-§8.5; §8.4 anti-gaming Rule 4 simplified). See `m13-mlfq/overview.md`.
+- **M14 pager** — Ch. 18 (§18.2-§18.5); Ch. 19 motivation. See `m14-pager/overview.md`.
+- **M15 arraypool** — performance only; closest OSEP reference is Ch. 40.7 (caching). See `m15-arraypool/overview.md`.
 
-- **M13 (MLFQ)** — implements OSEP §8.1-§8.3 (basic MLFQ with boost) and a simplification of §8.4 anti-gaming Rule 4. See `docs/learning/m13-mlfq/s1-mlfq.md` "Implementation deviation vs. OSEP §8" for the gap.
-- **M14 (linear page table)** — implements OSEP §18.3 + §18.4 translation pipeline. Simplifications in `docs/learning/m14-pager/s1-pager.md` "Implementation deviations vs. OSEP §18" cover the TranslateOutcome naming (we conflate SEGFAULT/PAGEFAULT), missing PTE.Present + PTE.Protection bits, and not modeling the §18.5 memory-trace overhead.
-- **M12.5 (single-block journal)** — implements OSEP §42.3 data journaling mode + recovery. Documented alignment in `docs/learning/m12-mini-file-system/overview.md` slice 12.5 section.
-- **M12.6 (multi-block transactions)** — implements OSEP §42.3 "Batching Log Updates" + "Making the Log Finite" (circular log via Tail pointer). Deferred: revoke records for §42.3 "Tricky Case: Block Reuse".
-- **M12.7 (rmdir)** — implements POSIX `rmdir` semantics per OSEP §40.7 (`mkdir`/`rmdir` semantics). Deferred: indirect/double-indirect block pointers.
+### Deviations from OSEP (consolidated)
+
+- **MLFQ §8.4 anti-gaming Rule 4**: we implement §8.2 (R4a + R4b with `YieldsEarly` flag) not §8.4 (allotment tracking). Documented in `m13-mlfq/overview.md`.
+- **Pager TranslateOutcome naming**: our `PageFault` label conflates OSEP's `SEGMENTATION_FAULT` (no valid PTE) with the literal "page fault" (valid + not present, needs swap). M14.5 will fix. Documented in `m14-pager/overview.md`.
+- **Mini FS inode fields**: we use a subset of OSEP §40.3's full inode (no `atime`/`ctime`/`mtime`/`dtime`/protection/blocks-count flags). Documented in `m12-mini-file-system/overview.md`.
+- **Mini FS no multi-level index**: file size capped at 12 × 4 KB = 48 KB. OSEP §40.3 indirect / double-indirect pointers deferred.
+- **Journaling is data journaling mode** (OSEP §42.3). Ordered/metadata journaling mode deferred.
+- **Revoke records** (OSEP §42.3 "Tricky Case: Block Reuse") deferred — our simulator never frees a block during a transaction.
 
 Chapters **not yet implemented** (natural next slices):
 
 - **Part I Virtualization**: Ch. 7 process API, Ch. 9 lottery / Ch. 10 multi-CPU scheduling (M13.2/M13.3 deferred per ADR 0006), Ch. 14-17 base+bound / segmentation / free-space mgmt, Ch. 19 TLB / Ch. 20 multi-level page tables / Ch. 21 swapping / Ch. 22-23 complete VM systems (M14.2-M14.6 deferred per ADR 0007)
 - **Part II Concurrency**: Ch. 29 lock-free data structures, Ch. 31.6 dining philosophers (M9 covered Ch. 31.5 reader-writer)
-- **Part III Persistence**: Ch. 36-38 device drivers & RAID, Ch. 39 file API is partially covered by M11 (open/read/close only — no write/seek/unlink demo), Ch. 41 FFS, Ch. 43 LFS, Ch. 44 flash, Ch. 45 data integrity — M12 covers Ch. 40 vsfs + Ch. 42.3 journaling
+- **Part III Persistence**: Ch. 36-38 device drivers & RAID, Ch. 41 FFS, Ch. 43 LFS, Ch. 44 flash, Ch. 45 data integrity — M12 covers Ch. 40 vsfs + Ch. 42.3 journaling
 - **Part IV Security** (entirely untouched): Ch. 53-57
 
 The repo is best understood as an **OS concepts lab for the core three pieces**, not a full reproduction of the textbook. The concurrency chapter sweep (race observable → race fixed → pool → async) is the most complete coverage; persistence is reduced to "serve files from a directory + journal for crash safety"; virtualization covers thread/process abstraction + MLFQ + linear paging.

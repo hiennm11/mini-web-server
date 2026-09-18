@@ -16,19 +16,31 @@ The bounded-queue backpressure (M8) is in a separate slice — this milestone sh
 
 - **[s1-bounded-worker-pool.md](./s1-bounded-worker-pool.md)** — `WorkerPool` class with a fixed thread count and an unbounded `BlockingCollection<Socket>`. `Program.cs` accept loop enqueues instead of spawning threads.
 
-## OSEP concept
+## OSTEP coverage
 
-- **Ch. 30 / §30** — bounded buffers and producer/consumer. BlockingCollection is .NET's take on a thread-safe bounded queue.
-- **Ch. 27** — thread API; `ThreadPool.QueueUserWorkItem` is the OS-level equivalent (and what `WorkerPool` wraps in .NET).
-- **Ch. 31** — semaphores / condition variables (used internally by BlockingCollection).
+- **Ch. 28 Locks** — the `WorkerPool` is essentially a multi-threaded queue protected by a lock (or `BlockingCollection` internally uses a lock + condition variable).
+- **Ch. 30 Condition Variables** (§30.2 the canonical "two CVs" bounded-buffer problem, with `wait`/`signal`).
+- **Ch. 31 Semaphores** (§31.4 the bounded-buffer with semaphores — empty/full + mutex).
 
-The core lesson: **thread creation is expensive** (1 MB stack each, kernel bookkeeping). A bounded pool amortizes that cost and caps the resource ceiling.
+The bounded buffer problem OSEP §30 + §31.4 covers is exactly what our `WorkerPool` solves — except the "items" are socket connections instead of integers.
+
+## OSEP §-specific deviations
+
+- OSEP §30 covers the textbook producer/consumer with `pthread_cond_wait` + `pthread_cond_signal`. .NET's `BlockingCollection<T>.Take()` is essentially the same primitive.
+- OSEP §31.4 shows the full 3-semaphore solution (mutex + empty + full). Our `BlockingCollection` wraps this internally.
+- OSEP §28.1-§28.2 covers the lock primitive, which our internal queue uses.
+
+## Key OSEP quotes
+
+> "A bounded buffer is also used when you pipe the output of one program into another." (OSEP §30.2)
+
+> "If we are going to add bounded buffers to a multi-threaded program, we have to somehow add synchronization to the get and put routines." (OSEP §30.2)
 
 ## .NET mechanism
 
-- `System.Collections.Concurrent.BlockingCollection<T>` — thread-safe FIFO with `Take()` (blocks if empty) and `Add()` (blocks if bounded).
+- `System.Collections.Concurrent.BlockingCollection<T>` — thread-safe FIFO with `Take()` (blocks if empty) and `Add()` (blocks if bounded). Internally uses a lock + two condition variables (the OSEP §30.2 pattern).
 - `Thread.Sleep(int)` inside `WorkerThreadProc()` simulates slow I/O work.
-- Manual `Task` continuation: a `TaskCompletionSource<bool>` is set when the worker finishes processing, so the accept loop can be notified.
+- `TaskCompletionSource<bool>` notifies the accept loop when a worker finishes.
 
 ## Files
 

@@ -14,19 +14,36 @@ Add a second server mode triggered by the `--async` command-line flag. The new m
 
 - **[s1-async-event-based.md](./s1-async-event-based.md)** — `AsyncServer` class with single-threaded accept loop + per-connection Task. `Program.cs` startup branches on `--async`.
 
-## OSEP concept
+## OSEP coverage
 
-- **Ch. 33 Event-based Concurrency**
-  - §33.1: scheduling is explicit and under the application's control — no preemption of thread systems to worry about.
-  - §33.4: "no locks needed" only holds when the work is single-threaded.
-  - §33.5: no blocking calls allowed, or the whole loop stalls.
-  - §33.6: asynchronous I/O is the OS-level primitive that makes this practical.
+The whole chapter is the reference:
+
+- **Ch. 33 Event-based Concurrency (Advanced)**
+  - §33.1 The Basic Idea: An Event Loop — `while(1) { events = getEvents(); for (e in events) processEvent(e); }`. Our accept loop is a more sophisticated version of this.
+  - §33.2 An Important API: select() (or poll()) — non-blocking I/O multiplexing. .NET's `Socket.AcceptAsync` / `ReceiveAsync` / `SendAsync` are the OS equivalent.
+  - §33.4 Why Simpler? No Locks Needed — on a single CPU, only one event handler runs at a time. Our accept loop is single-threaded.
+  - §33.5 A Problem: Blocking System Calls — "no blocking calls are allowed" or the whole loop stalls.
+  - §33.6 A Solution: Asynchronous I/O — `aio_read` / `aio_error` on Mac, similar on Linux.
+  - §33.7 Another Problem: State Management — manual stack management via continuations; we avoid this via C#'s async/await state machines.
+
+## OSEP §-specific deviations
+
+- OSEP §33.1 pseudocode is what our `AsyncServer.RunAsync` looks like in spirit (loop + dispatch + handle).
+- OSEP §33.6 uses POSIX async I/O. .NET's async/await is a higher-level abstraction that the runtime translates to OS async I/O or thread-pool dispatch depending on the API.
+- OSEP §33.7 manual stack management — we DON'T do this. C# `async`/`await` handles the state machine for us.
+- OSEP §33.4 says no locks needed on single CPU — our accept loop is single-threaded. But each per-connection Task can run on different ThreadPool threads (multicore), so we DO need locks for any shared state.
+
+## Key OSEP quotes
+
+> "Don't Block In Event-Based Servers" (OSEP §33.5) — TIP
+
+> "In a multi-threaded application, the developer has little or no control over what is scheduled at a given moment in time." (OSEP §33 intro) — event-based gives control.
 
 ## .NET mechanism
 
-- `Socket.AcceptAsync(ct)` / `Socket.ReceiveAsync(ArraySegment<byte>, SocketFlags)` / `Socket.SendAsync(ArraySegment<byte>, SocketFlags)` return `Task`. The `await` keyword compiles the calling method into a continuation-based state machine.
-- When a Task awaits I/O, the CLR returns control to the caller (or the `ThreadPool` worker that invoked it). When the I/O completes, the continuation is scheduled back on the `ThreadPool`.
-- The runtime uses the `ThreadPool` internally to run continuations. Many short-running Tasks can run in parallel on multiple cores; the accept loop itself runs single-threaded.
+- `Socket.AcceptAsync(ct)` / `Socket.ReceiveAsync(...)` / `Socket.SendAsync(...)` return `Task`. The `await` keyword compiles the calling method into a continuation-based state machine.
+- When a Task awaits I/O, the CLR returns control to the caller (or to the `Task.Run`/`ThreadPool` worker). When I/O completes, the continuation is scheduled back on the `ThreadPool`.
+- The runtime uses `ThreadPool` internally; many short-running Tasks can run in parallel on multiple cores.
 
 ## Comparison to M6
 

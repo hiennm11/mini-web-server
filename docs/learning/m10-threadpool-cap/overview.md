@@ -14,12 +14,18 @@ Observe the `ThreadPool` thread count grow as connections pile up under the asyn
 
 - **[s1-threadpool-cap.md](./s1-threadpool-cap.md)** — observe `ThreadPool.ThreadCount` under async load (M7's 150 parked /slow clients); set a low cap; observe that Tasks start queuing.
 
-## OSEP concept
+## OSEP coverage
 
-- **Ch. 33** (Event-based Concurrency) — explicit control over concurrency. .NET's `ThreadPool` is the runtime's mechanism for scheduling Tasks onto OS threads; capping it is the equivalent of capping the worker pool size in M6.
-- **Ch. 27** (Thread API) — `ThreadPool.QueueUserWorkItem` is the kernel's thread pool; on Linux that's the `clone` syscall with `CLONE_THREAD` flags.
+- **Ch. 27 Thread API** — `ThreadPool` (the OS-level thread pool). On Linux this is `clone` with `CLONE_THREAD` flags. On Windows it's the ThreadPool worker threads.
+- **Ch. 30 Condition Variables** — `ThreadPool` internally uses CVs for thread parking.
+- **Ch. 31 Semaphores** — `ThreadPool` often uses semaphores for task counting.
 
-The lesson is that the .NET `ThreadPool` self-tunes: it starts with the minimum thread count and grows up to the maximum as needed. Setting the maximum below the natural demand causes Tasks to queue. This is *good* for resource control but *bad* for tail latency.
+OSEP §27 covers `pthread_create` directly. The `.NET ThreadPool` is a managed wrapper around the OS thread pool — same concept, different API.
+
+## OSEP §-specific deviations
+
+- OSEP §27 focuses on per-thread APIs (`pthread_create`, `pthread_join`). The `ThreadPool` is a higher-level abstraction that queues work items.
+- We don't measure scheduler internals (fairness, priority inversion). The slice focuses on the observable effect: cap = queue.
 
 ## .NET mechanism
 

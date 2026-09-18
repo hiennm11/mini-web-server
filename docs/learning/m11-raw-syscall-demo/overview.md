@@ -14,12 +14,26 @@ Replace the M3 `File.ReadAllBytes()` (which hides the syscall in the BCL) with e
 
 - **[s1-raw-syscall-demo.md](./s1-raw-syscall-demo.md)** — `RawFileAccess.Open(path)` returns a `FileStream`. `/fs-raw-read?path=` route opens + reads + closes the file explicitly, exposing the open/read/close lifecycle.
 
-## OSEP concept
+## OSTEP coverage
 
-- **Ch. 39 Files and Directories** — the `open` / `read` / `close` / `write` system calls.
-- **Ch. 36 I/O Devices** — the kernel mediates all disk access; user-mode `open` is a syscall that returns a file descriptor (or handle).
+- **Ch. 36 I/O Devices** (§36.3 canonical protocol — status/command/data registers + polling, §36.4 interrupts, §36.5 DMA, §36.6 explicit I/O instructions vs memory-mapped I/O, §36.7 device drivers).
+- **Ch. 39 Interlude: Files and Directories** (§39.3 `open` with `O_CREAT`/`O_WRONLY`/`O_TRUNC` flags, §39.4 `read` returns bytes-read count + `EOF`, §39.7 `fsync()` for durability).
 
-The lesson is that even "raw" `FileStream` is still wrapped in the BCL; the actual syscall goes through the .NET runtime's IO manager. To go truly raw you'd use `pread` / `mmap` via P/Invoke or a C library — out of scope here.
+The "open / read / close" cycle is just the OS-level mechanism under the covers of M3's `File.ReadAllBytes`. M11 makes the cycle visible.
+
+OSEP §36.5 is the canonical justification for async I/O: with PIO, the CPU spends too long copying data; DMA offloads the copy. Our `ReceiveAsync` in M7 uses DMA under the hood.
+
+## OSEP §-specific deviations
+
+- OSEP §36.7 explains the device-driver abstraction. .NET's `FileStream` is the managed equivalent — it wraps the OS's open/read/close syscalls.
+- OSEP §39.7 mentions `fsync()` for durability. Our M11 slice doesn't call `fsync` after writing.
+- OSEP §36.4 covers interrupts + DMA. The .NET async path uses both — kernel-level async I/O uses interrupts to wake the waiting thread when the I/O completes.
+
+## Key OSEP quotes
+
+> "When you first open another file (as cat does above), it will almost certainly be file descriptor 3." (OSEP §39.4) — fds 0, 1, 2 are stdin/stdout/stderr.
+
+> "Use strace (and similar tools)" (OSEP §39.5 TIP) — strace shows every syscall a program makes.
 
 ## .NET mechanism
 
@@ -34,5 +48,6 @@ The lesson is that even "raw" `FileStream` is still wrapped in the BCL; the actu
 
 ## What this slice does NOT do
 
-- Doesn't go below .NET's FileStream to `pread`/`mmap` (would need P/Invoke or a third-party binding).
+- Doesn't go below .NET's `FileStream` to `pread` / `mmap` (would need P/Invoke or a third-party binding).
 - Doesn't measure syscall latency (could be added with `ETW` events).
+- Doesn't demonstrate `fsync()`.

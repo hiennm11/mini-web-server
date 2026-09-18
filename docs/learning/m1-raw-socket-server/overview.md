@@ -12,27 +12,37 @@ A single-threaded server that accepts one client at a time, reads an HTTP reques
 
 ## Slices (in order)
 
-1. **[s1-raw-socket-server.md](./s1-raw-socket-server.md)** — accept one client, write a hard-coded HTTP response, close. The shortest possible "hello world" over HTTP.
+1. **[s1-raw-socket-server.md](./s1-raw-socket-server.md)** — accept one client, write a hard-coded HTTP response, close.
 2. **[s2-robust-request-receive.md](./s2-robust-request-receive.md)** — handle chunked TCP receive: the request may arrive in multiple `Receive()` calls. Implement the header-end + content-length parsing logic.
 
-## OSTEP concept
+## OSTEP coverage
 
-OSEP Ch. 4 (Processes), §4.4 (Process States):
+- **Ch. 4 The Abstraction: The Process** (§4.1 process = running program, §4.4 process states Running/Ready/Blocked).
+- **Ch. 6 Mechanism: Limited Direct Execution** (§6.1 direct execution, §6.2 system calls for restricted ops, §6.3 timer interrupt + context switch).
 
-- **Running / Ready / Blocked**: a server thread blocks in `Accept()` when no client is waiting. The OS schedules other runnable processes; the server becomes ready when a TCP SYN arrives.
-- A user process cannot directly drive the network card. Each socket operation crosses the kernel boundary via a syscall (trap → privileged code → return).
+The server is the first place the project makes OSEP visible: the server is **a process** running user-mode code. It can't directly drive the network card — it asks the OS to handle network I/O via **syscalls** (`bind`, `listen`, `accept`, `receive`, `send`, `close`). Each syscall traps into kernel mode, the kernel performs the privileged operation, and returns to user mode.
 
-This milestone makes OSEP's process abstraction visible: the server is not "talking to the browser directly". It's a process asking the kernel for controlled access to a byte stream.
+OSEP §4.4 explains why blocking calls are useful instead of wasteful: `Accept()` blocks the server thread when no client is waiting. The OS marks the process `Blocked`, schedules other runnable work, and only marks the server `Ready` again when a TCP SYN arrives.
+
+## OSEP §-specific deviations
+
+- OSEP §4.4 introduces three process states; we don't model these explicitly — the OS does it for us. Our server is single-threaded so only one "point of execution" exists.
+- OSEP §6.2 shows the syscall mechanism via trap instructions. .NET wraps this: `Socket.Accept()` looks like a normal method call but compiles to a syscall under the hood.
+- OSEP §6.3 timer interrupt — we don't observe the timer directly; the OS handles context switches on our behalf when we block in `Accept()`.
 
 ## .NET mechanism
 
-- `System.Net.Sockets.Socket` exposes TCP operations directly.
-- `Accept()` blocks the current managed thread.
+- `System.Net.Sockets.Socket` exposes TCP operations directly. `Accept()` blocks the current managed thread.
 - `Receive()` copies bytes from the socket into a `byte[]` buffer.
-- HTTP is written manually as bytes (status line + headers + blank line + body).
+- `Encoding.UTF8.GetString(...)` converts bytes to text for logging.
 
 ## Files in this milestone
 
-- `src/MiniWebServer.Host/Program.cs` — accept loop + `HandleClient` + manual HTTP response
-- `src/MiniWebServer.Host/HttpResponse.cs` — `HttpResponse` record + `ToBytes()` / `WriteTo()`
-- `src/MiniWebServer.Host/SocketServer.cs` (early slices) — extracted from Program.cs in later slices
+- `src/MiniWebServer.Host/Program.cs` — accept loop + `HandleClient` + manual HTTP response.
+- `src/MiniWebServer.Host/HttpResponse.cs` — `HttpResponse` record + `ToBytes()` / `WriteTo()`.
+
+## Where this leads
+
+- M2: parse the raw request into structured form.
+- M3: serve a real file instead of a hard-coded response.
+- M4: add threads so the server doesn't block on a single slow client.

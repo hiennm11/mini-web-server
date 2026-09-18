@@ -905,6 +905,7 @@ static void HandleClient(Socket clientSocket, string webRoot)
             string authUser = "";
             string authPass = "";
             string authScenario = "";
+            string authRoleQuery = "";   // M23.3: optional ?role=admin at /auth/register
             foreach (var kv in authQuery.Split('&'))
             {
                 int eq = kv.IndexOf('=');
@@ -914,6 +915,7 @@ static void HandleClient(Socket clientSocket, string webRoot)
                 if      (k == "user")     authUser = v;
                 else if (k == "pass")     authPass = v;
                 else if (k == "scenario") authScenario = v;
+                else if (k == "role")     authRoleQuery = v;
             }
 
             // Strip /auth/ prefix so the route switch is local.
@@ -938,9 +940,12 @@ static void HandleClient(Socket clientSocket, string webRoot)
                             Encoding.UTF8.GetBytes(authBody));
                         break;
                     }
-                    // Refuse cross-empty password (some real systems do, OSEP §54.4 discourages
-                    // silent acceptance).
-                    bool ok = MiniWebServer.Host.MiniAuth.UserStore.Register(authUser, authPass);
+                    // M23.3: optional ?role=admin|user parameter. The chapter's
+                    // "least privilege" default is User; Admin must be requested.
+                    var requestedRole = authRoleQuery == "admin"
+                        ? MiniWebServer.Host.MiniAuth.UserStore.Role.Admin
+                        : MiniWebServer.Host.MiniAuth.UserStore.Role.User;
+                    bool ok = MiniWebServer.Host.MiniAuth.UserStore.Register(authUser, authPass, requestedRole);
                     if (!ok)
                     {
                         authBody = "username already taken (or empty user/pass)\n";
@@ -948,7 +953,65 @@ static void HandleClient(Socket clientSocket, string webRoot)
                             Encoding.UTF8.GetBytes(authBody));
                         break;
                     }
-                    authBody = $"OK  user={authUser}  (hash + salt stored, plaintext discarded)\n";
+                    authBody = $"OK  user={authUser}  role={requestedRole}\n";
+                    response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                        Encoding.UTF8.GetBytes(authBody));
+                    break;
+                }
+                case "grant":
+                {
+                    // OSEP §55.6 RBAC: "give a user or a process the minimum privileges required".
+                    // We expose grant purely for the smoke demo — a real system would require
+                    // an already-admin caller to grant new privileges to others.
+                    if (string.IsNullOrEmpty(authUser) || string.IsNullOrEmpty(authScenario))
+                    {
+                        authBody = "missing user and/or role\n";
+                        response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8",
+                            Encoding.UTF8.GetBytes(authBody));
+                        break;
+                    }
+                    var newRole = authScenario == "admin"
+                        ? MiniWebServer.Host.MiniAuth.UserStore.Role.Admin
+                        : MiniWebServer.Host.MiniAuth.UserStore.Role.User;
+                    bool grantOk = MiniWebServer.Host.MiniAuth.UserStore.GrantRole(authUser, newRole);
+                    if (!grantOk)
+                    {
+                        authBody = $"unknown user '{authUser}' (they need to /auth/register first)\n";
+                        response = new HttpResponse(404, "Not Found", "text/plain; charset=UTF-8",
+                            Encoding.UTF8.GetBytes(authBody));
+                        break;
+                    }
+                    authBody = $"OK  {authUser} granted role={newRole}\n";
+                    response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                        Encoding.UTF8.GetBytes(authBody));
+                    break;
+                }
+                case "role":
+                {
+                    // Read a user's role. OSEP §53.4 fail-safe defaults: returns
+                    // "unknown" rather than "no such user" so attackers can't probe usernames.
+                    authBody = $"role: {(MiniWebServer.Host.MiniAuth.UserStore.GetRole(authUser)?.ToString() ?? "unknown")}\n";
+                    response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                        Encoding.UTF8.GetBytes(authBody));
+                    break;
+                }
+                case "auth-as":
+                {
+                    // Authenticate + check role. Returns 200 with body "admin ok" /
+                    // "user ok" / "invalid credentials". Used by /protected/secret gate.
+                    // Internal helper; not advertised in the slice doc.
+                    bool isAdmin = authScenario == "admin";
+                    bool passOk = MiniWebServer.Host.MiniAuth.UserStore.AuthenticateWithRole(
+                        authUser, authPass,
+                        isAdmin ? MiniWebServer.Host.MiniAuth.UserStore.Role.Admin : MiniWebServer.Host.MiniAuth.UserStore.Role.User);
+                    if (!passOk)
+                    {
+                        authBody = "invalid credentials\n";
+                        response = new HttpResponse(401, "Unauthorized", "text/plain; charset=UTF-8",
+                            Encoding.UTF8.GetBytes(authBody));
+                        break;
+                    }
+                    authBody = isAdmin ? "admin ok\n" : "user ok\n";
                     response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
                         Encoding.UTF8.GetBytes(authBody));
                     break;
@@ -1244,6 +1307,168 @@ static void HandleClient(Socket clientSocket, string webRoot)
                             Encoding.UTF8.GetBytes(cryptoBody));
                         break;
                     }
+                    case "rsa-keygen":
+                    {
+                        // M23.4 — public-key cryptography (OSEP §56.3). Generate a fresh
+                        // RSA-2048 keypair. The public key is returned in SPKI DER + hex;
+                        // the private key stays in process memory (OSEP §56.6 threat model).
+                        var kp = MiniWebServer.Host.MiniCrypto.RsaSigner.Generate();
+                        // Truncate the public-key hex for readability — the SPKI blob is
+                        // ~294 bytes for RSA-2048. Show first 32 + last 32 chars.
+                        string pubHex = MiniWebServer.Host.MiniCrypto.SymmetricCipher.ToHex(kp.PublicKey);
+                        string pubHexShown = pubHex.Length <= 96 ? pubHex : $"{pubHex.Substring(0, 64)}...{pubHex.Substring(pubHex.Length - 64)}";
+                        cryptoBody = $"public key (hex, SPKI/DER, length={kp.PublicKey.Length} bytes):\n" +
+                                     $"  {pubHexShown}\n" +
+                                     $"private key kept in process memory (OSEP §56.6: \"bet entirely on secrecy of the key\").\n" +
+                                     "OSEP §57.3: distribute the public key via X.509 cert; we return raw SPKI.\n";
+                        response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                            Encoding.UTF8.GetBytes(cryptoBody));
+                        break;
+                    }
+                    case "sign":
+                    {
+                        // Sign msg with the in-memory private key. Returns hex signature.
+                        if (string.IsNullOrEmpty(cryptoMsg))
+                        {
+                            response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8",
+                                Encoding.UTF8.GetBytes("msg required\n"));
+                            break;
+                        }
+                        var sig = MiniWebServer.Host.MiniCrypto.RsaSigner.Sign(cryptoMsg);
+                        cryptoBody = $"message: \"{cryptoMsg}\"\n" +
+                                     $"signature (hex, {sig.Length} bytes):\n" +
+                                     $"  {MiniWebServer.Host.MiniCrypto.SymmetricCipher.ToHex(sig)}\n" +
+                                     $"OSEP §56.3: anyone with the public key can verify but only the holder\n" +
+                                     $"of the private key can produce the signature.\n";
+                        response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                            Encoding.UTF8.GetBytes(cryptoBody));
+                        break;
+                    }
+                    case "verify":
+                    {
+                        // Verify a signature. ?msg=X&sig=Y  (or with optional &pubkey=HEX for an externally-distributed key).
+                        if (string.IsNullOrEmpty(cryptoMsg))
+                        {
+                            response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8",
+                                Encoding.UTF8.GetBytes("msg and sig required\n"));
+                            break;
+                        }
+                        string cryptoSig = "";
+                        string cryptoPubkey = "";
+                        // Re-parse to pull sig + pubkey out of the same query.
+                        foreach (var kv2 in cryptoQuery.Split('&'))
+                        {
+                            int eq3 = kv2.IndexOf('=');
+                            if (eq3 <= 0) continue;
+                            var k3 = Uri.UnescapeDataString(kv2.Substring(0, eq3));
+                            var v3 = Uri.UnescapeDataString(kv2.Substring(eq3 + 1));
+                            if      (k3 == "sig")    cryptoSig = v3;
+                            else if (k3 == "pubkey") cryptoPubkey = v3;
+                        }
+                        if (string.IsNullOrEmpty(cryptoSig))
+                        {
+                            response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8",
+                                Encoding.UTF8.GetBytes("sig query parameter required\n"));
+                            break;
+                        }
+                        byte[] sigBytes = MiniWebServer.Host.MiniCrypto.SymmetricCipher.FromHex(cryptoSig);
+                        byte[]? pubkeyBytes = string.IsNullOrEmpty(cryptoPubkey)
+                            ? null
+                            : MiniWebServer.Host.MiniCrypto.SymmetricCipher.FromHex(cryptoPubkey);
+                        bool ok = MiniWebServer.Host.MiniCrypto.RsaSigner.Verify(cryptoMsg, sigBytes, pubkeyBytes);
+                        cryptoBody = $"message: \"{cryptoMsg}\"\n" +
+                                     $"signature length: {sigBytes.Length} bytes\n" +
+                                     $"public key: {(pubkeyBytes is null ? "(in-memory)" : pubkeyBytes.Length + " bytes, externally supplied")}\n" +
+                                     $"verify result: {(ok ? "OK" : "FAIL")}\n" +
+                                     (ok
+                                         ? "OSEP §56.3: signature matches the public key — caller is the signer.\n"
+                                         : "OSEP §56.3: signature does NOT match — message tampered, wrong key, or wrong message.\n");
+                        response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                            Encoding.UTF8.GetBytes(cryptoBody));
+                        break;
+                    }
+                    case "import-pubkey":
+                    {
+                        // Adopt a different public key (server is now a verifier for someone
+                        // else's keypair). Used by the cross-process verify demo.
+                        if (string.IsNullOrEmpty(cryptoMsg))
+                        {
+                            response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8",
+                                Encoding.UTF8.GetBytes("pubkey (hex) required in msg parameter\n"));
+                            break;
+                        }
+                        var pubkeyBytes = MiniWebServer.Host.MiniCrypto.SymmetricCipher.FromHex(cryptoMsg);
+                        MiniWebServer.Host.MiniCrypto.RsaSigner.SetActivePublicKey(pubkeyBytes);
+                        cryptoBody = $"set active public key to {pubkeyBytes.Length} bytes\n";
+                        response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                            Encoding.UTF8.GetBytes(cryptoBody));
+                        break;
+                    }
+                    case "handshake":
+                    {
+                        // M23.5 — simulated TLS-style handshake (OSEP §57.5).
+                        // Two parties exchange nonces, derive a per-session symmetric key
+                        // via HKDF-SHA256 (RFC 5869). Same primitive OpenSSL / SChannel use.
+                        //
+                        // We model client + server in the same process. The "transport" is
+                        // just a pair of in-memory byte arrays the route manipulates.
+                        var (clientNonce, serverNonce, sessionKey) = MiniWebServer.Host.MiniCrypto.Handshake.RunDemo();
+                        // Now demonstrate: encrypt + decrypt a payload using the session key
+                        // via the M23.2 AEAD (proves the handshake produced a usable key).
+                        const string sample = "budget meeting 2026 Q3: 5% growth";
+                        byte[] payload = System.Text.Encoding.UTF8.GetBytes(sample);
+                        var enc = MiniWebServer.Host.MiniCrypto.SymmetricCipher.Encrypt(payload, sessionKey);
+                        var dec = MiniWebServer.Host.MiniCrypto.SymmetricCipher.Decrypt(enc, sessionKey);
+                        cryptoBody = "OSEP §57.5 handshake demo (simplified TLS-like):\n" +
+                                     "  step 1: client  → ClientHello (random nonce)\n" +
+                                     $"    client_nonce = {MiniWebServer.Host.MiniCrypto.SymmetricCipher.ToHex(clientNonce)}\n" +
+                                     "  step 2: server  → ServerHello (random nonce)\n" +
+                                     $"    server_nonce = {MiniWebServer.Host.MiniCrypto.SymmetricCipher.ToHex(serverNonce)}\n" +
+                                     "  step 3: both    → HKDF-SHA256(shared_secret, clientNonce || serverNonce)\n" +
+                                     $"    session_key  = {MiniWebServer.Host.MiniCrypto.SymmetricCipher.ToHex(sessionKey)}\n" +
+                                     "  step 4:        → encrypt(payload, session_key) + decrypt (M23.2 AEAD)\n" +
+                                     $"    plaintext    = {System.Text.Encoding.UTF8.GetString(dec)}\n" +
+                                     "    (nonce + ciphertext + tag) is what would actually go on the wire.\n" +
+                                     "OSEP §57.5: in real TLS the client also signs the handshake, but for\n" +
+                                     "this lab we skip auth and just demonstrate the key derivation.\n";
+                        response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                            Encoding.UTF8.GetBytes(cryptoBody));
+                        break;
+                    }
+                    case "totp-demo":
+                    {
+                        // M23.6 — TOTP (OSEP §54.5 "what you have").
+                        // RFC 6238 TOTP = HMAC-SHA256(shared-secret, floor(unix_time / 30))
+                        // truncated to 6 digits. We compute + show the current code, then
+                        // a window-skew to show ±1 step tolerance.
+                        if (string.IsNullOrEmpty(cryptoMsg))
+                        {
+                            response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8",
+                                Encoding.UTF8.GetBytes("secret (hex) and code required in msg parameter\n"));
+                            break;
+                        }
+                        // msg is treated as the shared secret in hex form.
+                        var secret = MiniWebServer.Host.MiniCrypto.SymmetricCipher.FromHex(cryptoMsg);
+                        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                        var code = MiniWebServer.Host.MiniCrypto.Totp.Compute(secret, now);
+                        bool verify = MiniWebServer.Host.MiniCrypto.Totp.Verify(secret, code, now);
+                        bool verifyPrevStep = MiniWebServer.Host.MiniCrypto.Totp.Verify(secret, code, now - 30);   // ±1 step
+                        bool verifyTwoSteps = MiniWebServer.Host.MiniCrypto.Totp.Verify(secret, code, now - 60);   // -2 steps
+                        bool verifyWrong = MiniWebServer.Host.MiniCrypto.Totp.Verify(secret, code + 1, now);
+                        cryptoBody = $"OSEP §54.5 — TOTP (auth by what-you-have):\n" +
+                                     $"  now     = {now} (unix seconds)\n" +
+                                     $"  step    = {now / 30} (TOTP step = 30 seconds, RFC 6238)\n" +
+                                     $"  code    = {code:D6}  (6 digits, HMAC-SHA256 truncated)\n" +
+                                     $"  verify(code, now)         = {verify}\n" +
+                                     $"  verify(code, now-30s)     = {verifyPrevStep}  (window of \\u00b11 step, accept)\n" +
+                                     $"  verify(code, now-60s)     = {verifyTwoSteps} (\\u00b12 steps, outside window, reject)\n" +
+                                     $"  verify(code+1, now) wrong = {verifyWrong}\n" +
+                                     $"OSEP §54.5: SMS / TOTP apps / YubiKeys all implement this with one of\n" +
+                                     "three schemes (HOTP RFC 4226 + TOTP RFC 6238 + U2F FIDO).\n";
+                        response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                            Encoding.UTF8.GetBytes(cryptoBody));
+                        break;
+                    }
                     case "dump":
                     {
                         var (n, lines) = MiniWebServer.Host.MiniCrypto.AtRestStore.DumpSummary();
@@ -1280,6 +1505,51 @@ static void HandleClient(Socket clientSocket, string webRoot)
             // every switch arm under nested control flow + try/catch).
             response ??= new HttpResponse(500, "Internal Server Error", "text/plain; charset=UTF-8",
                 Encoding.UTF8.GetBytes("(crypto route fell through)\n"));
+        }
+        else if (parsedRequest.Path.StartsWith("/protected/"))
+        {
+            // M23.3 RBAC: gate /protected/* by Admin role. OSEP §55.4 RBAC "principle of
+            // least privilege": only admin role can read /protected/secret.
+            // Caller must prove identity via Basic-style query (?user=X&pass=Y).
+            string protPath = parsedRequest.Path;
+            int pQ = protPath.IndexOf('?');
+            string protQuery = pQ >= 0 ? protPath.Substring(pQ + 1) : "";
+            string protUser = "";
+            string protPass = "";
+            foreach (var kv in protQuery.Split('&'))
+            {
+                int eq = kv.IndexOf('=');
+                if (eq <= 0) continue;
+                var k = Uri.UnescapeDataString(kv.Substring(0, eq));
+                var v = Uri.UnescapeDataString(kv.Substring(eq + 1));
+                if      (k == "user") protUser = v;
+                else if (k == "pass") protPass = v;
+            }
+            // The route body is the user's auth — we use AuthenticateWithRole to gate.
+            bool ok = MiniWebServer.Host.MiniAuth.UserStore.AuthenticateWithRole(
+                protUser, protPass, MiniWebServer.Host.MiniAuth.UserStore.Role.Admin);
+            string routeTail = protPath.Substring("/protected/".Length);
+            int pQ2 = routeTail.IndexOf('?');
+            if (pQ2 >= 0) routeTail = routeTail.Substring(0, pQ2);
+            if (!ok)
+            {
+                // OSEP §53.4: identical "denied" for unknown-user and wrong-password.
+                response = new HttpResponse(403, "Forbidden", "text/plain; charset=UTF-8",
+                    Encoding.UTF8.GetBytes("denied: admin role required\n"));
+            }
+            else if (routeTail == "secret")
+            {
+                // OSEP §54.7 password-vault idea (mini): once the caller is admin, return
+                // a synthesized secret they'd otherwise need to physically obtain.
+                string body = $"OK admin={protUser} secret=\"the cake is a lie\"\n";
+                response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                    Encoding.UTF8.GetBytes(body));
+            }
+            else
+            {
+                response = new HttpResponse(404, "Not Found", "text/plain; charset=UTF-8",
+                    Encoding.UTF8.GetBytes($"unknown /protected/{routeTail}\n"));
+            }
         }
         else if (parsedRequest.Path.StartsWith("/qstats"))
         {

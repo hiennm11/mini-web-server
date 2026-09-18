@@ -449,6 +449,71 @@ static void HandleClient(Socket clientSocket, string webRoot)
                 else response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("unlinked\n"));
             }
         }
+        else if (parsedRequest.Path.StartsWith("/fs/mkdir"))
+        {
+            string param = "";
+            int qIdx = parsedRequest.Path.IndexOf('?');
+            if (qIdx >= 0)
+            {
+                foreach (var kv in parsedRequest.Path.Substring(qIdx + 1).Split('&'))
+                {
+                    int eq = kv.IndexOf('=');
+                    if (eq > 0 && kv.Substring(0, eq) == "path") { param = Uri.UnescapeDataString(kv.Substring(eq + 1)); break; }
+                }
+            }
+            if (string.IsNullOrEmpty(param))
+            {
+                response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("path required\n"));
+            }
+            else
+            {
+                int ino = MiniWebServer.Host.MiniFs.MiniFs.CreateDir(param);
+                if (ino < 0) response = new HttpResponse(500, "Internal Server Error", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("mkdir failed\n"));
+                else response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes($"mkdir ino={ino}\n"));
+            }
+        }
+        else if (parsedRequest.Path.StartsWith("/fs/rmdir"))
+        {
+            string param = "";
+            int qIdx = parsedRequest.Path.IndexOf('?');
+            if (qIdx >= 0)
+            {
+                foreach (var kv in parsedRequest.Path.Substring(qIdx + 1).Split('&'))
+                {
+                    int eq = kv.IndexOf('=');
+                    if (eq > 0 && kv.Substring(0, eq) == "path") { param = Uri.UnescapeDataString(kv.Substring(eq + 1)); break; }
+                }
+            }
+            if (string.IsNullOrEmpty(param))
+            {
+                response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("path required\n"));
+            }
+            else
+            {
+                var result = MiniWebServer.Host.MiniFs.MiniFs.UnlinkDir(param);
+                switch (result)
+                {
+                    case MiniWebServer.Host.MiniFs.MiniFs.UnlinkDirResult.Ok:
+                        response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("rmdir ok\n"));
+                        break;
+                    case MiniWebServer.Host.MiniFs.MiniFs.UnlinkDirResult.NotFound:
+                        response = new HttpResponse(404, "Not Found", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("not found\n"));
+                        break;
+                    case MiniWebServer.Host.MiniFs.MiniFs.UnlinkDirResult.NotADirectory:
+                        response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("not a directory\n"));
+                        break;
+                    case MiniWebServer.Host.MiniFs.MiniFs.UnlinkDirResult.NotEmpty:
+                        response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("directory not empty\n"));
+                        break;
+                    case MiniWebServer.Host.MiniFs.MiniFs.UnlinkDirResult.InvalidName:
+                        response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("invalid name\n"));
+                        break;
+                    default:
+                        response = new HttpResponse(500, "Internal Server Error", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("rmdir failed\n"));
+                        break;
+                }
+            }
+        }
         else if (parsedRequest.Path.StartsWith("/fs-save"))
         {
             string param = "";

@@ -26,11 +26,12 @@ Updated 2026-09-17. Legend: ✅ built + experimented + noted · 🟡 planned · 
 | M12 (12.1–12.4) | Mini FS: superblock, bitmaps, inode table, dir ops, HTTP routes | Ch. 40 | ✅ (slice 12.5 journal deferred) |
 | M12 (12.5) | Mini FS journal: TxB/TxE write-ahead log + backing file | Ch. 42 | ✅ |
 | M12 (12.6) | Mini FS multi-block transactions: Begin/Append/Commit + Tail pointer | Ch. 42.3 "Batching" | ✅ |
+| M12 (12.7) | Mini FS atomic rmdir: empty-only check + Begin/Commit around DirUnlink + Idestroy | Ch. 40.7 (`rmdir`) | ✅ |
 
-**Milestones**: M1 ✅–M12 (12.1–12.6) ✅. M8–M12 are the post-roadmap extensions per `docs/adr/0004-extend-broad-concurrency-roadmap.md`; the original 12-slice roadmap is closed. M12 slices 12.5 (write-ahead log) and 12.6 (multi-block transactions + Tail pointer for circular-log safety) are now done.
+**Milestones**: M1 ✅–M12 (12.1–12.7) ✅. M8–M12 are the post-roadmap extensions per `docs/adr/0004-extend-broad-concurrency-roadmap.md`; the original 12-slice roadmap is closed. M12 slices 12.5 (write-ahead log), 12.6 (multi-block transactions + Tail pointer), and 12.7 (atomic rmdir with empty-only check) are now done.
 **Tests**: 15 passing (8 prior + 7 new for `HttpRequestReceiver`).
 **Code/runtime**: `net10.0`. Two run modes selectable via `--async` flag: default = bounded worker pool (8 threads) + producer/consumer queue, async = `AcceptAsync` + `Task` per connection with `ReceiveAsync` / `SendAsync`. Port 8080, static files under `wwwroot`.
-**Latest commit**: Milestone 12 (slice 12.6) — multi-block transactions. `Journal.Begin/Append/Commit` API buffers multiple `WriteBlock` calls into one TxB+DATA*+TxE; `MiniFs.WriteBlock` auto-appends when in a transaction. `MiniFs.ReadBlock` consults `Journal.GetPendingWrite` first so reads inside a tx see the latest snapshot (fixes a real bug: DirLink's `Writei` was re-reading stale inode block content). `CreateFile` + `UnlinkFile` now wrap their multi-block writes in Begin/Commit, so they become atomic across crashes. Journal enlarged 8 → 64 blocks; superblock adds a `Tail` field; `Replay` scans `[Tail, Head)` modulo size. New DEBUG routes: `/fs-dump-block?blockNo=N`, `/fs-inject-orphan-multi`. Smoke: create + write two files via multi-block txns, inject multi-block orphan, save, kill, restart — both files persist with correct content, orphan discarded. Build clean, 15/15 tests pass.
+**Latest commit**: Milestone 12 (slice 12.7) — atomic rmdir. `UnlinkDir(path)` returns a typed `UnlinkDirResult` (Ok/NotFound/NotADirectory/NotEmpty/InvalidName/Failed); the empty-only check accepts only `.` / `..` / free slots per POSIX `rmdir` semantics. Atomic transaction wraps `DirUnlink(parent)` + `Idestroy(target)` in `Journal.Begin`/`Commit`. New HTTP routes `/fs/mkdir?path=` and `/fs/rmdir?path=` map each result to the correct status code (200/404/400/400/400/500). `ROOT_INO` is protected from removal. Smoke: empty rmdir succeeds; non-empty rmdir returns 400; unlink-then-rmdir succeeds; rmdir / returns 400 invalid name; rmdir /nope returns 404; rmdir on a file returns 400 not a directory; persisted state survives restart. Build clean, 15/15 tests pass.
 
 ## OSTEP Coverage
 
@@ -210,7 +211,7 @@ After both passes, every "Key point from OSEP §X.Y" should match the cited chap
 
 Useful directions that fit the project:
 
-- Extend concurrency via the next-milestones roadmap in `docs/adr/0004-extend-broad-concurrency-roadmap.md`. M8 (bounded queue + 503), M9 (reader-writer lock + cache), M10 (ThreadPool cap), M11 (raw open/read/close syscall demo), and M12 (mini file system slices 12.1–12.6) are done.
+- Extend concurrency via the next-milestones roadmap in `docs/adr/0004-extend-broad-concurrency-roadmap.md`. M8 (bounded queue + 503), M9 (reader-writer lock + cache), M10 (ThreadPool cap), M11 (raw open/read/close syscall demo), and M12 (mini file system slices 12.1–12.7) are done.
 - Add `ArrayPool<byte>` to lower per-connection memory in async mode (would change the M7 numbers from 172 MB toward M6's 21 MB).
 - Add a `Retry-After` header to the M8 503 response so clients can back off intelligently.
 - Extend the **OSEP coverage gaps** in the OSEP Coverage section: scheduling (Ch. 7-10), paging (Ch. 14-23), full FS (Ch. 36-45), security (Ch. 53-57). Each new chapter group should get its own ADR before any slices start.

@@ -793,4 +793,72 @@ public static class MiniFs
         }
         return true;
     }
+
+    /// <summary>
+    /// Remove an empty directory at the given absolute path. Returns
+    /// true on success, false if the path is not a directory or is
+    /// not empty.
+    ///
+    /// Slice 12.7: follows the same atomicity pattern as UnlinkFile —
+    /// the directory entry removal (from the parent) and the inode
+    /// release are wrapped in a single journal transaction. A crash
+    /// mid-rmdir leaves either a fully present empty directory or a
+    /// fully absent one.
+    ///
+    /// Empty means: only "." and ".." entries. POSIX rmdir semantics.
+    /// </summary>
+    public static UnlinkDirResult UnlinkDir(string path)
+    {
+        int slash = path.LastIndexOf('/');
+        if (slash < 0) return UnlinkDirResult.NotFound;
+        string parentPath = slash == 0 ? "/" : path.Substring(0, slash);
+        string name = path.Substring(slash + 1);
+        if (string.IsNullOrEmpty(name)) return UnlinkDirResult.InvalidName;  // e.g., path "/"
+        if (name == "." || name == "..") return UnlinkDirResult.InvalidName;
+
+        int parentIno = WalkPath(parentPath);
+        if (parentIno == 0) return UnlinkDirResult.NotFound;
+
+        int targetIno = Lookup(parentIno, name);
+        if (targetIno == 0) return UnlinkDirResult.NotFound;
+        if (targetIno == ROOT_INO) return UnlinkDirResult.InvalidName;  // can't rmdir root
+
+        var target = Iget(targetIno);
+        if (target.Type != Inode.TYPE_DIR) return UnlinkDirResult.NotADirectory;
+
+        // Check that the directory is empty: only "." and ".." entries.
+        // We accept any "free" slot (ino=0) as empty too.
+        var entries = Readdir(targetIno);
+        foreach (var (n, ino) in entries)
+        {
+            if (n == "." || n == "..") continue;
+            if (ino == 0) continue;  // free slot from a partial unlink
+            return UnlinkDirResult.NotEmpty;
+        }
+
+        Journal.Begin();
+        try
+        {
+            DirUnlink(parentIno, name);
+            Idestroy(targetIno);
+            Journal.Commit();
+        }
+        catch
+        {
+            Journal.Abort();
+            return UnlinkDirResult.Failed;
+        }
+        return UnlinkDirResult.Ok;
+    }
+
+    /// <summary>Outcome codes for UnlinkDir.</summary>
+    public enum UnlinkDirResult
+    {
+        Ok,
+        NotFound,
+        NotADirectory,
+        NotEmpty,
+        InvalidName,
+        Failed,
+    }
 }

@@ -44,9 +44,21 @@ public sealed class Pager
     }
 
     /// <summary>
+    /// Optional TLB. When set, Translate() consults the TLB before the
+    /// page table (OSEP §19.1 "TLB Basic Algorithm"). When null, the
+    /// pager behaves as in slice 14.1 (page-table only).
+    /// </summary>
+    public Tlb? Tlb { get; set; }
+
+    /// <summary>
     /// Translate <paramref name="va"/> for the given process.
     /// Returns the outcome; if <see cref="TranslateOutcome.Hit"/>
     /// the <paramref name="pa"/> parameter is set.
+    ///
+    /// Slice 16.1 (TLB): if <see cref="Tlb"/> is non-null, the TLB is
+    /// consulted first. On a TLB hit, we skip the page-table walk entirely
+    /// (OSEP §19.1 line 6). On a TLB miss, we walk the page table and
+    /// then TLB_Insert() the result (OSEP §19.1 line 18).
     /// </summary>
     public TranslateOutcome Translate(int pid, int vaValue, out int pa)
     {
@@ -70,6 +82,18 @@ public sealed class Pager
             return TranslateOutcome.OutOfRange;
         }
 
+        // Slice 16.1: TLB lookup first (OSEP §19.1 Figure 19.1 line 2).
+        if (Tlb is not null && Tlb.Lookup(pid, va.Vpn, out int tlbPfn))
+        {
+            pa = tlbPfn * VirtualAddress.PAGE_SIZE + va.Offset;
+            var paFromTlb = new PhysicalAddress(pa);
+            var tlbHit = new TraceEvent(_step, pid, va.ToString(), paFromTlb.ToString(),
+                TranslateOutcome.Hit, $"tlb-hit frame={tlbPfn}");
+            _trace.Add(tlbHit);
+            return TranslateOutcome.Hit;
+        }
+
+        // TLB miss -> walk page table (OSEP §19.1 line 12).
         var pte = pt.Get(va.Vpn);
         if (!pte.Valid)
         {
@@ -79,11 +103,14 @@ public sealed class Pager
             return TranslateOutcome.PageFault;
         }
 
+        // OSEP §19.1 line 18: TLB_Insert after successful page-table walk.
+        Tlb?.Insert(pid, va.Vpn, pte.FrameNo);
+
         pa = pte.FrameNo * VirtualAddress.PAGE_SIZE + va.Offset;
-        var paStruct = new PhysicalAddress(pa);
-        var hit = new TraceEvent(_step, pid, va.ToString(), paStruct.ToString(),
-            TranslateOutcome.Hit, $"frame={pte.FrameNo}");
-        _trace.Add(hit);
+        var paFromPt = new PhysicalAddress(pa);
+        var ptHit = new TraceEvent(_step, pid, va.ToString(), paFromPt.ToString(),
+            TranslateOutcome.Hit, $"pt-walk frame={pte.FrameNo}");
+        _trace.Add(ptHit);
         return TranslateOutcome.Hit;
     }
 
@@ -112,8 +139,8 @@ public sealed class Pager
                 case TranslateOutcome.OutOfRange: oor++; break;
             }
         }
-        return new PagerStats(_step, hits, faults, oor, _pageTables.Count);
+        return new PagerStats(_step, hits, faults, oor, _pageTables.Count, _trace.Count);
     }
 }
 
-public sealed record PagerStats(int TotalAccesses, int Hits, int Faults, int OutOfRange, int Processes);
+public sealed record PagerStats(int TotalAccesses, int Hits, int Faults, int OutOfRange, int Processes, int TraceEvents);

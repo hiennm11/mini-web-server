@@ -611,9 +611,10 @@ static void HandleClient(Socket clientSocket, string webRoot)
         }
         else if (parsedRequest.Path.StartsWith("/pager/run"))
         {
-            // MiniPager demo. ?workload=seq|rand|two&frames=N
+            // MiniPager demo. ?workload=seq|rand|two|array&frames=N&tlb=N
             string workload = "seq";
             int numFrames = 16;
+            int tlbCapacity = 0;  // 0 = TLB disabled
             int qIdx = parsedRequest.Path.IndexOf('?');
             if (qIdx >= 0)
             {
@@ -625,23 +626,26 @@ static void HandleClient(Socket clientSocket, string webRoot)
                     var v = kv.Substring(eq + 1);
                     if (k == "workload") workload = v;
                     else if (k == "frames" && int.TryParse(v, out var nf)) numFrames = nf;
+                    else if (k == "tlb" && int.TryParse(v, out var tlb)) tlbCapacity = tlb;
                 }
             }
 
             string output = workload switch
             {
                 "seq" => MiniWebServer.Host.MiniPager.PagerRunner.RunSingle(
-                    MiniWebServer.Host.MiniPager.Workloads.SequentialSingleProcess(), numFrames),
+                    MiniWebServer.Host.MiniPager.Workloads.SequentialSingleProcess(), numFrames, tlbCapacity),
                 "rand" => MiniWebServer.Host.MiniPager.PagerRunner.RunSingle(
-                    MiniWebServer.Host.MiniPager.Workloads.RandomSingleProcess(), numFrames),
+                    MiniWebServer.Host.MiniPager.Workloads.RandomSingleProcess(), numFrames, tlbCapacity),
                 "two" => MiniWebServer.Host.MiniPager.PagerRunner.RunTwoOverlap(
-                    MiniWebServer.Host.MiniPager.Workloads.TwoProcessesOverlap(), numFrames),
+                    MiniWebServer.Host.MiniPager.Workloads.TwoProcessesOverlap(), numFrames, tlbCapacity),
+                "array" => MiniWebServer.Host.MiniPager.PagerRunner.RunSingle(
+                    MiniWebServer.Host.MiniPager.Workloads.ArrayAccessOsep(), numFrames, tlbCapacity),
                 _ => "",
             };
             if (string.IsNullOrEmpty(output))
             {
                 response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8",
-                    Encoding.UTF8.GetBytes("unknown workload (use seq|rand|two)\n"));
+                    Encoding.UTF8.GetBytes("unknown workload (use seq|rand|two|array)\n"));
             }
             else
             {

@@ -5,9 +5,8 @@ namespace MiniWebServer.Host.MiniPager;
 
 /// <summary>
 /// Built-in synthetic workloads for the pager demos. Mirror the
-/// access patterns OSEP §18 uses to illustrate paging: a single
-/// process reading sequentially, two processes sharing frames,
-/// and a random-access workload that exercises the page table.
+/// access patterns OSEP §18 + §19 use to illustrate paging and TLB
+/// behavior.
 /// </summary>
 public static class Workloads
 {
@@ -45,10 +44,65 @@ public static class Workloads
             list.Add(new MemoryAccess(1, (i << 12) | 0, AccessKind.Read));
             list.Add(new MemoryAccess(2, (i << 12) | 0, AccessKind.Read));
         }
-        // Then re-touch pid 1's pages to test hits
         for (int i = 0; i < 4; i++)
         {
             list.Add(new MemoryAccess(1, (i << 12) | 0, AccessKind.Read));
+        }
+        return list;
+    }
+
+    /// <summary>
+    /// OSEP §19.2 "Example: Accessing An Array" — the canonical TLB
+    /// stress test. 10 array elements, 4 bytes each, starting at VA
+    /// 100. With 16-byte pages (OSEP's example), the array spans
+    /// across 3 pages (4 ints on VPN=6, 4 on VPN=7, 2 on VPN=8) and
+    /// gets 70% hit rate.
+    ///
+    /// We map this onto our 4 KB pages by using a larger element size
+    /// (so each element lives on its own page, like the OSEP example).
+    /// To get realistic TLB hit rates, the workload RE-ACCESSES the
+    /// same pages multiple times. With 10 elements spread across 10
+    /// pages and a TLB of 4 slots, the first 4 access miss, then
+    /// Random replacement evicts, so subsequent accesses also mostly
+    /// miss unless we re-walk.
+    /// </summary>
+    public static List<MemoryAccess> ArrayAccessOsep(int numElements = 10, int elementSize = 4096, int seed = 42)
+    {
+        // 10 elements, each on its own page (elementSize = page size).
+        var rng = new Random(seed);
+        var list = new List<MemoryAccess>();
+
+        // OSEP §19.2 pattern: "an int array, 10 elements, 4 bytes each,
+        // at VA 100". In OSEP's tiny example (16-byte pages), the array
+        // spans 3 pages. In our 4 KB page setup, we make each element
+        // live on its own page to reproduce the cross-page pattern.
+        // First, access each page once (cold misses; TLB fills up).
+        var coldAccesses = new List<MemoryAccess>();
+        for (int i = 0; i < numElements; i++)
+        {
+            coldAccesses.Add(new MemoryAccess(
+                Pid: 1,
+                VirtualAddressValue: 0x100 + i * elementSize,
+                Kind: AccessKind.Read));
+        }
+        list.AddRange(coldAccesses);
+
+        // Then, re-access a small random subset (the "hot" set).
+        // With Random TLB replacement and the hot set smaller than TLB
+        // capacity, the second pass should hit more often than miss.
+        int hotSize = Math.Min(4, numElements);  // hot set = TLB size
+        var hotIndices = new HashSet<int>();
+        for (int i = 0; i < hotSize; i++) hotIndices.Add(rng.Next(numElements));
+        for (int r = 0; r < 20; r++)  // 20 re-accesses
+        {
+            int idx = rng.Next(numElements);
+            if (hotIndices.Contains(idx))
+            {
+                list.Add(new MemoryAccess(
+                    Pid: 1,
+                    VirtualAddressValue: 0x100 + idx * elementSize,
+                    Kind: AccessKind.Read));
+            }
         }
         return list;
     }
@@ -58,46 +112,54 @@ public static class Workloads
 public static class PagerRunner
 {
     /// <summary>
-    /// Set up the pager with two processes and pre-map 4 pages each
-    /// (pid 1 -> frames 0-3, pid 2 -> frames 4-7). Then run the
-    /// workload. Returns the formatted trace plus summary stats.
+    /// Set up the pager with one process and pre-map 4 pages (vpn 0-3)
+    /// to frames 0-3. Then run the workload and emit the trace.
     /// </summary>
-    public static string RunSingle(IEnumerable<MemoryAccess> accesses, int numFrames = 16)
+    public static string RunSingle(IEnumerable<MemoryAccess> accesses, int numFrames = 16, int tlbCapacity = 0)
     {
         var pager = new Pager(numFrames);
-        var pt = pager.CreateProcess(1);
-        // Pre-map 4 pages (vpn 0-3) of pid 1 to frames 0-3.
+        pager.CreateProcess(1);
         for (int i = 0; i < 4; i++) pager.Map(1, i, i);
-        return RunInternal(pager, accesses);
+        return RunInternal(pager, accesses, tlbCapacity);
     }
 
-    public static string RunTwoOverlap(IEnumerable<MemoryAccess> accesses, int numFrames = 16)
+    public static string RunTwoOverlap(IEnumerable<MemoryAccess> accesses, int numFrames = 16, int tlbCapacity = 0)
     {
         var pager = new Pager(numFrames);
         pager.CreateProcess(1);
         pager.CreateProcess(2);
         for (int i = 0; i < 4; i++) pager.Map(1, i, i);
         for (int i = 0; i < 4; i++) pager.Map(2, i, 4 + i);
-        return RunInternal(pager, accesses);
+        return RunInternal(pager, accesses, tlbCapacity);
     }
 
-    private static string RunInternal(Pager pager, IEnumerable<MemoryAccess> accesses)
+    private static string RunInternal(Pager pager, IEnumerable<MemoryAccess> accesses, int tlbCapacity)
     {
+        if (tlbCapacity > 0)
+        {
+            pager.Tlb = new Tlb(tlbCapacity);
+        }
+
         var sb = new StringBuilder();
-        sb.AppendLine($"=== Pager run: {pager.Memory.NumFrames} frames ({pager.Memory.SizeBytes} bytes physical) ===");
+        sb.AppendLine($"=== Pager run: {pager.Memory.NumFrames} frames ({pager.Memory.SizeBytes} bytes physical)"
+                       + (pager.Tlb is not null ? $", TLB capacity={pager.Tlb.Capacity}" : ", TLB=disabled"));
         sb.AppendLine();
         foreach (var a in accesses)
         {
             pager.Translate(a.Pid, a.VirtualAddressValue, out _);
         }
-        // Print all trace events
         foreach (var ev in pager.Trace)
         {
             sb.AppendLine(ev.Format());
         }
         var s = pager.Stats();
+        var tlbStats = pager.Tlb?.Stats();
         sb.AppendLine();
-        sb.AppendLine($"=== stats: accesses={s.TotalAccesses} hits={s.Hits} faults={s.Faults} outofrange={s.OutOfRange} processes={s.Processes} ===");
+        sb.AppendLine($"=== stats: accesses={s.TotalAccesses} hits={s.Hits} faults={s.Faults} outofrange={s.OutOfRange} trace_events={s.TraceEvents}");
+        if (tlbStats is not null)
+        {
+            sb.AppendLine($"=== TLB stats: hits={tlbStats.Hits} misses={tlbStats.Misses} evictions={tlbStats.Evictions} hit_rate={tlbStats.HitRate:F3}");
+        }
         return sb.ToString();
     }
 }

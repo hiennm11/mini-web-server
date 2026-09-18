@@ -6,13 +6,23 @@ public sealed record HttpResponse(
     string ContentType,
     byte[] Body)
 {
-    /// <summary>Calculate the total byte length the response will occupy when serialized.</summary>
+    /// <summary>Calculate the exact byte length the response will occupy when serialized.</summary>
     public int TotalLength
     {
         get
         {
-            int headerLen = StatusCode.ToString().Length + ReasonPhrase.Length
-                + ContentType.Length + Body.Length.ToString().Length + 64;
+            // Fixed header overhead (literal strings):
+            //   "HTTP/1.1 " + StatusCode + " " + ReasonPhrase + "\r\n"   -> 9 + 3 + 1 + RP + 2
+            //   "Content-Type: " + ContentType + "\r\n"                 -> 14 + CT + 2
+            //   "Content-Length: " + Body.Length + "\r\n"               -> 17 + BL + 2
+            //   "Connection: close\r\n"                                  -> 19
+            //   "\r\n"                                                   -> 2
+            //   total constants: 9 + 3 + 1 + 2 + 14 + 2 + 17 + 2 + 19 + 2 = 71
+            const int headerConstants = 71;
+            int headerLen = headerConstants
+                + ReasonPhrase.Length
+                + ContentType.Length
+                + Body.Length.ToString().Length;
             return headerLen + Body.Length;
         }
     }

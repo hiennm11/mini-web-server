@@ -33,21 +33,64 @@ public static class MiniFs
     /// </summary>
     public static bool Mount()
     {
+        return MountFromFile(null);
+    }
+
+    /// <summary>
+    /// Mount the FS. If <paramref name="backingFilePath"/> is non-null
+    /// and the file exists, read the disk image from it (slice 12.5
+    /// persistence). If null or missing, allocate a fresh in-memory
+    /// disk and Format() it.
+    /// </summary>
+    public static bool MountFromFile(string? backingFilePath)
+    {
         if (_mounted) return true;
-        _disk = new byte[NUM_BLOCKS * BLOCK_SIZE];
 
-        // Try to read existing superblock
-        var existing = ReadSuperblock();
-        if (existing != null && existing.Magic == FS_MAGIC)
+        if (backingFilePath != null && File.Exists(backingFilePath))
         {
-            _sb = existing;
-            _mounted = true;
-            return true;
+            // Load disk from backing file
+            _disk = new byte[NUM_BLOCKS * BLOCK_SIZE];
+            var fileBytes = File.ReadAllBytes(backingFilePath);
+            if (fileBytes.Length != _disk.Length)
+            {
+                // Wrong size — treat as fresh disk
+                Array.Clear(_disk, 0, _disk.Length);
+                Format();
+            }
+            else
+            {
+                Array.Copy(fileBytes, 0, _disk, 0, _disk.Length);
+                var existing = ReadSuperblock();
+                if (existing != null && existing.Magic == FS_MAGIC)
+                {
+                    _sb = existing;
+                    _mounted = true;
+                    Journal.Replay();
+                    return true;
+                }
+                // File had data but no valid magic — treat as fresh
+                Array.Clear(_disk, 0, _disk.Length);
+                Format();
+            }
         }
-
-        // Fresh disk - format
-        Format();
+        else
+        {
+            _disk = new byte[NUM_BLOCKS * BLOCK_SIZE];
+            Format();
+        }
         _mounted = true;
+        return true;
+    }
+
+    /// <summary>
+    /// Persist the in-memory disk to a backing file. Returns true on
+    /// success. The file format is the raw byte[] of the disk image
+    /// (NUM_BLOCKS * BLOCK_SIZE = 1 MB).
+    /// </summary>
+    public static bool SaveToFile(string backingFilePath)
+    {
+        if (!_mounted || _disk == null) return false;
+        File.WriteAllBytes(backingFilePath, _disk);
         return true;
     }
 
@@ -61,6 +104,8 @@ public static class MiniFs
     /// Format the disk: zero everything, write the superblock, mark
     /// all inodes and data blocks as free (except inode 0 which is
     /// reserved as "no inode" - similar to xv6's dev/sw convention).
+    /// Also marks the JOURNAL_BLOCKS data blocks as in-use for the
+    /// journal region (slice 12.5).
     /// </summary>
     public static void Format()
     {
@@ -89,7 +134,13 @@ public static class MiniFs
         // Reserve inode 0 by setting bit 0 to 1 (in-use as "no inode")
         SetBit(INODE_BITMAP_BLOCK, 0);
 
-        // All data blocks start free (zeros from Array.Clear above)
+        // Reserve the journal region (first JOURNAL_BLOCKS data
+        // blocks) as in-use. Balloc() also skips these.
+        for (int i = 0; i < JOURNAL_BLOCKS; i++)
+            SetBit(DATA_BITMAP_BLOCK, i);
+
+        // Initialize the journal region (slice 12.5).
+        Journal.Format();
     }
 
     // --- Superblock IO ---
@@ -191,13 +242,17 @@ public static class MiniFs
 
     /// <summary>
     /// Allocate a data block. Returns the block number (relative to
-    /// DATA_BLOCKS_START) or -1 if no blocks are free.
+    /// DATA_BLOCKS_START) or -1 if no blocks are free. The first
+    /// JOURNAL_BLOCKS data blocks are reserved for the journal and
+    /// will never be returned by Balloc.
     /// </summary>
     public static int Balloc()
     {
         if (_sb.FreeDataBlocks <= 0) return -1;
         for (int i = 0; i < NUM_DATA_BLOCKS; i++)
         {
+            // Skip the journal region
+            if (i < JOURNAL_BLOCKS) continue;
             if (!TestBit(_sb.DataBitmapBlock, i))
             {
                 SetBit(_sb.DataBitmapBlock, i);
@@ -233,7 +288,25 @@ public static class MiniFs
         Array.Copy(_disk, blockNo * BLOCK_SIZE, dest, 0, BLOCK_SIZE);
     }
 
+    /// <summary>
+    /// Public write path. Routes through the journal so that
+    /// disk writes are crash-consistent (OSEP §42.3). The journal
+    /// writes TxB → data → TxE to its reserved region, then
+    /// checkpoints the block to its final position, then updates
+    /// the journal head.
+    /// </summary>
     public static void WriteBlock(int blockNo, byte[] src)
+    {
+        Journal.WriteBlockJournaled(blockNo, src);
+    }
+
+    /// <summary>
+    /// Internal write path that bypasses the journal. Used by the
+    /// journal itself when it writes TxB / data / TxE blocks to
+    /// its reserved region, and by the journal superblock write.
+    /// Also used by Format() to initialize the disk.
+    /// </summary>
+    public static void WriteBlockNoLog(int blockNo, byte[] src)
     {
         if (_disk == null) throw new InvalidOperationException("not mounted");
         if (blockNo < 0 || blockNo >= NUM_BLOCKS) throw new ArgumentOutOfRangeException(nameof(blockNo));

@@ -17,7 +17,9 @@ public static class Constants
     public const int INODE_BITMAP_BLOCK = 1;
     public const int DATA_BITMAP_BLOCK = 2;
     public const int INODE_TABLE_START = 3;
-    public const int DATA_BLOCKS_START = INODE_TABLE_START + INODE_BLOCKS;
+    public const int JOURNAL_START = INODE_TABLE_START + INODE_BLOCKS;  // = 7
+    public const int JOURNAL_BLOCKS = 8;
+    public const int DATA_BLOCKS_START = JOURNAL_START + JOURNAL_BLOCKS;  // = 15
 
     public const int NUM_DATA_BLOCKS = NUM_BLOCKS - DATA_BLOCKS_START;
 
@@ -26,4 +28,12 @@ public static class Constants
 
     // Magic number for the FS (any 32-bit value, chosen to be recognizable)
     public const uint FS_MAGIC = 0x1F5EF5E1;
+
+    // Journal layout constants (slice 12.5)
+    public const int JOURNAL_SUPERBLOCK_BLOCK = JOURNAL_START;        // 7
+    public const int JOURNAL_DATA_START = JOURNAL_START + 1;         // 8
+    public const int JOURNAL_DATA_BLOCKS = JOURNAL_BLOCKS - 1;        // 7 (data region after superblock)
+    public const uint JOURNAL_SB_MAGIC = 0xCAFE_BABE;
+    public const uint TXB_MAGIC = 0xAABB_CCDD;
+    public const uint TXE_MAGIC = 0xDDCC_BBAA;
 }

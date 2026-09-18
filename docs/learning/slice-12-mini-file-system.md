@@ -13,7 +13,7 @@ How do real file systems lay out their data on disk? What does it take to implem
 - OSEP §40.4 covers the directory organization: a directory is a list of `(entry name, inode number)` records, plus `.` and `..` entries; deleted entries leave a "free slot" marked with inode number zero.
 - OSEP §40.5 covers free space management via the two bitmaps (inode + data).
 - OSEP §40.6 covers the access path for read/write, including the per-operation I/O cost (e.g., writing one block costs 5 I/Os: read data bitmap, write data bitmap, read inode, write inode, write data).
-- Key point from OSEP §42 (journaling, deferred to slice 12.5): a journal is a write-ahead log of pending transactions. The kernel writes the transaction to the log, then writes the modified blocks to their final locations, then commits the transaction. On crash recovery, the kernel scans the journal: any committed transaction is replayed; any uncommitted transaction is discarded.
+- Key point from OSEP §42 (journaling, slice 12.5): a journal is a write-ahead log of pending transactions. The kernel writes the transaction to the log, then writes the modified blocks to their final locations, then commits the transaction. On crash recovery, the kernel scans the journal: any committed transaction is replayed; any uncommitted transaction is discarded.
 
 ## C#/.NET Mechanism
 
@@ -123,7 +123,7 @@ What does the FS do at each level?
 - [x] Built (12.2 — inode table + readi/writei)
 - [x] Built (12.3 — directory operations: lookup/dir-link/dir-unlink/walk/create/unlink)
 - [x] Built (12.4 — HTTP routes + smoke)
-- [ ] Built (12.5 — journal for crash consistency) — deferred to a future slice
+- [x] Built (12.5 — journal for crash consistency: TxB/TxE/replay + backing file)
 - [x] Experimented
 - [x] Noted
 
@@ -230,13 +230,121 @@ The slice implements the textbook vsfs (Very Simple File System) layout from OSE
 - `BitConverter` (little-endian on x86) handles the integer serialization for the on-disk format.
 - All FS operations are static methods on `MiniFs` — no instance state, no async. Simpler for educational purposes.
 
-### What's deferred
+### Slice 12.5 — Journal for crash consistency
 
-**Slice 12.5 — Journal for crash consistency.** A write-ahead log of pending transactions, commit markers, and replay-on-mount. This is the OSEP §42 lesson. The current FS is crash-unsafe: a mid-write process death leaves the on-disk structures inconsistent. Implementing journaling requires:
+The slice implements the OSEP §42 write-ahead log protocol: every disk write goes through a journal that records the change in a reserved region before checkpointing it to its final position. The journal lets the FS recover from crashes by replaying committed-but-not-checkpointed transactions and discarding uncommitted ones.
 
-- A circular log buffer in the first few data blocks
-- `Journal.Begin()`, `Journal.LogWrite(int blockNo, byte[] data)`, `Journal.Commit()`
-- Wrap every `WriteBlock` call in the journal API
-- On `Mount()`, scan the journal from the start; replay committed transactions; discard uncommitted
+### Layout
 
-That's a substantial addition (~150-200 lines + new file + smoke test) and benefits from a focused 60-90 minute slice. Out of scope for this session; deferred to a future ADR.
+Eight disk blocks are reserved for the journal at the start of the data region:
+
+```
+block 7  : journal superblock (magic, head, next-TID)
+blocks 8..14 : journal data (TxB + per-block data + TxE per transaction)
+```
+
+User data lives in disk blocks 15..255 (241 data blocks). `Balloc` skips the journal region, and `Format()` marks the journal region's data bitmap bits as in-use.
+
+### Transaction format (single-block updates)
+
+A transaction is three blocks written in order, all inside the journal data region:
+
+```
+TxB   : [TXB_MAGIC=0xAABBCCDD | TID | blockNo | zero-padded]
+DATA  : [exact 4096 bytes of the new block content]
+TxE   : [TXE_MAGIC=0xDDCCBBAA | TID | zero-padded]
+```
+
+### Protocol (per transaction, blocking write-through)
+
+For each `WriteBlock(blockNo, data)`:
+
+1. Allocate TID, append TxB at `journal-data-slot[head]`.
+2. Append DATA at `journal-data-slot[head+1]`.
+3. Append TxE at `journal-data-slot[head+2]`.
+4. Checkpoint: write `data` to its final on-disk position.
+5. Advance `head` and persist the journal superblock.
+
+### Recovery (on Mount)
+
+If the journal superblock's magic matches, scan all journal data slots:
+
+- A TxB with no matching TxE → discard (uncommitted transaction).
+- A TxB with a matching TxE → replay the checkpoint write (redo logging, per OSEP §42.3).
+
+After replay, the journal is reset via `Format()` so future writes start fresh.
+
+### Persistence (backing file)
+
+To make "crash and restart" actually testable, the FS supports a backing-file path via `MountFromFile(string?)` and `SaveToFile(string)`. The environment variable `MINIFS_IMAGE` (defaulting to `./minifs.img`) is the default backing file.
+
+- On `MountFromFile`: if the file exists and contains a valid superblock, load it and replay the journal; otherwise Format() a fresh disk.
+- `SaveToFile` writes the entire 1 MB disk image to the path. The HTTP route `/fs-save?path=<file>` exposes this.
+
+### Files added/changed
+
+- `src/MiniWebServer.Host/MiniFs/Journal.cs` (new, ~140 lines): TxB/TxE encoding, Replay, single-block transactions.
+- `src/MiniWebServer.Host/MiniFs/Constants.cs`: added `JOURNAL_START=7`, `JOURNAL_BLOCKS=8`, `DATA_BLOCKS_START=15`, plus journal magic constants.
+- `src/MiniWebServer.Host/MiniFs/MiniFs.cs`:
+  - `Format()` now reserves the journal region in the data bitmap and calls `Journal.Format()`.
+  - `WriteBlock(blockNo, src)` routes through `Journal.WriteBlockJournaled`.
+  - New `WriteBlockNoLog(blockNo, src)` for journal-internal writes (the journal writes its own TxB/DATA/TxE blocks directly to the journal region, bypassing itself).
+  - New `MountFromFile(string?)` and `SaveToFile(string)`.
+  - `Mount()` calls `Journal.Replay()` after loading the superblock.
+- `src/MiniWebServer.Host/Program.cs`: `/fs-save?path=<file>` route + `MINIFS_IMAGE` env var for the default backing file. Debug route `/fs-inject-orphan` writes a fake TxB into the journal without a matching TxE (for testing Replay).
+
+### Smoke evidence
+
+**Test 1 — persistence round-trip** (`.gitnexus/smoke-m12-5.ps1`):
+
+```
+1. start server (fresh image)
+2. POST /fs/create?path=/hello.txt        → created ino=2
+3. POST /fs/write?path=/hello.txt  (17B)  → wrote 17 bytes
+4. GET /fs/list                           → 3 entries (., .., hello.txt size=17)
+5. GET /fs/read?path=/hello.txt           → "Hello from M12.5!" (17 bytes)
+6. GET /fs-save?path=.../minifs.img       → "saved to ..."
+7. kill server
+8. restart server (loads image, replays journal)
+9. GET /fs/list                           → 3 entries (., .., hello.txt size=17) ✓
+10. GET /fs/read?path=/hello.txt          → "Hello from M12.5!" ✓
+```
+
+**Test 2 — orphan TxB discarded on recovery** (`.gitnexus/smoke-m12-5-orphan.ps1`):
+
+```
+1. start server (fresh image)
+2. GET /fs-inject-orphan                  → "orphan-txb-injected" (writes fake TxB at journal slot 8)
+3. POST /fs/create?path=/orphan-test.txt → created ino=2
+4. POST /fs/write?path=/orphan-test.txt  (15B) → wrote 15 bytes
+5. GET /fs-save?path=.../minifs.img      → saved
+6. kill server
+7. restart server (replay scans journal, finds orphan TxB with no TxE → discards; the orphan-test.txt transaction had TxB+TxE → replayed)
+8. GET /fs/list                           → 3 entries (., .., orphan-test.txt size=15) ✓
+9. GET /fs/read?path=/orphan-test.txt    → "survives orphan" (15 bytes) ✓
+```
+
+The orphan test proves OSEP §42's core guarantee: a crash mid-transaction loses the in-flight update; a crash after commit but before checkpoint replays the update on recovery.
+
+### OSEP concept
+
+This slice implements the literal protocol from OSEP §42.3:
+
+> 1. **Journal write:** Write the contents of the transaction (containing TxB and the contents of the update) to the log; wait for these writes to complete.
+> 2. **Journal commit:** Write the transaction commit block (containing TxE) to the log; wait for the write to complete; the transaction is now committed.
+> 3. **Checkpoint:** Write the contents of the update to their final locations within the file system.
+
+Our slice executes steps 1+2+3 atomically (synchronously) per WriteBlock call. A future enhancement would be to buffer multiple updates into one transaction and write them out together — the natural follow-up for "real" fsync() semantics. We chose the simplest possible slice: one block per transaction, synchronous, no batching. That still demonstrates the recovery guarantee end-to-end.
+
+### .NET mechanism
+
+- `BitConverter.GetBytes(uint)` writes little-endian ints (matching the x86 FS); `BitConverter.ToUInt32(byte[], int)` reads back.
+- The journal writes use the raw `WriteBlockNoLog` path so the journal doesn't write itself to itself (recursion). The `static bool _active` flag prevents nested transactions.
+- The backing file uses `File.WriteAllBytes` / `File.ReadAllBytes` for the 1 MB disk image.
+
+### What's deferred (next slice candidates)
+
+- **Batched transactions** (OSEP §42.3 "Batching Log Updates"): group multiple WriteBlock calls into one TxB/DATA*/TxE sequence. Requires a thread-local "pending update" buffer that flushes on commit or timeout.
+- **Multi-block transactions**: today each WriteBlock is its own transaction. A single CreateFile writes to inode bitmap, inode, and directory data in three separate transactions (no atomicity across them). Bundling them into one transaction is the natural next step.
+- **Write barriers / fsync**: the OSEP §42 "write barrier" detail (forcing ordering across writes) is not needed here because each WriteBlock is synchronous; it would matter if we used write buffering.
+- **Block reuse revoke records** (OSEP §42.3 "Tricky Case: Block Reuse"): not needed yet because we never reuse blocks across transactions in this slice.

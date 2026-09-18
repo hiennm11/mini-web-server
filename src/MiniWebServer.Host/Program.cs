@@ -43,9 +43,10 @@ if (maxThreads.HasValue || minThreads.HasValue)
 
 string webRoot = WebRootLocator.GetWebRoot(AppContext.BaseDirectory);
 
-MiniWebServer.Host.MiniFs.MiniFs.Mount();
+string minifsImagePath = Environment.GetEnvironmentVariable("MINIFS_IMAGE") ?? "minifs.img";
+MiniWebServer.Host.MiniFs.MiniFs.MountFromFile(minifsImagePath);
 MiniWebServer.Host.MiniFs.MiniFs.InitRoot();
-Console.WriteLine($"[minifs] mounted: {MiniWebServer.Host.MiniFs.MiniFs.Superblock.NumDataBlocks} data blocks free of {MiniWebServer.Host.MiniFs.MiniFs.Superblock.TotalBlocks} total blocks");
+Console.WriteLine($"[minifs] mounted (image={minifsImagePath}, exists={File.Exists(minifsImagePath)}): {MiniWebServer.Host.MiniFs.MiniFs.Superblock.NumDataBlocks} data blocks free of {MiniWebServer.Host.MiniFs.MiniFs.Superblock.TotalBlocks} total blocks");
 
 if (asyncMode)
 {
@@ -447,6 +448,43 @@ static void HandleClient(Socket clientSocket, string webRoot)
                 if (!ok) response = new HttpResponse(404, "Not Found", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("not found or not a file\n"));
                 else response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("unlinked\n"));
             }
+        }
+        else if (parsedRequest.Path.StartsWith("/fs-save"))
+        {
+            string param = "";
+            int qIdx = parsedRequest.Path.IndexOf('?');
+            if (qIdx >= 0)
+            {
+                foreach (var kv in parsedRequest.Path.Substring(qIdx + 1).Split('&'))
+                {
+                    int eq = kv.IndexOf('=');
+                    if (eq > 0 && kv.Substring(0, eq) == "path") { param = Uri.UnescapeDataString(kv.Substring(eq + 1)); break; }
+                }
+            }
+            if (string.IsNullOrEmpty(param))
+            {
+                response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("path required\n"));
+            }
+            else
+            {
+                bool ok = MiniWebServer.Host.MiniFs.MiniFs.SaveToFile(param);
+                if (!ok) response = new HttpResponse(500, "Internal Server Error", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("save failed (not mounted?)\n"));
+                else response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes($"saved to {param}\n"));
+            }
+        }
+        else if (parsedRequest.Path.StartsWith("/fs-inject-orphan"))
+        {
+            // DEBUG route: write a fake TxB block into the journal with
+            // no matching TxE. After save + restart + replay, this
+            // should be silently discarded.
+            var blk = new byte[4096];
+            BitConverter.GetBytes(0xAABBCCDDu).CopyTo(blk, 0);  // TXB_MAGIC
+            BitConverter.GetBytes(999).CopyTo(blk, 4);           // fake TID
+            BitConverter.GetBytes(42).CopyTo(blk, 8);            // fake blockNo
+            // Write the orphan TxB directly to the journal data region
+            // using the raw write path (bypasses the journal itself).
+            MiniWebServer.Host.MiniFs.MiniFs.WriteBlockNoLog(8, blk);
+            response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes("orphan-txb-injected\n"));
         }
         else if (parsedRequest.Path == "/qstats")
         {

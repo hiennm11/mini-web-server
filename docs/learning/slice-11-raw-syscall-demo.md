@@ -4,11 +4,15 @@
 
 What does the OS actually do when a file is read in our server? How do we make the kernel's `open` / `read` / `close` syscalls observable?
 
-## OSTEP Context
+## OSEP Context
 
-- Chapter(s): 39 (Files and Directories), specifically §39.1 (the file abstraction), §39.3 (creating, reading, writing, closing files), §39.4 (file descriptors).
-- Concept: every file operation in user-space goes through the kernel via a syscall. The kernel hands back an integer *file descriptor* (fd) on `open`; subsequent `read` / `write` / `seek` take the fd; `close` releases it. The fd is the user's handle into the kernel's per-process open-file table.
-- Key point from OSEP §39.4: file descriptors are integers starting at 0 (stdin), 1 (stdout), 2 (stderr). Each `open` allocates the lowest unused fd. The kernel maintains an offset, access mode, and pointer to the underlying vnode/inode for each fd.
+- Chapter(s): 39 (Files and Directories).
+- Concept: every file operation in user-space goes through the kernel via a syscall. The kernel hands back an integer *file descriptor* (fd) on `open`; subsequent `read` / `write` / `lseek` take the fd; `close` releases it. The fd is the user's handle into the kernel's per-process open-file table.
+- OSEP §39.1 introduces the file abstraction (linear array of bytes) and directory entries (name → inode number pairs).
+- OSEP §39.3 covers `open(path, O_CREAT|O_WRONLY|O_TRUNC, ...)` and the fd return value.
+- OSEP §39.4 covers `read` and `write` (including the strace example with a 4 KB buffer) and `close`. Key point: file descriptors start at 0 (stdin), 1 (stdout), 2 (stderr); the first user-opened fd is 3.
+- OSEP §39.5 covers `lseek` for random access.
+- OSEP §39.10 covers `unlink` for file removal (the name `unlink` is historically tied to the link count).
 
 ## C#/.NET Mechanism
 
@@ -227,9 +231,9 @@ Server console shows the same `[syscall] open + read + close` for the static-fil
 
 ### OSEP concept
 
-OSEP §39.3 describes `open`, `read`, `write`, `close`, `seek` as the file-system API surface. §39.4 introduces the file descriptor as an integer handle that user code holds and the kernel tracks. The slice demonstrates exactly this: `FileStream` wraps a kernel fd; each `Read` is one `read` syscall; `Dispose` is one `close` syscall.
+OSEP §39.3 covers `open` (with `O_CREAT` flag) and the file descriptor return value. §39.4 covers `read` and `write` (with strace examples on a 4 KB buffer) plus the `fd = 3` first-user-fd detail. §39.5 covers `lseek` for random-access reads. §39.10 covers `unlink`. The slice demonstrates `open`+`read`+`close` via `FileStream`: `FileStream` wraps a kernel fd; each `Read` is one `read` syscall; `Dispose` is one `close` syscall.
 
-A subtle point: the kernel's `read` may short-read (return fewer bytes than the user asked for). The OSEP §39.3 lesson is "always loop on read until 0 (EOF) or until you have what you want." Our helper does this: the `while ((n = fs.Read(...)) > 0)` loop handles short-reads transparently.
+A subtle point: the kernel's `read` may short-read (return fewer bytes than the user asked for). The OSEP §39.4 lesson is "always loop on read until 0 (EOF) or until you have what you want." Our helper does this: the `while ((n = fs.Read(...)) > 0)` loop handles short-reads transparently.
 
 The 4 KB buffer matches the typical sector size on disk (the kernel's page cache page is 4 KB on Linux and 4 KB-aligned on Windows). For a single 4 KB page cache hit, one `read` syscall can return up to 4 KB; for a multi-page file, the kernel returns up to 4 KB per syscall unless the user asks for more (or uses a different mechanism like `sendfile` / `copy_file_range`).
 

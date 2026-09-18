@@ -7,8 +7,8 @@ How do we accept arbitrarily many connections without allocating an OS thread pe
 ## OSTEP Context
 
 - Chapter(s): 30 (Condition Variables), 31 (Semaphores)
-- Concept: a fixed pool of worker threads, plus a producer/consumer queue, replaces unbounded thread creation. Producers (the accept loop) enqueue work; consumers (the worker threads) dequeue when idle. The condition variable parks idle workers without spinning (OSEP §30.2 producer/consumer with two CVs).
-- Key point from OSEP §30.4: holding the lock while signaling is the simple, always-correct rule. A worker waits under the lock using `Monitor.Wait` (the .NET equivalent of `pthread_cond_wait`), which atomically releases the lock and parks the thread. A producer enqueues under the lock and calls `Monitor.Pulse` (the .NET equivalent of `pthread_cond_signal`) to wake one waiter. Re-checking the predicate inside `while (queue.IsEmpty)` instead of `if` handles Mesa semantics: signal is a hint, not a guarantee (OSEP §30.2 the broken `if` version).
+- Concept: a fixed pool of worker threads, plus a producer/consumer queue, replaces unbounded thread creation. Producers (the accept loop) enqueue work; consumers (the worker threads) dequeue when idle. The condition variable parks idle workers without spinning.
+- Key point from OSEP §30.1: holding the lock while signaling is the simple, always-correct rule (verbatim TIP box on page 5). A worker waits under the lock using `Monitor.Wait` (the .NET equivalent of `pthread_cond_wait`), which atomically releases the lock and parks the thread. A producer enqueues under the lock and calls `Monitor.Pulse` (the .NET equivalent of `pthread_cond_signal`) to wake one waiter. Re-checking the predicate inside `while (queue.IsEmpty)` instead of `if` handles Mesa semantics: signal is a hint, not a guarantee. The lesson "always use while" is from OSEP §30.2 ("While, Not If" subsection, figure 30.10). The two-CVs producer/consumer solution (figure 30.12) is also in §30.2.
 
 ## C#/.NET Mechanism
 
@@ -221,11 +221,11 @@ The pool kept worker_count at 8 throughout the experiment, even with 150 concurr
 
 ### OSEP concept
 
-The bounded worker pool is the textbook producer/consumer pattern from OSEP §30.2 (with two condition variables) generalized to a server. Producers (the accept thread) enqueue `Socket` objects; consumers (the 8 worker threads) wait on a condition variable, dequeue, and run `HandleClient`.
+The bounded worker pool is the textbook producer/consumer pattern from OSEP §30.2 (with two condition variables, figure 30.12) generalized to a server. Producers (the accept thread) enqueue `Socket` objects; consumers (the 8 worker threads) wait on a condition variable, dequeue, and run `HandleClient`.
 
-The locking discipline is the lesson of §30.4: the lock is held across both the queue check and the wait. Without the lock, a producer could enqueue between the consumer's empty check and its `Wait`, leaving the new item stranded with no one to consume it — the wakeup/waiting race OSEP §30.4 calls out. With the lock, the wait atomically releases it and parks the thread, so a concurrent producer sees the locked queue and serializes through `Monitor.Pulse`.
+The locking discipline is the lesson of §30.1: the lock is held across both the queue check and the wait. Without the lock, a producer could enqueue between the consumer's empty check and its `Wait`, leaving the new item stranded with no one to consume it. With the lock, the wait atomically releases it and parks the thread, so a concurrent producer sees the locked queue and serializes through `Monitor.Pulse`.
 
-`while (Pending.Count == 0 && !Stopping) Monitor.Wait(...)` (instead of `if`) handles Mesa semantics (OSEP §30.2 broken `if`): a wakeup is a hint that the predicate might now be true, and the consumer must re-check. The `&& !Stopping` adds a shutdown predicate so a worker can exit when the pool is told to stop.
+`while (Pending.Count == 0 && !Stopping) Monitor.Wait(...)` (instead of `if`) handles Mesa semantics (§30.2 "While, Not If"): a wakeup is a hint that the predicate might now be true, and the consumer must re-check. The `&& !Stopping` adds a shutdown predicate so a worker can exit when the pool is told to stop.
 
 The slice deliberately does *not* bound the queue. The OSEP producer/consumer with two CVs would let producers block when `Pending.Count == Max`. Implementing it requires choosing a max, returning `503 Service Unavailable` on overflow, or blocking the accept loop — each is a meaningful design decision. The slice as-is teaches the pool, not the bounded buffer. Bounded-queue backpressure is the natural next slice.
 

@@ -7,7 +7,7 @@ What does the server do when more requests arrive than workers can process?
 ## OSTEP Context
 
 - Chapter(s): 30 (Condition Variables), 31 (Semaphores — bounded buffer)
-- Concept: a producer/consumer queue with finite capacity requires backpressure. Producers must either block (wait for room) or fail fast (return an error). OSEP §30.4 covers the blocking form (`while (count == MAX) wait`); OSEP §31.4 covers the non-blocking form (`sem_wait`/`sem_trywait` and the bounded-buffer variant).
+- Concept: a producer/consumer queue with finite capacity requires backpressure. Producers must either block (wait for room) or fail fast (return an error). OSEP §30.2 (figure 30.12, two-CVs bounded-buffer) covers the blocking form (`while (count == MAX) wait`); OSEP §31.4 covers the bounded-buffer variant with `sem_wait`/`sem_post`.
 - Key point from OSEP: the current `WorkerPool` accepts bursts of any size — `Queue<Socket>` is unbounded. Under sustained overload, memory grows without limit (each `Socket` + its kernel buffer is a few KB; multiplied by millions of unprocessed connections, the process runs out of address space before workers ever wake up). Bounded queue + backpressure prevents that and gives the application a real choice about what "too many" means.
 
 ## C#/.NET Mechanism
@@ -192,11 +192,11 @@ Without the M8 change, the same 72 connections would either fill the kernel's li
 
 ### OSEP concept
 
-OSEP §30.4 introduced the bounded-buffer producer/consumer pattern with two condition variables (`empty` and `full`). The producer waits when the buffer is full; the consumer waits when it is empty. This slice chooses a different policy: instead of blocking the producer (which would freeze the accept loop and the kernel's listen backlog would fill with pending connections), it rejects the client with `503`. That maps to a real-world choice in production servers (e.g., HAProxy returns 503 when its connection queue is full; nginx returns 503 when `worker_connections` is reached).
+OSEP §30.2 (figure 30.12) introduced the bounded-buffer producer/consumer pattern with two condition variables (`empty` and `full`). The producer waits when the buffer is full; the consumer waits when it is empty. This slice chooses a different policy: instead of blocking the producer (which would freeze the accept loop and the kernel's listen backlog would fill with pending connections), it rejects the client with `503`. That maps to a real-world choice in production servers (e.g., HAProxy returns 503 when its connection queue is full; nginx returns 503 when `worker_connections` is reached).
 
-The reject policy is consistent with OSEP §33.4's "no blocking calls in event-based servers" lesson — if the accept thread were to block on a full queue, the server would lose the ability to keep draining the kernel's listen backlog, and clients would see connection-refused instead of a clean 503. Rejecting at the application layer keeps the accept thread responsive and gives the client a clear retry signal (the 503 status code itself).
+The reject policy is consistent with OSEP §33.5's "no blocking calls in event-based servers" lesson — if the accept thread were to block on a full queue, the server would lose the ability to keep draining the kernel's listen backlog, and clients would see connection-refused instead of a clean 503. Rejecting at the application layer keeps the accept thread responsive and gives the client a clear retry signal (the 503 status code itself).
 
-The choice between blocking-producer and reject-producer is a policy decision, not an OS one. Both are valid. OSEP §30.4 + §31.4 are the textbook; this slice is one of the two implementations.
+The choice between blocking-producer and reject-producer is a policy decision, not an OS one. Both are valid. OSEP §30.2 + §31.4 are the textbook; this slice is one of the two implementations.
 
 ### .NET mechanism
 

@@ -6,10 +6,14 @@ How do real file systems lay out their data on disk? What does it take to implem
 
 ## OSTEP Context
 
-- Chapter(s): 40 (File System Implementation), 42 (Crash Consistency: FSCK and Journaling), with cross-references to Ch. 39 (file API) and Ch. 36 (I/O devices).
+- Chapter(s): 40 (File System Implementation — vsfs), with cross-references to Ch. 39 (file API) and Ch. 42 (Crash Consistency / Journaling, for slice 12.5).
 - Concept: a file system divides the underlying block device into regions with specific purposes — a superblock at a fixed offset describes the rest of the layout; bitmaps track free inodes and free data blocks; an inode table holds per-file metadata (type, size, block pointers); data blocks hold file contents. A journal captures pending updates so that a crash in the middle of a write doesn't leave the FS in an inconsistent state.
-- Key point from OSEP §40.3 (xv6 layout): the on-disk order is superblock → log → inode bitmap → data bitmap → inodes → data blocks. Inodes are fixed-size records; each contains a type (file/dir/device/free), a size in bytes, and a small array of direct block pointers (plus, in real systems, indirect/double-indirect for large files).
-- Key point from OSEP §42.5 (journaling): a journal is a circular log of pending transactions. Each transaction lists the blocks it intends to modify. The kernel writes the transaction to the log, then writes the modified blocks to their final locations, then commits the transaction by writing a "done" record. On crash recovery, the kernel scans the journal: any committed transaction is replayed; any uncommitted transaction is discarded.
+- Key point from OSEP §40.2 (vsfs layout): the on-disk order is superblock → inode bitmap → data bitmap → inode table → data region. There is no log in vsfs — journaling is a separate topic in OSEP Ch. 42. Inodes are fixed-size records; each contains a type (file/dir/device/free), a size in bytes, and a small array of direct block pointers (plus, in real systems, indirect/double-indirect for large files).
+- OSEP §40.3 covers the inode as index node (i-number, low-level name) and the multi-level index for large files.
+- OSEP §40.4 covers the directory organization: a directory is a list of `(entry name, inode number)` records, plus `.` and `..` entries; deleted entries leave a "free slot" marked with inode number zero.
+- OSEP §40.5 covers free space management via the two bitmaps (inode + data).
+- OSEP §40.6 covers the access path for read/write, including the per-operation I/O cost (e.g., writing one block costs 5 I/Os: read data bitmap, write data bitmap, read inode, write inode, write data).
+- Key point from OSEP §42 (journaling, deferred to slice 12.5): a journal is a write-ahead log of pending transactions. The kernel writes the transaction to the log, then writes the modified blocks to their final locations, then commits the transaction. On crash recovery, the kernel scans the journal: any committed transaction is replayed; any uncommitted transaction is discarded.
 
 ## C#/.NET Mechanism
 
@@ -212,12 +216,13 @@ Reading:
 
 ### OSEP concept
 
-The slice implements the textbook xv6-style file system layout:
+The slice implements the textbook vsfs (Very Simple File System) layout from OSEP Ch. 40:
 
-- **§40.3 (on-disk layout)**: superblock describes everything else; the bitmap and inode table are in fixed positions.
-- **§40.4 (inode allocation)**: bitmaps as the only free-space representation; `ialloc` scans for the first zero bit.
-- **§40.6 (inode read/write)**: fixed-size inodes with direct block pointers; reading walks the direct-block array.
-- **§40.7 (directory as a file)**: directory content is just an array of `(name, ino)` records; `lookup` scans; `create` appends.
+- **§40.2 (overall organization)**: superblock describes everything else; the inode bitmap, data bitmap, inode table, and data region live at fixed positions on disk.
+- **§40.3 (the inode)**: a fixed-size metadata record; each inode has an i-number (low-level name) and a size, plus pointers to data blocks.
+- **§40.4 (directory organization)**: a directory is a special file whose data blocks contain `(entry name, inode number)` records, plus `.` and `..`. `lookup` scans the data blocks for a name match; `create` adds a new record; deleting leaves the slot marked with inode number zero.
+- **§40.5 (free space management)**: two bitmaps (inode + data) are the only free-space representation; `ialloc`/`balloc` scan for the first zero bit.
+- **§40.6 (access path)**: a real file read costs N reads of the directory entries plus the inode, then the data blocks. A write costs more because it has to update the inode AND the data bitmap AND the inode table block.
 
 ### .NET mechanism
 

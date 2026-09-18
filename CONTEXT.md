@@ -38,15 +38,15 @@ The book has ~50 chapters. Repo maps **the core three pieces** (Virtualization +
 |---|---|---|
 | **Virtualization** | Ch. 4 process, 6 LDE, 13 address space, 26-27 thread = point of execution, 33 event-based | 1.1, 1.4, 4.4, M7 |
 | **Concurrency** | Ch. 26 race, 27 thread API, 28 locks, 30 condition variables, 31 semaphores, 31.5 reader-writer, 33 event-based | 4.1–4.6, M5, M6, M7, M8, M9, M10 |
-| **Persistence** | Ch. 39 files & directories (basic), 36 I/O devices (TCP receive loop), 39 file descriptor / open-read-close, 40 file system layout / inode / bitmap / directory | 1.3, 1.4, M11, M12 |
+| **Persistence** | Ch. 36 I/O devices (TCP receive loop), 39 file API (basic static files; M11 covers open/read/close syscalls; no write/seek/unlink demo), 40 vsfs layout / inode / bitmap / directory | 1.3, 1.4, M11, M12 |
 
 **Roughly 30% of OSTEP chapters have working code in this repo.**
 
 Chapters **not yet implemented** (natural next slices):
 
 - **Part I Virtualization**: Ch. 7 process API, Ch. 8-10 scheduling (MLFQ, lottery), Ch. 14-23 paging & advanced VM (TLB, multi-level page tables, swapping, complete VM systems)
-- **Part II Concurrency**: Ch. 29 lock-free data structures, Ch. 30 reader-writer locks, Ch. 31.6 dining philosophers
-- **Part III Persistence** (largest gap): Ch. 36-38 device drivers & RAID, Ch. 39 file API (`open/read/write/close`), Ch. 40-45 file system implementation (inode, bitmap, FFS, journaling, LFS, flash)
+- **Part II Concurrency**: Ch. 29 lock-free data structures, Ch. 31.6 dining philosophers (M9 covered Ch. 31.5 reader-writer)
+- **Part III Persistence** (largest gap): Ch. 36-38 device drivers & RAID, Ch. 39 file API is partially covered by M11 (open/read/close only — no write/seek/unlink demo), Ch. 41-45 file system implementation (FFS, journaling, LFS, flash) — M12 covers Ch. 40 vsfs and would extend into Ch. 42 via slice 12.5
 - **Part IV Security** (entirely untouched): Ch. 53-57
 
 The repo is best understood as an **OS concepts lab for the core three pieces**, not a full reproduction of the textbook. The concurrency chapter sweep (race observable → race fixed → pool → async) is the most complete coverage; persistence is reduced to "serve files from a directory"; virtualization covers thread/process abstraction but not CPU scheduling or paging.
@@ -197,6 +197,8 @@ All twelve roadmap slices + milestones have learning notes with smoke-test outpu
 Prefer preserving the educational, low-level socket-server character of the project unless a task explicitly asks for a higher-level framework. When adding behavior, make the network lifecycle easy to see and reason about.
 
 The repo follows **build-first learning** (per `docs/learning/lesson-slices.md`): each new behavior is a 30-90 min slice with one observable OS phenomenon, a smoke test, and a learning note. Chapters of OSEP are read on demand when a slice needs them, not end-to-end.
+
+**Source provenance**: slice docs cite specific OSEP sections. The M1–M8 citations were made during the build and have not been re-audited against the book end-to-end. The M9–M12 citations were re-verified against the source PDFs (`pages.cs.wisc.edu/~remzi/OSTEP/*.pdf`) during a doc-sweep pass; inaccuracies were corrected. Where a doc says "Key point from OSEP §X.Y" the section number has been checked against the actual table-of-contents of the cited chapter PDF.
 
 Useful directions that fit the project:
 

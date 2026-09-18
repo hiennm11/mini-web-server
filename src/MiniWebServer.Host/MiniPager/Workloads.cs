@@ -115,19 +115,19 @@ public static class PagerRunner
     /// Set up the pager with one process and pre-map 4 pages (vpn 0-3)
     /// to frames 0-3. Then run the workload and emit the trace.
     /// </summary>
-    public static string RunSingle(IEnumerable<MemoryAccess> accesses, int numFrames = 16, int tlbCapacity = 0)
+    public static string RunSingle(IEnumerable<MemoryAccess> accesses, int numFrames = 16, int tlbCapacity = 0, bool twoLevel = false)
     {
         var pager = new Pager(numFrames);
-        pager.CreateProcess(1);
+        pager.CreateProcess(1, twoLevel);
         for (int i = 0; i < 4; i++) pager.Map(1, i, i);
         return RunInternal(pager, accesses, tlbCapacity);
     }
 
-    public static string RunTwoOverlap(IEnumerable<MemoryAccess> accesses, int numFrames = 16, int tlbCapacity = 0)
+    public static string RunTwoOverlap(IEnumerable<MemoryAccess> accesses, int numFrames = 16, int tlbCapacity = 0, bool twoLevel = false)
     {
         var pager = new Pager(numFrames);
-        pager.CreateProcess(1);
-        pager.CreateProcess(2);
+        pager.CreateProcess(1, twoLevel);
+        pager.CreateProcess(2, twoLevel);
         for (int i = 0; i < 4; i++) pager.Map(1, i, i);
         for (int i = 0; i < 4; i++) pager.Map(2, i, 4 + i);
         return RunInternal(pager, accesses, tlbCapacity);
@@ -140,9 +140,26 @@ public static class PagerRunner
             pager.Tlb = new Tlb(tlbCapacity);
         }
 
+        // Memory savings of 2-level vs linear (OSEP §20.4).
+        long linearBytes = 0, twoLevelBytes = 0;
+        foreach (var pt in pager.AllPageTables)
+        {
+            if (pt is TwoLevelLookup tl)
+            {
+                twoLevelBytes += tl.MemoryBytes;
+                linearBytes += (long)tl.Capacity * System.Runtime.InteropServices.Marshal.SizeOf<Pte>();
+            }
+            else
+            {
+                linearBytes += pt.MemoryBytes;
+            }
+        }
+
         var sb = new StringBuilder();
+        var ptMode = pager.AllPageTables.FirstOrDefault() is TwoLevelLookup ? "2-level" : "linear";
         sb.AppendLine($"=== Pager run: {pager.Memory.NumFrames} frames ({pager.Memory.SizeBytes} bytes physical)"
-                       + (pager.Tlb is not null ? $", TLB capacity={pager.Tlb.Capacity}" : ", TLB=disabled"));
+                       + (pager.Tlb is not null ? $", TLB capacity={pager.Tlb.Capacity}" : ", TLB=disabled")
+                       + $", PT mode={ptMode}");
         sb.AppendLine();
         foreach (var a in accesses)
         {
@@ -159,6 +176,10 @@ public static class PagerRunner
         if (tlbStats is not null)
         {
             sb.AppendLine($"=== TLB stats: hits={tlbStats.Hits} misses={tlbStats.Misses} evictions={tlbStats.Evictions} hit_rate={tlbStats.HitRate:F3}");
+        }
+        if (pager.AllPageTables.FirstOrDefault() is TwoLevelLookup)
+        {
+            sb.AppendLine($"=== PT memory: 2-level used {twoLevelBytes:N0} bytes vs linear would use {linearBytes:N0} bytes (saved {linearBytes - twoLevelBytes:N0})");
         }
         return sb.ToString();
     }

@@ -611,10 +611,11 @@ static void HandleClient(Socket clientSocket, string webRoot)
         }
         else if (parsedRequest.Path.StartsWith("/pager/run"))
         {
-            // MiniPager demo. ?workload=seq|rand|two|array&frames=N&tlb=N
+            // MiniPager demo. ?workload=seq|rand|two|array&frames=N&tlb=N&pt=linear|level2
             string workload = "seq";
             int numFrames = 16;
             int tlbCapacity = 0;  // 0 = TLB disabled
+            bool twoLevel = false; // slice 17.1
             int qIdx = parsedRequest.Path.IndexOf('?');
             if (qIdx >= 0)
             {
@@ -627,19 +628,20 @@ static void HandleClient(Socket clientSocket, string webRoot)
                     if (k == "workload") workload = v;
                     else if (k == "frames" && int.TryParse(v, out var nf)) numFrames = nf;
                     else if (k == "tlb" && int.TryParse(v, out var tlb)) tlbCapacity = tlb;
+                    else if (k == "pt" && v == "level2") twoLevel = true;
                 }
             }
 
             string output = workload switch
             {
                 "seq" => MiniWebServer.Host.MiniPager.PagerRunner.RunSingle(
-                    MiniWebServer.Host.MiniPager.Workloads.SequentialSingleProcess(), numFrames, tlbCapacity),
+                    MiniWebServer.Host.MiniPager.Workloads.SequentialSingleProcess(), numFrames, tlbCapacity, twoLevel),
                 "rand" => MiniWebServer.Host.MiniPager.PagerRunner.RunSingle(
-                    MiniWebServer.Host.MiniPager.Workloads.RandomSingleProcess(), numFrames, tlbCapacity),
+                    MiniWebServer.Host.MiniPager.Workloads.RandomSingleProcess(), numFrames, tlbCapacity, twoLevel),
                 "two" => MiniWebServer.Host.MiniPager.PagerRunner.RunTwoOverlap(
-                    MiniWebServer.Host.MiniPager.Workloads.TwoProcessesOverlap(), numFrames, tlbCapacity),
+                    MiniWebServer.Host.MiniPager.Workloads.TwoProcessesOverlap(), numFrames, tlbCapacity, twoLevel),
                 "array" => MiniWebServer.Host.MiniPager.PagerRunner.RunSingle(
-                    MiniWebServer.Host.MiniPager.Workloads.ArrayAccessOsep(), numFrames, tlbCapacity),
+                    MiniWebServer.Host.MiniPager.Workloads.ArrayAccessOsep(), numFrames, tlbCapacity, twoLevel),
                 _ => "",
             };
             if (string.IsNullOrEmpty(output))

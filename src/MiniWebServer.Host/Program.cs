@@ -807,6 +807,38 @@ static void HandleClient(Socket clientSocket, string webRoot)
             response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
                 Encoding.UTF8.GetBytes(output));
         }
+        else if (parsedRequest.Path.StartsWith("/lockfree/bench"))
+        {
+            // Lock-free benchmark. ?impl=atomic|locked|stack-atomic|stack-locked&threads=N&ops=M
+            string impl = "atomic";
+            int threads = 4;
+            int ops = 100_000;
+            int qIdx = parsedRequest.Path.IndexOf('?');
+            if (qIdx >= 0)
+            {
+                foreach (var kv in parsedRequest.Path.Substring(qIdx + 1).Split('&'))
+                {
+                    int eq = kv.IndexOf('=');
+                    if (eq <= 0) continue;
+                    var k = kv.Substring(0, eq);
+                    var v = kv.Substring(eq + 1);
+                    if (k == "impl") impl = v;
+                    else if (k == "threads" && int.TryParse(v, out var t)) threads = t;
+                    else if (k == "ops" && int.TryParse(v, out var o)) ops = o;
+                }
+            }
+            var lockFreeImpl = impl switch
+            {
+                "locked" => MiniWebServer.Host.MiniScheduler.LockFreeImpl.LockedCounter,
+                "stack-atomic" => MiniWebServer.Host.MiniScheduler.LockFreeImpl.LockFreeStack,
+                "stack-locked" => MiniWebServer.Host.MiniScheduler.LockFreeImpl.LockedStack,
+                _ => MiniWebServer.Host.MiniScheduler.LockFreeImpl.AtomicCounter,
+            };
+            var bench = new MiniWebServer.Host.MiniScheduler.LockFreeBenchmark(threads, ops);
+            string output = bench.Run(lockFreeImpl);
+            response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                Encoding.UTF8.GetBytes(output));
+        }
         else if (parsedRequest.Path.StartsWith("/qstats"))
         {
             int q = WorkerPool.QueueLength;

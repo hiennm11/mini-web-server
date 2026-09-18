@@ -24,11 +24,14 @@ docs/learning/
 ├── m12-mini-file-system/            ← persistence
 ├── m13-mlfq/                        ← scheduling (Ch. 8)
 ├── m13.2-stride-lottery/            ← scheduling (Ch. 9)
+├── m13.3-multicpu-scheduling/       ← scheduling (Ch. 10)
 ├── m14-pager/                       ← paging (Ch. 18)
 ├── m16-tlb/                         ← paging (Ch. 19)
 ├── m17-multi-level-pt/              ← paging (Ch. 20)
 ├── m18-replacement/                 ← paging (Ch. 21 + Ch. 22)
 ├── m19-complete-vm/                 ← paging (Ch. 23)
+├── m20-dining-philosophers/         ← concurrency (Ch. 31.6)
+├── m22-lock-free/                   ← concurrency (Ch. 32.3)
 └── m15-arraypool/                   ← perf
 ```
 
@@ -60,9 +63,10 @@ Within a folder, slices are numbered sequentially (`s1`, `s2`, ...). The milesto
 3. **Persistence** (Mini FS journal):
    - `m12-mini-file-system/` (overview + 7 slices)
 
-4. **Scheduling** (MLFQ + proportional-share):
+4. **Scheduling** (MLFQ → proportional-share → multi-CPU):
    - `m13-mlfq/`
    - `m13.2-stride-lottery/`
+   - `m13.3-multicpu-scheduling/`
 
 5. **Paging** (linear PT → TLB → multi-level → replacement → complete VM):
    - `m14-pager/`
@@ -71,7 +75,11 @@ Within a folder, slices are numbered sequentially (`s1`, `s2`, ...). The milesto
    - `m18-replacement/`
    - `m19-complete-vm/`
 
-6. **Performance**:
+6. **Concurrency deep-dive** (dining philosophers → lock-free CAS):
+   - `m20-dining-philosophers/`
+   - `m22-lock-free/`
+
+7. **Performance**:
    - `m15-arraypool/`
 
 ## Cross-references

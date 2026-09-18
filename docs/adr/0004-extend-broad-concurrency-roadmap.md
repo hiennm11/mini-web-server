@@ -64,6 +64,6 @@ Tradeoffs:
 
 ## Next Steps
 
-1. Land M8 (bounded queue + 503) first. The detailed plan lives at `docs/learning/s6.3-bounded-queue.md`.
+1. Land M8 (bounded queue + 503) first. The detailed plan lives at `docs/learning/m8-bounded-queue/s1-bounded-queue.md`.
 2. After M8, evaluate whether M10 (async-mode overload) should run before M9 (reader-writer lock + cache). Both are reasonable.
 3. After the concurrency additions land, consider an ADR for Part III extension (Ch. 39-45) and a separate one for Part I extension (Ch. 7-10 scheduling).

@@ -18,7 +18,7 @@ public static class WorkerPool
     /// <summary>
     /// Maximum number of accepted sockets held in the queue at one time.
     /// Sized for learning, not for production. See M8 in
-    /// <c>docs/learning/s6.3-bounded-queue.md</c>.
+    /// <c>docs/learning/m8-bounded-queue/s1-bounded-queue.md</c>.
     /// </summary>
     public const int MaxQueueSize = 64;
 

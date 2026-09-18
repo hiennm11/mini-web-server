@@ -35,7 +35,7 @@ Files affected:
 
 - `src/MiniWebServer.Host/WorkerPool.cs` — add `MaxQueueSize` constant (default e.g. 64), make `Enqueue` blocking with `while (Count >= Max) Monitor.Wait`, expose `TryEnqueue` for the non-blocking 503 path. Optional: expose `IsAtCapacity` snapshot for `/qstats`.
 - `src/MiniWebServer.Host/Program.cs` — accept loop branches: try `Enqueue`; if `TryEnqueue` returns false, write a 503 response on the client socket directly and close it. Also add a `/qstats` line for `capacity` and `at_capacity`.
-- `docs/learning/m6-bounded-worker-pool.md` — append a "6.3 bounded queue" subsection so the M6 lesson note reflects the change.
+- `docs/learning/m6-bounded-worker-pool/overview.md` and `s1-bounded-worker-pool.md` — append a "6.3 bounded queue" subsection so the M6 lesson note reflects the change.
 
 Code shape inside the accept loop:
 
@@ -160,7 +160,7 @@ Files affected:
 
 - `src/MiniWebServer.Host/WorkerPool.cs`
 - `src/MiniWebServer.Host/Program.cs`
-- `docs/learning/m6-bounded-worker-pool.md` — append "6.3 bounded queue" subsection.
+- `docs/learning/m6-bounded-worker-pool/overview.md` and `s1-bounded-worker-pool.md` — append "6.3 bounded queue" subsection.
 
 ### What I observed
 

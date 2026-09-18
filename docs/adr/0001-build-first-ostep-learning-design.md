@@ -89,7 +89,7 @@ Learning focus:
 - .NET: `Socket`, `Bind`, `Listen`, `Accept`, `Receive`, `Send`, byte arrays, UTF-8 decoding.
 - Experiment: show that `Accept()` blocks until a client connects and that the host handles one client at a time.
 
-Status: implemented and documented in `docs/learning/m1-raw-socket-server.md`.
+Status: implemented and documented in `docs/learning/m1-raw-socket-server/overview.md`.
 
 ### Milestone 2: HTTP Request Understanding — implemented
 
@@ -111,7 +111,7 @@ Learning focus:
 - .NET: buffer boundaries, string decoding, request parsing, defensive input handling.
 - Experiment: send different `curl` requests and compare raw bytes against parsed values.
 
-Status: implemented and documented in `docs/learning/m2-http-request.md`.
+Status: implemented and documented in `docs/learning/m2-http-request/overview.md`.
 
 ### Milestone 3: Static File Server — implemented
 
@@ -134,7 +134,7 @@ Learning focus:
 - .NET: file reads, path normalization, MIME mapping, response byte formatting.
 - Experiment: serve a file, request a missing file, and verify path traversal cannot escape `wwwroot`.
 
-Status: implemented and documented in `docs/learning/m3-static-file-server.md`.
+Status: implemented and documented in `docs/learning/m3-static-file-server/overview.md`.
 
 ### Milestone 4: Thread-Per-Connection — implemented
 
@@ -142,7 +142,7 @@ Goal: learn why a single-threaded server blocks clients and how threads change s
 
 This milestone was implemented through lesson slices, not as one large change. Each slice introduced one observable OS behavior before moving to the next.
 
-| Slices (see `docs/learning/m4-thread-per-connection.md` for the full plan and `docs/learning/s4.*.md` for each slice's learning note):
+| Slices (see `docs/learning/m4-thread-per-connection/overview.md` for the full plan and `docs/learning/s4.*.md` for each slice's learning note):
 
 - 4.1 Prove single-thread blocking (process states: Running / Ready / Blocked) — `Thread.Sleep`
 - 4.2 Spawn one thread per client (thread = multiple execution points) — `new Thread(...).Start()`
@@ -174,7 +174,7 @@ Learning focus:
 - .NET: `lock` (= `Monitor.Enter`/`Monitor.Exit`).
 - Pairing with `Interlocked.Increment` shows the right primitive choice for each shape of critical section.
 
-Status: implemented and documented in `docs/learning/m5-race-lab.md`.
+Status: implemented and documented in `docs/learning/m5-race-lab/s1-race-lab.md`.
 
 ### Milestone 6: Thread Pool And Work Queue — implemented
 
@@ -188,7 +188,7 @@ Learning focus:
 - .NET: `Monitor.Wait`/`Pulse`/Monitor lock, `Queue<T>`.
 - Comparison with slice 4.6 quantifies the win.
 
-Status: implemented and documented in `docs/learning/m6-bounded-worker-pool.md`. Queue is still unbounded; bounded-queue backpressure is a future slice.
+Status: implemented and documented in `docs/learning/m6-bounded-worker-pool/s1-bounded-worker-pool.md`. Queue is still unbounded; bounded-queue backpressure is a future slice.
 
 ### Milestone 7: Async/Event-Based Server — implemented
 
@@ -202,7 +202,7 @@ Learning focus:
 - .NET: `Task`, `async`/`await` state machines, `Socket.AcceptAsync`/`ReceiveAsync`/`SendAsync`.
 - Two-mode comparison: worker pool vs async under the same stress test.
 
-Status: implemented and documented in `docs/learning/m7-async-event-based.md`. The default mode is still the M6 worker pool.
+Status: implemented and documented in `docs/learning/m7-async-event-based/s1-async-event-based.md`. The default mode is still the M6 worker pool.
 
 ## Consequences
 

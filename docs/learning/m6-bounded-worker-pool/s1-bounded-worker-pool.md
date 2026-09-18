@@ -166,7 +166,7 @@ The original M6 had an unbounded `Queue<Socket>` — under sustained overload th
 
 Smoke proved: with 72 `/slow` clients connected (8 workers in `Thread.Sleep(30000)` + 64 queued), a 73rd request immediately gets `503 Service Unavailable` instead of being silently queued or having the kernel refuse the connection. The reject path also drains a small prefix of the request before closing so Windows does not RST the client (a socket closed with unread data in the receive buffer triggers RST on Windows).
 
-Full learning note at `docs/learning/s6.3-bounded-queue.md`. Plan doc predates this update: see ADR 0004 (`docs/adr/0004-extend-broad-concurrency-roadmap.md`) for the wider next-milestones roadmap.
+Full learning note at `docs/learning/m8-bounded-queue/s1-bounded-queue.md`. Plan doc predates this update: see ADR 0004 (`docs/adr/0004-extend-broad-concurrency-roadmap.md`) for the wider next-milestones roadmap.
 
 Files affected:
 

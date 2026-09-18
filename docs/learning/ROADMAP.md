@@ -15,6 +15,10 @@ Remaining chapters and the slices that will cover them. Ordered roughly by "depe
 | 9 | **M21 FFS** | Ch. 41 | M12 | Medium | ✅ |
 | 10 | **M23.1 Password auth** | Ch. 53.4 + 54.4 | none | Medium | ✅ |
 | 10b | **M23.2 At-rest encryption** | Ch. 56.2 + 56.7 | none | Medium | ✅ |
+| 10c | **M23.3 RBAC** | Ch. 55.6 | M23.1 | Small | ✅ |
+| 10d | **M23.4 PK crypto** | Ch. 56.3 | none | Medium | ✅ |
+| 10e | **M23.5 TLS handshake** | Ch. 57.5 | M23.2 + M23.4 | Medium | ✅ |
+| 10f | **M23.6 TOTP** | Ch. 54.5 | none | Small | ✅ |
 | 11 | **M24 RAID** | Ch. 38 | M11 | Small | ⬜ |
 | 12 | **M25 LFS** | Ch. 43 | M12, M21 | Medium | ⬜ |
 | 13 | **M26 Flash-based SSDs** | Ch. 44 | M12 | Small | ⬜ |
@@ -22,9 +26,9 @@ Remaining chapters and the slices that will cover them. Ordered roughly by "depe
 
 This covers Ch. 9, 10, 19, 20, 21, 22, 23, 31.6, 32.3, 38, 41, 43, 44, 45, 53-57 — the rest of OSEP after M1-M15.
 
-**Done**: M13.2, M13.3, M16, M17, M18, M19 (the VM paging chain), M20 (dining philosophers), M21 (FFS), M22 (lock-free CAS), M23.1 (password auth — Part IV §53.4 + §54.4), M23.2 (at-rest encryption — Part IV §56.2 + §56.4-§56.7) — all have `overview.md` + slice doc under `docs/learning/`. Part IV remaining: Ch. 54.5-§54.7 (auth by token / biometrics / sudo), Ch. 55 (ACLs/RBAC), Ch. 56.3 (PK), Ch. 57 (TLS/SSH/HTTPS).
+**Done**: M13.2, M13.3, M16, M17, M18, M19 (the VM paging chain), M20 (dining philosophers), M21 (FFS), M22 (lock-free CAS), the M23 Part IV suite (.1 password + .2 at-rest + .3 RBAC + .4 PK sign/verify + .5 TLS-style handshake + .6 TOTP) — all have `overview.md` + slice doc under `docs/learning/`. Part IV remaining: only X.509 cert chains, biometrics, sudo-equivalent — strictly operational.
 
-**Next**: pick one — **M24 RAID** (Ch. 38, depends on M11 raw block I/O), or a deeper Part-IV slice like **TLS handshake** (Ch. 57) or **RBAC / ACLs** (Ch. 55).
+**Next**: **M24 RAID** (Ch. 38, depends on M11 raw block I/O) — Part III Persistence slice, smallest-effort remaining.
 
 Excluded (not addressing in this roadmap):
 - Ch. 7 Process API (`fork`/`exec`/`wait`) — out of scope for .NET

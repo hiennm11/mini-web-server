@@ -17,7 +17,7 @@ public static class StaticFileResponder
             return Text(404, "Not Found", "Not Found");
         }
 
-        byte[] body = File.ReadAllBytes(fullPath);
+        byte[] body = RawFileAccess.ReadAllBytesRaw(fullPath);
         return new HttpResponse(200, "OK", GetContentType(fullPath), body);
     }
 

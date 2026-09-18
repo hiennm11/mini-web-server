@@ -22,11 +22,12 @@ Updated 2026-09-17. Legend: ✅ built + experimented + noted · 🟡 planned · 
 | M8 (6.3) | Bounded queue + 503 backpressure in `WorkerPool` | Ch. 30, 31 | ✅ |
 | M9 | Reader-writer lock + process-stats cache | Ch. 31.5 | ✅ |
 | M10 | Async mode `--max-threads` / `--min-threads` ThreadPool cap | Ch. 33 | ✅ |
+| M11 | Raw `open`/`read`/`close` syscall demo (FileStream + `/read-syscall`) | Ch. 39 | ✅ |
 
-**Milestones**: M1 ✅–M10 ✅. M8–M10 are the post-roadmap extensions per `docs/adr/0004-extend-broad-concurrency-roadmap.md`; the original 12-slice roadmap is closed.
+**Milestones**: M1 ✅–M11 ✅. M8–M11 are the post-roadmap extensions per `docs/adr/0004-extend-broad-concurrency-roadmap.md`; the original 12-slice roadmap is closed.
 **Tests**: 15 passing (8 prior + 7 new for `HttpRequestReceiver`).
 **Code/runtime**: `net10.0`. Two run modes selectable via `--async` flag: default = bounded worker pool (8 threads) + producer/consumer queue, async = `AcceptAsync` + `Task` per connection with `ReceiveAsync` / `SendAsync`. Port 8080, static files under `wwwroot`.
-**Latest commit**: Milestone 10 — `--max-threads` / `--min-threads` CLI flags apply `ThreadPool.SetMaxThreads` / `SetMinThreads` at startup. `/stats` route gains `threadpool_min`, `threadpool_max`, `threadpool_active`. Smoke (cap=4, 150 parked `/slow` Tasks): `threadpool_max=4` held across all samples, OS thread count ~15-16. Build clean, 15/15 tests pass.
+**Latest commit**: Milestone 11 — `RawFileAccess.ReadAllBytesRaw` opens a `FileStream`, loops `Read(4096)`, logs each syscall. `StaticFileResponder` now uses it; new `/read-syscall?path=` route exposes the open/read/close sequence. Smoke: 225-byte file → 1 read, 13658-byte file → 4 reads (4096+4096+4096+1370), missing path → no syscall. Build clean, 15/15 tests pass.
 
 ## OSTEP Coverage
 
@@ -36,7 +37,7 @@ The book has ~50 chapters. Repo maps **the core three pieces** (Virtualization +
 |---|---|---|
 | **Virtualization** | Ch. 4 process, 6 LDE, 13 address space, 26-27 thread = point of execution, 33 event-based | 1.1, 1.4, 4.4, M7 |
 | **Concurrency** | Ch. 26 race, 27 thread API, 28 locks, 30 condition variables, 31 semaphores, 31.5 reader-writer, 33 event-based | 4.1–4.6, M5, M6, M7, M8, M9, M10 |
-| **Persistence** | Ch. 39 files & directories (basic), 36 I/O devices (TCP receive loop) | 1.3, 1.4 |
+| **Persistence** | Ch. 39 files & directories (basic), 36 I/O devices (TCP receive loop), 39 file descriptor / open-read-close | 1.3, 1.4, M11 |
 
 **Roughly 30% of OSTEP chapters have working code in this repo.**
 
@@ -184,6 +185,7 @@ Phase 3 + 4 learning docs:
 - `docs/learning/slice-6.3-bounded-queue-and-backpressure.md` (M8 full learning note)
 - `docs/learning/slice-9-reader-writer-lock.md` (M9 full learning note)
 - `docs/learning/slice-10-threadpool-cap.md` (M10 full learning note)
+- `docs/learning/slice-11-raw-syscall-demo.md` (M11 full learning note)
 - `docs/learning/milestone-7-async-event-based.md` (event-based server)
 
 All twelve roadmap slices + milestones have learning notes with smoke-test output captured inline. M8 (the first post-roadmap extension) has its own learning note and a 6.3 section appended to the M6 note.
@@ -196,7 +198,7 @@ The repo follows **build-first learning** (per `docs/learning/lesson-slices.md`)
 
 Useful directions that fit the project:
 
-- Extend concurrency via the next-milestones roadmap in `docs/adr/0004-extend-broad-concurrency-roadmap.md`. M8 (bounded queue + 503), M9 (reader-writer lock + cache), and M10 (ThreadPool cap) are done. Next candidates: M11 real `open`/`read`/`write`/`close` syscall demo, M12 mini file system (inode + bitmap + journal).
+- Extend concurrency via the next-milestones roadmap in `docs/adr/0004-extend-broad-concurrency-roadmap.md`. M8 (bounded queue + 503), M9 (reader-writer lock + cache), M10 (ThreadPool cap), and M11 (raw open/read/close syscall demo) are done. Next candidate: M12 mini file system (inode + bitmap + journal).
 - Add `ArrayPool<byte>` to lower per-connection memory in async mode (would change the M7 numbers from 172 MB toward M6's 21 MB).
 - Add a `Retry-After` header to the M8 503 response so clients can back off intelligently.
 - Extend the **OSEP coverage gaps** in the OSEP Coverage section: scheduling (Ch. 7-10), paging (Ch. 14-23), full FS (Ch. 36-45), security (Ch. 53-57). Each new chapter group should get its own ADR before any slices start.

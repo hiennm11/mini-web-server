@@ -234,6 +234,51 @@ static void HandleClient(Socket clientSocket, string webRoot)
                 "text/plain; charset=UTF-8",
                 Encoding.UTF8.GetBytes(body));
         }
+        else if (parsedRequest.Path.StartsWith("/read-syscall"))
+        {
+            // Parse ?path= query. Path may be /read-syscall?path=foo.html
+            string pathParam = "index.html";
+            int qIdx = parsedRequest.Path.IndexOf('?');
+            if (qIdx >= 0)
+            {
+                string qs = parsedRequest.Path.Substring(qIdx + 1);
+                foreach (var kv in qs.Split('&'))
+                {
+                    int eq = kv.IndexOf('=');
+                    if (eq > 0 && kv.Substring(0, eq) == "path")
+                    {
+                        pathParam = Uri.UnescapeDataString(kv.Substring(eq + 1));
+                        break;
+                    }
+                }
+            }
+            string root = Path.GetFullPath(webRoot);
+            string relativePath = pathParam.Replace('/', Path.DirectorySeparatorChar);
+            string fullPath = Path.GetFullPath(Path.Combine(root, relativePath));
+            if (!fullPath.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
+                !File.Exists(fullPath))
+            {
+                response = new HttpResponse(
+                    404,
+                    "Not Found",
+                    "text/plain; charset=UTF-8",
+                    Encoding.UTF8.GetBytes("Not Found\n"));
+            }
+            else
+            {
+                byte[] body = RawFileAccess.ReadAllBytesRaw(fullPath);
+                string header = $"file: {pathParam}\nbytes: {body.Length}\n---\n";
+                byte[] headerBytes = Encoding.UTF8.GetBytes(header);
+                var combined = new byte[headerBytes.Length + body.Length];
+                Buffer.BlockCopy(headerBytes, 0, combined, 0, headerBytes.Length);
+                Buffer.BlockCopy(body, 0, combined, headerBytes.Length, body.Length);
+                response = new HttpResponse(
+                    200,
+                    "OK",
+                    "text/plain; charset=UTF-8",
+                    combined);
+            }
+        }
         else
         {
             response = StaticFileResponder.CreateResponse(parsedRequest, webRoot);

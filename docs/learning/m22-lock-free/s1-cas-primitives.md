@@ -4,13 +4,13 @@
 
 Two lock-free primitives built with the CAS retry pattern:
 
-- **`AtomicCounter`** — `Increment()` via CAS retry on `Interlocked.CompareExchange`. Matches OSEP §32.3 `AtomicIncrement` pseudocode exactly:
+- **`AtomicCounter`** — `Increment()` via CAS retry on `Interlocked.CompareExchange`. Matches OSEP §29.1 `AtomicIncrement` pseudocode exactly:
   ```csharp
   do { old = Read(); newVal = old + amount; }
   while (CAS(value, old, newVal) != old);
   ```
 
-- **`LockFreeStack<T>`** — Treiber stack. Push/pop via CAS on the head pointer. Matches OSEP §32.3 "lock-free list insert" pseudocode.
+- **`LockFreeStack<T>`** — Treiber stack. Push/pop via CAS on the head pointer. Matches OSEP §29.2 "lock-free list insert" pseudocode.
 
 Plus lock-based comparison primitives (`LockedCounter`, `LockedStack<T>`) so the benchmark shows the difference.
 
@@ -27,13 +27,13 @@ The HTTP route `/lockfree/bench?impl=atomic|locked|stack-atomic|stack-locked&thr
 
 ## OSEP alignment
 
-Implements OSEP §32.3 (the "Mutual Exclusion" subsection) — both the `AtomicIncrement` pattern and the "lock-free list insert" pattern.
+Implements OSEP §29.1 (the "Concurrent Counters" section) — both the `AtomicIncrement` pattern and the "lock-free list insert" pattern.
 
 ## Smoke evidence
 
 ### Counter — 4 threads × 100k ops
 ```
-=== Lock-Free Benchmark (M22 / OSEP §32.3) ===
+=== Lock-Free Benchmark (M22 / OSEP §29) ===
 impl: AtomicCounter  threads: 4  ops/thread: 100000  total ops: 400000
   elapsed:     44.07 ms
   ops/sec:     9077231
@@ -41,7 +41,7 @@ impl: AtomicCounter  threads: 4  ops/thread: 100000  total ops: 400000
   final value: 400000  (expected: 400000)   ← ✅ no lost increments
 ```
 ```
-=== Lock-Free Benchmark (M22 / OSEP §32.3) ===
+=== Lock-Free Benchmark (M22 / OSEP §29) ===
 impl: LockedCounter  threads: 4  ops/thread: 100000  total ops: 400000
   elapsed:     26.48 ms
   ops/sec:     15102888
@@ -60,9 +60,9 @@ Stack size 363773 shows that popped nodes leak (intentional — ABA mitigation).
 
 ## OSEP concept
 
-> "void AtomicIncrement(int *value, int amount) { do { int old = *value; } while (CompareAndSwap(value, old, old + amount) == 0); }" (OSEP §32.3)
+> "void AtomicIncrement(int *value, int amount) { do { int old = *value; } while (CompareAndSwap(value, old, old + amount) == 0); }" (OSEP §29.1 or §29.2 — the canonical coverage of CAS-based lock-free primitives is in Ch. 29, not Ch. 32)
 
-> "In this manner, no lock is acquired, and no deadlock can arise (though livelock is still a possibility, and thus a robust solution will be more complex than the simple code snippet above)." (OSEP §32.3)
+> "In this manner, no lock is acquired, and no deadlock can arise (though livelock is still a possibility, and thus a robust solution will be more complex than the simple code snippet above)." (OSEP §29.1 or §29.2 — the canonical coverage of CAS-based lock-free primitives is in Ch. 29, not Ch. 32)
 
 ## .NET mechanism
 

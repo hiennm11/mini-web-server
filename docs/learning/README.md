@@ -32,14 +32,23 @@ docs/learning/
 ├── m19-complete-vm/                 ← paging (Ch. 23)
 ├── m20-dining-philosophers/         ← concurrency (Ch. 31.6)
 ├── m21-ffs/                         ← persistence (Ch. 41)
-├── m22-lock-free/                   ← concurrency (Ch. 32.3)
+├── m22-lock-free/                   ← concurrency (Ch. 29 §29.1-§29.2)
 ├── m23-totp/                        ← security (Ch. 54.5)
 ├── m24-raid/                        ← persistence (Ch. 38)
 ├── m25-lfs/                         ← persistence (Ch. 43)
 ├── m26-ssd/                         ← persistence (Ch. 44)
 ├── m27-integrity/                   ← persistence (Ch. 45)
+├── m28-asid/                        ← paging (Ch. 19 §19.5+§19.7, spec-only)
+├── m29-cv/                          ← concurrency (Ch. 30 §30.1-§30.3, spec-only)
+├── m30-deadlock/                    ← concurrency (Ch. 32 §32.3, spec-only)
+├── m31-lfs-extensions/              ← persistence (Ch. 43 §43.3+§43.12, spec-only)
+├── m32-ssd-extensions/              ← persistence (Ch. 44 §44.9, spec-only)
+├── m33-integrity-extensions/        ← persistence (Ch. 45 §45.7, spec-only)
+├── m34-device-drivers/              ← I/O (Ch. 36 §36.2-§36.6, spec-only)
 └── m15-arraypool/                   ← perf
 ```
+
+> **Note on "spec-only" milestones** (M28-M34): the `overview.md` + `s1-*.md` (and `s2-*.md` for M31) docs are written; the implementation, ADR, tests, and code are not. These cover the remaining natural OSEP coverage gaps called out in `CONTEXT.md`. Each can be implemented in a single small slice following the established M24-M27 pattern.
 
 ## Naming convention
 
@@ -92,6 +101,15 @@ Within a folder, slices are numbered sequentially (`s1`, `s2`, ...). The milesto
 
 7. **Performance**:
    - `m15-arraypool/`
+
+8. **Spec-only (docs written, not implemented)** — the remaining natural OSEP gaps; each can be implemented as a small slice following the M24-M27 pattern:
+   - `m28-asid/` — ASID-tagged TLB (Ch. 19 §19.5 + §19.7)
+   - `m29-cv/` — condition variables (Ch. 30 §30.1-§30.3)
+   - `m30-deadlock/` — deadlock prevention + Banker's (Ch. 32 §32.3)
+   - `m31-lfs-extensions/` — segment-size cost model + two-CR alternation (Ch. 43 §43.3 + §43.12)
+   - `m32-ssd-extensions/` — block-level + hybrid FTL (Ch. 44 §44.9)
+   - `m33-integrity-extensions/` — periodic scrubbing schedule (Ch. 45 §45.7)
+   - `m34-device-drivers/` — canonical protocol + interrupts + DMA + PIO/MMIO (Ch. 36 §36.2-§36.6)
 
 ## Cross-references
 

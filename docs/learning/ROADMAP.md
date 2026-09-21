@@ -11,7 +11,7 @@ Remaining chapters and the slices that will cover them. Ordered roughly by "depe
 | 5 | **M13.2 Stride / Lottery** | Ch. 9 | M13 | Small | ✅ |
 | 6 | **M13.3 Multi-CPU** | Ch. 10 | M13 | Medium | ✅ |
 | 7 | **M20 Dining philosophers** | Ch. 31.6 | M5 (lock) | Small | ✅ |
-| 8 | **M22 Lock-free** | Ch. 32.3 (CAS) | M5, M6 | Small | ✅ |
+| 8 | **M22 Lock-free** | Ch. 29 §29.1-§29.2 (CAS) | M5, M6 | Small | ✅ |
 | 9 | **M21 FFS** | Ch. 41 | M12 | Medium | ✅ |
 | 10 | **M23.1 Password auth** | Ch. 53.4 + 54.4 | none | Medium | ✅ |
 | 10b | **M23.2 At-rest encryption** | Ch. 56.2 + 56.7 | none | Medium | ✅ |
@@ -23,12 +23,21 @@ Remaining chapters and the slices that will cover them. Ordered roughly by "depe
 | 12 | **M25 LFS** | Ch. 43 | M12, M21 | Medium | ✅ |
 | 13 | **M26 Flash-based SSDs** | Ch. 44 | M12 | Small | ✅ |
 | 14 | **M27 Data integrity** | Ch. 45 | M12 | Small | ✅ |
+| 15 | **M28 ASID-tagged TLB** | Ch. 19 §19.5 + §19.7 | M16 | Small | spec |
+| 16 | **M29 Condition variables** | Ch. 30 §30.1-§30.3 | M6 | Small | spec |
+| 17 | **M30 Deadlock prevention** | Ch. 32 §32.3 | M20, M29 | Small | spec |
+| 18 | **M31 LFS extensions** | Ch. 43 §43.3 + §43.12 | M25 | Small | spec |
+| 19 | **M32 Block-level FTL** | Ch. 44 §44.9 | M26 | Small | spec |
+| 20 | **M33 Scrubbing schedule** | Ch. 45 §45.7 | M27 | Small | spec |
+| 21 | **M34 Device drivers** | Ch. 36 §36.2-§36.6 | M11 | Small | spec |
 
-This covers Ch. 9, 10, 19, 20, 21, 22, 23, 31.6, 32.3, 38, 41, 43, 44, 45, 53-57 — the rest of OSEP after M1-M15.
+This covers Ch. 9, 10, 19, 20, 21, 22, 23, 29.1-§29.2 (lock-free CAS), 30 §30.1-§30.3 (CVs), 31.6, 32 §32.3 (deadlock prevention), 36 §36.2-§36.6 (device drivers), 38, 41, 43, 44, 45, 53-57 — the rest of OSEP after M1-M15.
 
-**Done**: M13.2, M13.3, M16, M17, M18, M19 (the VM paging chain), M20 (dining philosophers), M21 (FFS), M22 (lock-free CAS), the M23 Part IV suite (.1 password + .2 at-rest + .3 RBAC + .4 PK sign/verify + .5 TLS-style handshake + .6 TOTP), M24 (RAID 0/1/4/5 with XOR recovery), M25 (LFS segments + imap + CR + cleaner), M26 (SSD FTL + GC + wear), M27 (data integrity: XOR/Additive/Fletcher checksums + physical ID + write sequence + scrubber) — all have `overview.md` + slice doc under `docs/learning/`. **Part III Persistence is now closed.** Part IV remaining: only X.509 cert chains, biometrics, sudo-equivalent — strictly operational.
+**Done**: M13.2, M13.3, M16, M17, M18, M19 (the VM paging chain), M20 (dining philosophers), M21 (FFS), M22 (lock-free CAS — Ch. 29 §29.1-§29.2), the M23 Part IV suite (.1 password + .2 at-rest + .3 RBAC + .4 PK sign/verify + .5 TLS-style handshake + .6 TOTP), M24 (RAID 0/1/4/5 with XOR recovery), M25 (LFS segments + imap + CR + cleaner), M26 (SSD FTL + GC + wear), M27 (data integrity: XOR/Additive/Fletcher checksums + physical ID + write sequence + scrubber) — all have `overview.md` + slice doc under `docs/learning/`. **Part III Persistence is now closed.** Part IV remaining: only X.509 cert chains, biometrics, sudo-equivalent — strictly operational.
 
-**Next**: no canonical persistence slice left; the persistence thread is done. Remaining natural slices are strictly operational/extended PK + biometrics + sudo-equivalent (Part IV Security gaps).
+**Spec-only** (overview + slice docs written; not yet implemented): M28 (ASID-tagged TLB, Ch. 19 §19.5+§19.7), M29 (condition variables, Ch. 30 §30.1-§30.3), M30 (deadlock prevention + Banker's, Ch. 32 §32.3), M31 (LFS segment-size cost model + two-CR alternation, Ch. 43 §43.3+§43.12), M32 (block-level + hybrid FTL, Ch. 44 §44.9), M33 (periodic scrubbing schedule, Ch. 45 §45.7), M34 (device drivers: canonical protocol + interrupts + DMA + PIO/MMIO, Ch. 36 §36.2-§36.6). These cover the remaining natural OSEP gaps called out in `CONTEXT.md`.
+
+**Next**: no canonical persistence slice left; the persistence thread is done. Remaining natural slices are strictly operational/extended PK + biometrics + sudo-equivalent (Part IV Security gaps), or any of the M28-M34 spec-only slices above.
 
 Excluded (not addressing in this roadmap):
 - Ch. 7 Process API (`fork`/`exec`/`wait`) — out of scope for .NET

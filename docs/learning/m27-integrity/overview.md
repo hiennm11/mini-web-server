@@ -11,7 +11,7 @@ How does a storage system know that the data it just read is actually the data t
 A standalone data-integrity simulator demonstrating OSEP Ch. 45's core ideas:
 
 - **Three checksum functions** (OSEP §45.3): XOR, additive, Fletcher. We compute all three on the same payload so the trade-offs are visible.
-- **Checksum layout** (§45.6): one checksum per block, stored alongside the data in a "data integrity segment" per block.
+- **Checksum layout** (§45.3 + §45.4): one checksum per block, stored alongside the data in a "data integrity segment" per block. The choice between per-sector (e.g., 520-byte sectors) vs packed checksum blocks is discussed in OSEP §45.3.
 - **Physical ID** (§45.5): each checksum carries the block's identity (disk + block number). Misdirected writes flip the wrong bits to the wrong address; the physical ID detects it.
 - **Write sequence number** (§45.6 ZFS-style): each write bumps a per-block sequence number stored with the checksum. Lost writes (write reported but never persisted) are detected by a stale sequence on the next read.
 - **Disk scrubber** (§45.7): reads every block, recomputes every checksum, reports failures. Finds bit rot in rarely-accessed blocks.

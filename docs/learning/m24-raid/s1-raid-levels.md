@@ -4,10 +4,10 @@
 
 Implements the four canonical RAID levels in OSEP Ch. 38 as a single in-memory simulator:
 
-- **RAID 0** (§38.3) — block-level striping across `N` disks (no redundancy).
-- **RAID 1** (§38.4) — full mirroring on 2 disks.
-- **RAID 4** (§38.7) — block-level striping + dedicated parity disk.
-- **RAID 5** (§38.8) — block-level striping + rotating parity.
+- **RAID 0** (§38.4) — block-level striping across `N` disks (no redundancy).
+- **RAID 1** (§38.5) — full mirroring on 2 disks.
+- **RAID 4** (§38.6) — block-level striping + dedicated parity disk.
+- **RAID 5** (§38.7) — block-level striping + rotating parity.
 
 The simulator exposes:
 
@@ -16,7 +16,7 @@ The simulator exposes:
 - `FormatLayout()` — disk-grid ASCII dump with parity cells marked.
 - `ParityDiskFor(stripe)` / `DataDiskFor(stripe, idx)` — placement helpers for RAID 4/5.
 
-Recovery via XOR (OSEP §38.7 "fundamental insight"): when a disk fails, the lost block at stripe `s` is `⊕` of the surviving `N-1` blocks in that stripe.
+Recovery via XOR (OSEP §38.6 "fundamental insight"): when a disk fails, the lost block at stripe `s` is `⊕` of the surviving `N-1` blocks in that stripe.
 
 ## Files added/changed
 
@@ -28,7 +28,7 @@ Recovery via XOR (OSEP §38.7 "fundamental insight"): when a disk fails, the los
 
 ## OSEP alignment
 
-Implements OSEP §38.3 (RAID 0 striping), §38.4 (RAID 1 mirroring), §38.7 (RAID 4 dedicated parity), §38.8 (RAID 5 rotating parity + §38.7 XOR recovery).
+Implements OSEP §38.4 (RAID 0 striping), §38.5 (RAID 1 mirroring), §38.6 (RAID 4 dedicated parity), §38.7 (RAID 5 rotating parity + §38.6 XOR recovery).
 
 ## Smoke evidence
 
@@ -47,7 +47,7 @@ disk | stripe -> (disk, block)
 trace: wrote 6 logical blocks across 3 disks
 trace: read OK: A B C D E F
 ```
-Round-robin across 3 disks: blocks 0,3→disk 0; 1,4→disk 1; 2,5→disk 2. Matches §38.3 "round-robin placement of blocks across disks".
+Round-robin across 3 disks: blocks 0,3→disk 0; 1,4→disk 1; 2,5→disk 2. Matches §38.4 "round-robin placement of blocks across disks".
 
 ### `?level=1&disks=2&blocks=4` (RAID 1 mirroring)
 
@@ -62,7 +62,7 @@ disk | block values (mirror)
 trace: wrote 4 logical blocks mirrored across 2 disks
 trace: read OK: A B C D
 ```
-Both disks carry the same bytes — §38.4 "each logical write becomes two physical writes".
+Both disks carry the same bytes — §38.5 "each logical write becomes two physical writes".
 
 ### `?level=4&disks=4&blocks=4` (RAID 4 dedicated parity)
 
@@ -79,7 +79,7 @@ disk | stripe rows (parity cell marked with [P])
 trace: wrote 4 stripes with 3 data bytes each
 trace: read OK: stripe0=[A,B,C,P@] stripe1=[D,E,F,PG] stripe2=[G,H,I,PF] stripe3=[J,K,L,PM]
 ```
-Disk 3 holds the parity for every stripe (the §38.7 dedicated parity disk). Each `Pn` is the XOR of the data bytes in that stripe.
+Disk 3 holds the parity for every stripe (the §38.6 dedicated parity disk). Each `Pn` is the XOR of the data bytes in that stripe.
 
 ### `?level=5&disks=4&blocks=4` (RAID 5 rotating parity)
 
@@ -102,7 +102,7 @@ parity rotation (stripe -> parity disk):
 trace: wrote 4 stripes with 3 data bytes each
 trace: read OK: stripe0=[A,B,C,P@] stripe1=[D,E,F,PG] stripe2=[G,H,I,PF] stripe3=[J,K,L,PM]
 ```
-Parity stripe `s` lives on disk `(s + 1) % N` — exactly OSEP §38.8 figure 38.8's diagonal layout.
+Parity stripe `s` lives on disk `(s + 1) % N` — exactly OSEP §38.7 figure 38.7's diagonal layout.
 
 ### `?level=5&disks=4&blocks=4&failed=0` (RAID 5 XOR recovery)
 
@@ -130,7 +130,7 @@ Disk 0 holds data for stripes 0,1,2 and parity for stripe 3. After failing disk 
 
 trace: read FAIL: RAID 0 cannot recover from disk failure
 ```
-RAID 0 has no redundancy — the failure is unrecoverable (§38.3 "the MTTF of the array drops by a factor of N").
+RAID 0 has no redundancy — the failure is unrecoverable (§38.4 "the MTTF of the array drops by a factor of N").
 
 ### `?level=1&disks=2&blocks=4&failed=0` (RAID 1 mirror survives)
 
@@ -142,23 +142,23 @@ RAID 0 has no redundancy — the failure is unrecoverable (§38.3 "the MTTF of t
 
 trace: read OK: A B C D
 ```
-The mirror on disk 1 serves every read (§38.4 "we can read from either disk").
+The mirror on disk 1 serves every read (§38.5 "we can read from either disk").
 
 ## OSEP concept
 
-> "When you build a system, you should make it work, and then make it work better." (OSEP §38.4 TIP)
+> "When you build a system, you should make it work, and then make it work better." (paraphrased from OSEP Ch. 38's overall structure — RAID 0 first, then add redundancy, then optimize. OSEP does not contain this exact quote; it's an M24 design-philosophy caption.)
 
-> "The fundamental insight is the XOR operation: XOR of all bits in a row of bits (i.e., the parity) equals 0 if there are an even number of 1s and 1 if odd." (OSEP §38.7)
+> "The fundamental insight is the XOR operation..." (OSEP §38.6 — RAID-4 section where the XOR math is introduced)
 
-> "RAID 5 solves the small-write problem of RAID 4 by rotating the parity block across all disks." (OSEP §38.8)
+> "RAID 5 solves the small-write problem of RAID 4 by rotating the parity block across all disks." (OSEP §38.7)
 
 > "We assume ... that any (and only) one of the N disks in the array may fail at any given time." (OSEP §38.2)
 
 ## .NET mechanism
 
 - `byte[][]` per disk. Each "block" is one byte (the simulator demonstrates layout + recovery, not real block size).
-- XOR recovery: `for d in 0..N-1 { if (d != failedDisk) recovered ^= disk[d][stripe]; }` — exactly OSEP §38.7's "just XOR out the old and XOR in the new" applied to the lost-block recovery case.
-- Rotating parity: `parityDiskFor(s) = (s + 1) % N` — direct translation of §38.8 figure 38.8.
+- XOR recovery: `for d in 0..N-1 { if (d != failedDisk) recovered ^= disk[d][stripe]; }` — exactly OSEP §38.6's "just XOR out the old and XOR in the new" applied to the lost-block recovery case.
+- Rotating parity: `parityDiskFor(s) = (s + 1) % N` — direct translation of §38.7 figure 38.7.
 
 ## What this slice does NOT do
 

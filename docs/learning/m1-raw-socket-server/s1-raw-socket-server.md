@@ -34,7 +34,7 @@ Build a single-threaded TCP server that:
 2. Binds to `IPAddress.Any` on port `8080`.
 3. Starts listening with a small backlog.
 4. Blocks in `Accept()` until a client connects.
-5. Receives raw request bytes into a fixed buffer.
+5. Receives the raw HTTP request into a fixed buffer.
 6. Logs the decoded request text.
 7. Sends a manually formatted HTTP response.
 8. Closes the client socket.
@@ -81,7 +81,7 @@ Host: localhost:8080
 User-Agent: curl/...
 ```
 
-The browser or `curl` is not talking to C# directly. The client talks to the OS network stack. The server process receives bytes from the OS through the socket API.
+The browser or `curl` is not talking to C# directly. The client talks to the OS network stack. The host receives bytes from the OS through the socket API.
 
 ## Observation
 
@@ -108,7 +108,7 @@ Built the first raw socket server loop. It accepts a TCP client, reads bytes, se
 
 ### What I observed
 
-The server sits quietly until a client connects. After `curl`, it logs the raw HTTP request bytes and sends a response.
+The server sits quietly until a client connects. After `curl`, it logs the raw HTTP request and sends a response.
 
 ### OSTEP concept
 

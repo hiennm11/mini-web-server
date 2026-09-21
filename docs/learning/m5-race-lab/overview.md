@@ -29,7 +29,7 @@ Add a `/race-safe` route that wraps the same 1M-iteration counter increment in `
 ## OSEP §-specific deviations
 
 - OSEP §28.1 defines a lock as a variable + `lock`/`unlock` semantics. Our `lock (obj)` in C# is the `Monitor.Enter`/`Monitor.Exit` equivalent.
-- OSEP §28.7-§28.9 discuss the hardware primitives. .NET's `Monitor` uses compare-and-swap on x86 internally. We don't see this directly.
+- OSEP §28.7-§28.9 discuss the hardware primitives. .NET's `Monitor` uses CAS on x86 internally. We don't see this directly.
 - OSEP §28.14 covers queue-based locks (Solaris park/unpark) — .NET uses similar OS-level primitives under the hood.
 - OSEP §28.16 covers Linux's futex-based two-phase lock. .NET's `Monitor` is essentially this on Linux.
 
@@ -41,7 +41,7 @@ Add a `/race-safe` route that wraps the same 1M-iteration counter increment in `
 
 ## .NET mechanism
 
-- `lock (obj) { ... }` is syntactic sugar for `Monitor.Enter(obj)` ... `Monitor.Exit(obj)`. The JIT compiles to a thin wrapper around compare-and-swap on x86.
+- `lock (obj) { ... }` is syntactic sugar for `Monitor.Enter(obj)` ... `Monitor.Exit(obj)`. The JIT compiles to a thin wrapper around CAS on x86.
 - On contention, the losing thread parks on the monitor's wait queue (Linux `futex` / Windows `KEYED_EVENT`).
 - `RequestStats.SafeCounterLock` is a `static readonly object` so its identity is stable for the lifetime of the process.
 

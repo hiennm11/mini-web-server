@@ -10,7 +10,7 @@ How does the server turn raw TCP bytes into an HTTP request with method, path, v
 - Concept: the OS moves bytes into process memory, but the application gives those bytes protocol meaning.
 - Key point: TCP is a byte stream. HTTP is an application-level format layered on top of that stream.
 
-The OS does not know that `GET / HTTP/1.1` is a request line. It only provides bytes through the socket. The server process decodes those bytes and parses the HTTP structure in user code.
+The OS does not know that `GET / HTTP/1.1` is a request line. It only provides bytes through the socket. The host decodes those bytes and parses the HTTP structure in user code.
 
 This slice separates two kinds of work:
 
@@ -101,7 +101,7 @@ Once bytes are decoded into text, parsing is normal CPU work inside the process.
 ## Three-Question Test
 
 1. What is the OS doing?
-   - It copies received network bytes into a buffer owned by the server process.
+   - It copies received network bytes into a buffer owned by the host.
 2. Which .NET API exposes it?
    - `Socket.Receive(...)` fills a `byte[]`; `Encoding.UTF8.GetString(...)` decodes the bytes; `HttpRequestParser.Parse(...)` interprets the text.
 3. Where does it break at scale?
@@ -119,7 +119,7 @@ Different URLs produce different parsed paths while the raw socket behavior stay
 
 ### OSTEP concept
 
-This slice shows the boundary between OS byte movement and application protocol interpretation. The OS delivers bytes; the process gives them meaning.
+This slice shows the boundary between OS byte movement and application protocol interpretation. The OS delivers bytes; the host gives them meaning.
 
 ### .NET mechanism
 

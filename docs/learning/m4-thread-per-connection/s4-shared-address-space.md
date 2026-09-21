@@ -124,7 +124,7 @@ In C#, `static` on a class field maps the field to a single location in the proc
 2. Which .NET API exposes it?
    - `static` fields for shared data, local variables for per-thread data, `Interlocked.Increment` for atomic shared-state updates.
 3. Where does it break at scale?
-   - Reading and writing shared fields from multiple threads without synchronization produces a race (slice 4.5). Logging from many threads can interleave at the byte level even when each `WriteLine` is one call, because `Console.WriteLine` is not atomic across threads. The lesson in this slice is *visibility*, not safety.
+   - Reading and writing shared fields from multiple threads without synchronization produces a race condition (slice 4.5). Logging from many threads can interleave at the byte level even when each `WriteLine` is one call, because `Console.WriteLine` is not atomic across threads. The lesson in this slice is *visibility*, not safety.
 
 ## Learning Note
 
@@ -150,7 +150,7 @@ Experiment 1 — five concurrent fast requests:
 [thread 8] Local request id: 5, shared total seen so far: 5
 ```
 
-Each thread sees its own `localRequestId` (1..5) and the shared total reads the same value the increment produced. Because `Interlocked.Increment` returns the new value *after* the atomic update, and we read the shared total right after, there is no race window in this experiment. The two values are equal here only because the increment and the read are very close together on the same thread.
+Each thread sees its own `localRequestId` (1..5) and the shared total reads the same value the increment produced. Because `Interlocked.Increment` returns the new value *after* the atomic update, and we read the shared total right after, there is no race-condition window in this experiment. The two values are equal here only because the increment and the read are very close together on the same thread.
 
 Experiment 2 — slow request first, fast request 50 ms later:
 
@@ -180,7 +180,7 @@ This is the same memory map OSEP draws in Figure 26.1 (right): two stacks spread
 
 - `static int TotalRequests` (on a holder class) maps to one field slot in the process-wide loader data. Every thread that reaches `RequestStats.TotalRequests` reads and writes the same memory.
 - `int localRequestId` inside `HandleClient` is on each thread's own stack; it lives only as long as that handler is on the stack frame for `HandleClient`. After `HandleClient` returns, the slot is gone.
-- `Interlocked.Increment(ref …)` performs an atomic compare-and-swap loop at the CPU level so the read-modify-write is not torn across threads. This makes the slice deterministic. Replacing it with `RequestStats.TotalRequests++` would turn the same code into a textbook race — that is exactly what slice 4.5 does.
+- `Interlocked.Increment(ref …)` performs an atomic CAS loop at the CPU level so the read-modify-write is not torn across threads. This makes the slice deterministic. Replacing it with `RequestStats.TotalRequests++` would turn the same code into a textbook race condition — that is exactly what slice 4.5 does.
 
 ### Next question
 

@@ -12,7 +12,7 @@ How do we fix the data race exposed by slice 4.5?
 
 ## C#/.NET Mechanism
 
-- `lock (obj) { ... }` in C# is syntactic sugar for `Monitor.Enter(obj)` ... `Monitor.Exit(obj)`. The monitor uses a hardware compare-and-swap or similar atomic primitive inside the kernel, then parks waiting threads on a kernel wait queue (Linux `futex` / Windows `KEYED_EVENT`).
+- `lock (obj) { ... }` in C# is syntactic sugar for `Monitor.Enter(obj)` ... `Monitor.Exit(obj)`. The monitor uses a hardware CAS or similar atomic primitive inside the kernel, then parks waiting threads on a kernel wait queue (Linux `futex` / Windows `KEYED_EVENT`).
 - A `lock` block covers the entire 1.0-million-iteration loop. While one thread is inside, every other thread's handler that calls `/race-safe` is parked at the OS level — not spinning.
 - The lock object (`SafeCounterLock`) is a `static readonly object` so its identity is stable for the lifetime of the process.
 
@@ -149,7 +149,7 @@ The starting value of `SafeCounter` was 4,000,000 from a previous test (the firs
 
 More precise answer:
 
-The lock made the non-atomic increment into an atomic increment at the source level. The CLR's `Monitor.Enter` uses an OS-level atomic primitive (compare-and-swap or equivalent) and, if contended, parks the losing thread on a kernel wait queue. The winning thread holds the lock for the entire 1M-iteration loop (a few hundred milliseconds on this hardware). The losing threads sit in the kernel without burning CPU. When the winning thread exits the lock, the OS wakes exactly one waiter, which becomes the new winner. The whole 4M-increment sequence therefore runs single-threaded, in series, and produces the deterministic answer.
+The lock made the non-atomic increment into an atomic increment at the source level. The CLR's `Monitor.Enter` uses an OS-level atomic primitive (CAS or equivalent) and, if contended, parks the losing thread on a kernel wait queue. The winning thread holds the lock for the entire 1M-iteration loop (a few hundred milliseconds on this hardware). The losing threads sit in the kernel without burning CPU. When the winning thread exits the lock, the OS wakes exactly one waiter, which becomes the new winner. The whole 4M-increment sequence therefore runs single-threaded, in series, and produces the deterministic answer.
 
 ## Three-Question Test
 

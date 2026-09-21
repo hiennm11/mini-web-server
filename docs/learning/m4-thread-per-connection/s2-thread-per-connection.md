@@ -45,7 +45,7 @@ Misconception to avoid:
 
 > Adding threads makes the socket operations non-blocking.
 
-Wrong. `Accept()`, `Receive()`, `Send()`, and `Thread.Sleep()` are still blocking calls. The difference is that blocking now affects one thread, not the whole server process.
+Wrong. `Accept()`, `Receive()`, `Send()`, and `Thread.Sleep()` are still blocking calls. The difference is that blocking now affects one thread, not the whole host.
 
 ## C#/.NET Mechanism
 
@@ -204,7 +204,7 @@ A thread is a separate point of execution with its own program counter, register
 
 ### .NET mechanism
 
-`new Thread(() => HandleClient(clientSocket, webRoot))` creates a managed thread backed by an OS thread. `thread.IsBackground = true` marks it as a background thread so it does not prevent process exit. `thread.Start()` begins execution. The lambda captures the per-iteration `clientSocket` local — each thread sees its own accepted socket. No `Thread.Join()` is used; the accept thread must return to `Accept()` immediately to accept new clients.
+`new Thread(() => HandleClient(clientSocket, webRoot))` creates a managed thread backed by an OS thread. `thread.IsBackground = true` marks it as a background thread so it does not prevent process exit. `thread.Start()` begins execution. The lambda captures the per-iteration `clientSocket` local — each thread sees its own client socket. No `Thread.Join()` is used; the accept thread must return to `Accept()` immediately to accept new clients.
 
 ### Next question
 

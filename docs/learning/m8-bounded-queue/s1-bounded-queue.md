@@ -142,7 +142,7 @@ More precise answer:
 2. Which .NET API exposes it?
    - `Monitor.Wait(obj)` for blocking producers (unused in this slice — we chose reject). The `HttpResponse` type for the 503 body. `Socket.Dispose` to release kernel resources for rejected connections.
 3. Where does it break at scale?
-   - At sustained overload above `MaxQueueSize`, every new request gets a 503. That's the correct behavior, but the application has no way to tell clients when to retry without adding a `Retry-After` header (future slice). Also: the kernel's listen backlog (`ListenBacklog = 10`) is much smaller than `MaxQueueSize = 64`; in practice the accept thread keeps the kernel queue drained, but if the accept thread itself blocks, the kernel can refuse connections with `ECONNREFUSED` at the OS layer.
+   - At sustained overload above `MaxQueueSize`, every new request gets a 503. That's the correct behavior, but the application has no way to tell clients when to retry without adding a `Retry-After` header (future slice). Also: the kernel's listen backlog (`ListenBacklog = 10`) is much smaller than `MaxQueueSize = 64`; in practice the accept thread keeps the listen backlog drained, but if the accept thread itself blocks, the kernel can refuse connections with `ECONNREFUSED` at the OS layer.
 
 ## Learning Note
 

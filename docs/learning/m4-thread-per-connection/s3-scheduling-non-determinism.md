@@ -160,7 +160,7 @@ No. The server creates one handler thread per client, but the OS scheduler decid
 
 More precise answer:
 
-Each handler thread has its own program counter and register state. When the scheduler context-switches, it saves one thread's state and restores another. The server process keeps one shared address space, but execution moves between multiple independent thread states. Because timer interrupts, I/O waits, and scheduler policy are outside the program's direct control, ordering is non-deterministic.
+Each handler thread has its own program counter and register state. When the scheduler context-switches, it saves one thread's state and restores another. The host keeps one shared address space, but execution moves between multiple independent thread states. Because timer interrupts, I/O waits, and scheduler policy are outside the program's direct control, ordering is non-deterministic.
 
 ## Three-Question Test
 

@@ -162,7 +162,7 @@ The server has one thread and one execution point. It was blocked inside `Thread
 
 More precise answer:
 
-The second TCP client may connect at the kernel level while `/slow` is sleeping. That does not mean the application has accepted it. `Accept()` is the handoff point from the kernel's completed-connection queue into the server process. Because the only server thread is blocked in `Thread.Sleep`, it cannot execute that handoff until the sleep completes.
+The second TCP client may connect at the kernel level while `/slow` is sleeping. That does not mean the application has accepted it. `Accept()` is the handoff point from the kernel's listen backlog into the host. Because the only server thread is blocked in `Thread.Sleep`, it cannot execute that handoff until the sleep completes.
 
 ## Three-Question Test
 

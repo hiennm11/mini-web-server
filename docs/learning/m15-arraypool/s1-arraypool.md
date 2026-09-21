@@ -27,7 +27,7 @@ The ArrayPool change saves the **16 KB receive buffer + a few-KB response buffer
 
 1. **Async state machines parked at `Task.Delay(30000)`** — each parked Task holds its continuation + captured locals on the GC heap.
 2. **`HttpRequest` + headers dictionary** — allocated fresh per request by `HttpRequestParser.Parse`. Could be object-pooled but is out of scope here.
-3. **Native socket buffers** — each accepted socket has kernel-side buffer reservations.
+3. **Native socket buffers** — each client socket has kernel-side buffer reservations.
 4. **GC heap fragmentation** — many short-lived strings (response bodies, header lines) accumulate before collection.
 
 ## Honest assessment

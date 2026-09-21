@@ -442,24 +442,95 @@ Run("lfs cleaner can free an entirely-dead segment without compaction", () =>
 {
     // Use a small disk so that after a handful of rewrites, the first segment
     // ends up entirely dead (every block was overwritten by a newer version).
-    var lfs = new MiniWebServer.Host.MiniScheduler.Lfs(segments: 10, blocksPerSegment: 4);
-    lfs.CreateFile("/temp");
-    lfs.WriteData("/temp", 0, (byte)'T');
-    lfs.Flush();
+    var lfs2 = new MiniWebServer.Host.MiniScheduler.Lfs(segments: 10, blocksPerSegment: 4);
+    lfs2.CreateFile("/temp");
+    lfs2.WriteData("/temp", 0, (byte)'T');
+    lfs2.Flush();
     // Many rewrites push the live data into later segments; the early segments
     // become fully dead.
     for (int i = 0; i < 6; i++)
     {
-        lfs.WriteData("/temp", 0, (byte)('A' + (i % 26)));
+        lfs2.WriteData("/temp", 0, (byte)('A' + (i % 26)));
     }
-    lfs.Flush();
+    lfs2.Flush();
     // Run cleaner repeatedly.
-    for (int i = 0; i < 10; i++) lfs.Clean();
+    for (int i = 0; i < 10; i++) lfs2.Clean();
     // Read still works (smoke test - cleaner preserved live data).
     byte lastVal = (byte)('A' + (5 % 26));
-    AssertEqual(lastVal, lfs.Read("/temp", 0));
+    AssertEqual(lastVal, lfs2.Read("/temp", 0));
     // Some segment may have been freed - but the value is in the invariant,
     // not a specific count. Just confirm operation succeeded.
+});
+
+// ----- M26 SSD simulator (OSEP Ch. 44) -----
+
+Run("ssd write + read round-trip via mapping table", () =>
+{
+    var ssd = new MiniWebServer.Host.MiniScheduler.Ssd(blocks: 4, pagesPerBlock: 4);
+    ssd.Write(100, (byte)'A');
+    ssd.Write(101, (byte)'B');
+    ssd.Write(2000, (byte)'C');
+    ssd.Write(2001, (byte)'D');
+    AssertEqual((byte)'A', ssd.Read(100));
+    AssertEqual((byte)'B', ssd.Read(101));
+    AssertEqual((byte)'C', ssd.Read(2000));
+    AssertEqual((byte)'D', ssd.Read(2001));
+    AssertEqual(4, ssd.MappingSize);
+});
+
+Run("ssd rewrite makes old physical page dead", () =>
+{
+    var ssd = new MiniWebServer.Host.MiniScheduler.Ssd(blocks: 4, pagesPerBlock: 4);
+    ssd.Write(100, (byte)'A');
+    int deadBefore = ssd.DeadPageCount;
+    ssd.Write(100, (byte)'Z');  // rewrite - old page becomes dead
+    int deadAfter = ssd.DeadPageCount;
+    AssertEqual(true, deadAfter > deadBefore);
+    AssertEqual((byte)'Z', ssd.Read(100));  // new value readable
+});
+
+Run("ssd trim drops the LBA mapping without rewriting", () =>
+{
+    var ssd = new MiniWebServer.Host.MiniScheduler.Ssd(blocks: 4, pagesPerBlock: 4);
+    ssd.Write(100, (byte)'A');
+    AssertEqual(1, ssd.MappingSize);
+    ssd.Trim(100);
+    AssertEqual(0, ssd.MappingSize);
+    // Read should now fail because the LBA is unmapped.
+    AssertThrows<InvalidOperationException>(() => ssd.Read(100));
+});
+
+Run("ssd erase block increments the wear counter", () =>
+{
+    var ssd = new MiniWebServer.Host.MiniScheduler.Ssd(blocks: 4, pagesPerBlock: 4);
+    AssertEqual(0, ssd.EraseCount(0));
+    ssd.EraseBlock(0);
+    AssertEqual(1, ssd.EraseCount(0));
+    ssd.EraseBlock(0);
+    AssertEqual(2, ssd.EraseCount(0));
+});
+
+Run("ssd gc migrates live pages and erases a block", () =>
+{
+    var ssd = new MiniWebServer.Host.MiniScheduler.Ssd(blocks: 4, pagesPerBlock: 4);
+    ssd.Write(0, (byte)'1');
+    ssd.Write(1, (byte)'2');
+    ssd.Write(2, (byte)'3');
+    ssd.Write(3, (byte)'4');
+    // Rewrite a few to create dead pages.
+    ssd.Write(0, (byte)'X');
+    ssd.Write(1, (byte)'Y');
+    int deadBefore = ssd.DeadPageCount;
+    AssertEqual(true, deadBefore > 0);
+    // Run GC - should pick a block with dead pages, migrate live, erase it.
+    var report = ssd.CollectGarbage();
+    AssertEqual(true, report.CleanedBlock >= 0);
+    AssertEqual(true, report.DeadPagesFreed > 0);
+    // Reads still work (the live data was migrated).
+    AssertEqual((byte)'X', ssd.Read(0));
+    AssertEqual((byte)'Y', ssd.Read(1));
+    AssertEqual((byte)'3', ssd.Read(2));
+    AssertEqual((byte)'4', ssd.Read(3));
 });
 
 Console.WriteLine("All tests passed.");

@@ -1095,6 +1095,94 @@ static void HandleClient(Socket clientSocket, string webRoot)
             response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
                 Encoding.UTF8.GetBytes(lfsOutput));
         }
+        else if (parsedRequest.Path.StartsWith("/ssd/run"))
+        {
+            // SSD simulator (M26 / OSEP Ch. 44). ?scenario=write|gc|wear&blocks=N&pages=K
+            // Default scenario: write a deterministic payload of LBAs, then either
+            // rewrite some of them (to introduce dead pages) and run GC, or just
+            // dump the wear report.
+            string scenario = "write";
+            int blocks = 4;
+            int pagesPerBlock = 4;
+            int qIdx = parsedRequest.Path.IndexOf('?');
+            if (qIdx >= 0)
+            {
+                foreach (var kv in parsedRequest.Path.Substring(qIdx + 1).Split('&'))
+                {
+                    int eq = kv.IndexOf('=');
+                    if (eq <= 0) continue;
+                    var k = kv.Substring(0, eq);
+                    var v = kv.Substring(eq + 1);
+                    if (k == "scenario") scenario = v;
+                    else if (k == "blocks" && int.TryParse(v, out var bv)) blocks = bv;
+                    else if (k == "pages" && int.TryParse(v, out var pv)) pagesPerBlock = pv;
+                }
+            }
+            var ssd = new MiniWebServer.Host.MiniScheduler.Ssd(blocks, pagesPerBlock);
+
+            string trace = "";
+            string ssdOutput;
+            try
+            {
+                // Write a deterministic payload. Keep the count small enough
+                // that the gc/wear scenarios have headroom for rewrites +
+                // migration: a 4-block x 4-page device has 16 pages; we want
+                // ~8 initial writes so a 4-write rewrite can migrate via GC.
+                int lbaCount = Math.Min(blocks * pagesPerBlock / 2, 8);
+                for (int i = 0; i < lbaCount; i++)
+                {
+                    ssd.Write(i, (byte)('A' + (i % 26)));
+                }
+                trace += $"write: wrote {lbaCount} LBAs, mapping size={ssd.MappingSize}" + Environment.NewLine;
+
+                if (scenario == "gc" || scenario == "wear")
+                {
+                    // Rewrite the first half to introduce dead pages.
+                    int half = lbaCount / 2;
+                    for (int i = 0; i < half; i++)
+                    {
+                        ssd.Write(i, (byte)('a' + (i % 26)));
+                    }
+                    trace += $"rewrite: dead pages={ssd.DeadPageCount}" + Environment.NewLine;
+                }
+
+                if (scenario == "gc")
+                {
+                    // Run GC multiple times.
+                    int cleaned = 0;
+                    for (int i = 0; i < 5; i++)
+                    {
+                        var report = ssd.CollectGarbage();
+                        if (report.CleanedBlock < 0) break;
+                        cleaned++;
+                    }
+                    trace += $"gc: ran {cleaned} times, dead pages now={ssd.DeadPageCount}" + Environment.NewLine;
+                }
+
+                // Smoke-read every LBA.
+                var reads = new System.Collections.Generic.List<string>();
+                for (int i = 0; i < lbaCount; i++)
+                {
+                    byte v;
+                    try { v = ssd.Read(i); }
+                    catch (Exception ex) { reads.Add($"LBA{i}=ERR({ex.Message})"); continue; }
+                    reads.Add($"LBA{i}={(char)v}");
+                }
+                trace += $"read OK: {string.Join(" ", reads)}";
+
+                ssdOutput = ssd.FormatLayout() + Environment.NewLine + "trace:" + Environment.NewLine + trace;
+                if (scenario == "wear") ssdOutput += Environment.NewLine + ssd.FormatWearReport();
+            }
+            catch (Exception ex)
+            {
+                trace += $"FAIL: {ex.Message}";
+                try { ssdOutput = ssd.FormatLayout() + Environment.NewLine + "trace:" + Environment.NewLine + trace; }
+                catch (Exception ex2) { ssdOutput = $"SSD error: {ex.Message} (also layout failed: {ex2.Message})"; }
+            }
+
+            response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                Encoding.UTF8.GetBytes(ssdOutput));
+        }
         else if (parsedRequest.Path.StartsWith("/auth/"))
         {
             // Password-based authentication (M23 / OSEP Ch. 54). Routes:

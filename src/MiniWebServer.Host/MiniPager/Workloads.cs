@@ -326,4 +326,108 @@ public static class PagerRunner
         }
         return sb.ToString();
     }
+
+    /// <summary>
+    /// Slice 28.1 (ASID-tagged TLB): demonstrate the survival of TLB
+    /// entries across context switches under two flush policies:
+    ///   - M16-era <see cref="Tlb.Flush()"/>: nukes everything
+    ///     (always 0 surviving entries after a context switch).
+    ///   - M28 <see cref="Tlb.Flush(int?)"/> with the new ASID: nukes
+    ///     only the outgoing process's non-global entries; global
+    ///     entries and other ASIDs survive.
+    ///
+    /// Setup:
+    ///   - Process A maps VPNs 0..3, B maps VPNs 4..7.
+    ///   - Each process "warms" the TLB by reading its pages.
+    ///   - The kernel installs two global entries (kernel mappings).
+    ///   - Then we alternate context switches: A → B → A → B → ...
+    ///   - After every switch we report the surviving-entry count for
+    ///     each policy.
+    ///
+    /// The expected outcome: <c>flushall</c> drops to 0 every time;
+    /// <c>flushasid</c> keeps the kernel's global entries + the
+    /// incoming process's working set.
+    /// </summary>
+    public static string RunAsidContextSwitch(int tlbCapacity, int contextSwitches)
+    {
+        if (tlbCapacity < 4)
+            throw new ArgumentException("tlb capacity must be >= 4 to fit per-ASID + global entries", nameof(tlbCapacity));
+        if (contextSwitches < 1) contextSwitches = 1;
+
+        var pager = new Pager(numFrames: 16);
+        pager.CreateProcess(1);
+        pager.CreateProcess(2);
+
+        // Pre-map two processes to disjoint frames (no overlap).
+        for (int i = 0; i < 4; i++) pager.Map(1, i, frameNo: i);
+        for (int i = 0; i < 4; i++) pager.Map(2, 4 + i, frameNo: 4 + i);
+
+        var tlb = new Tlb(tlbCapacity);
+        pager.Tlb = tlb;
+
+        // Warm process A's TLB (simulate prior accesses).
+        for (int i = 0; i < 4; i++) tlb.Fill(vpn: i, pfn: i, asid: 1, isGlobal: false);
+        // Warm process B's TLB.
+        for (int i = 0; i < 4; i++) tlb.Fill(vpn: 4 + i, pfn: 4 + i, asid: 2, isGlobal: false);
+        // Two global kernel entries (OSEP §19.7 G bit).
+        tlb.Fill(vpn: 100, pfn: 200, asid: 0, isGlobal: true);
+        tlb.Fill(vpn: 101, pfn: 201, asid: 0, isGlobal: true);
+
+        // Snapshot the TLB before any context switch so we can run
+        // BOTH flush policies from the same starting state on every
+        // round. Two parallel simulators → two parallel TLBs.
+        var tlbAll = new Tlb(tlbCapacity);
+        var tlbAsid = new Tlb(tlbCapacity);
+        foreach (var e in tlb.Entries)
+        {
+            if (!e.Valid) continue;
+            tlbAll.Fill(e.Vpn, e.Pfn, e.Asid, e.IsGlobal);
+            tlbAsid.Fill(e.Vpn, e.Pfn, e.Asid, e.IsGlobal);
+        }
+
+        // Alternate context switches: 1 → 2 → 1 → 2 → ...
+        // Each "context switch" leaves ASID `prev` and runs ASID `next`.
+        var schedule = new List<(int prev, int next)>();
+        int prevAsid = 1;
+        for (int i = 0; i < contextSwitches; i++)
+        {
+            int nextAsid = (i % 2 == 0) ? 2 : 1;
+            schedule.Add((prevAsid, nextAsid));
+            prevAsid = nextAsid;
+        }
+
+        var sb = new StringBuilder();
+        sb.AppendLine($"=== ASID-tagged TLB context-switch demo (M28 / OSEP §19.5 + §19.7) ===");
+        sb.AppendLine($"TLB capacity={tlbCapacity}, initial entries={tlb.ValidCount}" +
+                      $" (P1={tlb.CountOwnedBy(1)}, P2={tlb.CountOwnedBy(2)}, global={tlb.GlobalCount})");
+        sb.AppendLine($"context switches={contextSwitches}, schedule=[{string.Join(",", schedule.Select(s => $"{s.prev}→{s.next}"))}]");
+        sb.AppendLine();
+        sb.AppendLine($"{"switch",-9} {"prev->next",-12} {"flushall_survive",-18} {"flushasid_survive",-22} {"flushasid_breakdown",-40}");
+
+        for (int i = 0; i < schedule.Count; i++)
+        {
+            var (prev, next) = schedule[i];
+
+            // Old policy: blow the whole TLB.
+            tlbAll.Flush();
+
+            // New policy: per-ASID flush, scoped to the outgoing ASID.
+            int removed = tlbAsid.Flush(prev);
+
+            sb.AppendLine($"  {i + 1,-7} {prev}->{next,-7} {tlbAll.ValidCount,-18} {tlbAsid.ValidCount,-22} " +
+                          $"P1={tlbAsid.CountOwnedBy(1)} P2={tlbAsid.CountOwnedBy(2)} G={tlbAsid.GlobalCount} (removed={removed})");
+        }
+
+        sb.AppendLine();
+        sb.AppendLine("Observations:");
+        sb.AppendLine("  - flushall always survives 0 entries (M16 behavior, retained for kernel PTE edits).");
+        sb.AppendLine("  - flushasid preserves the incoming process's working set and any global kernel entries.");
+        sb.AppendLine("  - Global entries (G bit) survive BOTH flushes — they are not ASID-scoped.");
+        sb.AppendLine("  - The P1 entries do NOT survive a flushasid(1) → they vanish until the process re-warms the TLB.");
+        sb.AppendLine();
+        sb.AppendLine("OSEP §19.5: with ASID the OS no longer has to throw away the entire TLB on a context switch.");
+        sb.AppendLine("OSEP §19.7: MIPS R4000 sets the G bit on kernel entries so they live in every ASID.");
+
+        return sb.ToString();
+    }
 }

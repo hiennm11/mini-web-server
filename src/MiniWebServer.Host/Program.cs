@@ -671,6 +671,39 @@ static void HandleClient(Socket clientSocket, string webRoot)
                     Encoding.UTF8.GetBytes(output));
             }
         }
+        else if (parsedRequest.Path.StartsWith("/tlb/run"))
+        {
+            // Slice 28.1 (ASID-tagged TLB). ?scenario=flushall-vs-flushasid&tlb=N&context_switches=N
+            string tlbScenario = "flushall-vs-flushasid";
+            int tlbCapacity = 16;
+            int contextSwitches = 10;
+            int qIdx = parsedRequest.Path.IndexOf('?');
+            if (qIdx >= 0)
+            {
+                foreach (var kv in parsedRequest.Path.Substring(qIdx + 1).Split('&'))
+                {
+                    int eq = kv.IndexOf('=');
+                    if (eq <= 0) continue;
+                    var k = kv.Substring(0, eq);
+                    var v = kv.Substring(eq + 1);
+                    if (k == "scenario") tlbScenario = v;
+                    else if (k == "tlb" && int.TryParse(v, out var tc)) tlbCapacity = tc;
+                    else if (k == "context_switches" && int.TryParse(v, out var cs)) contextSwitches = cs;
+                }
+            }
+            if (tlbScenario != "flushall-vs-flushasid")
+            {
+                response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8",
+                    Encoding.UTF8.GetBytes("unknown tlb scenario (use flushall-vs-flushasid)\n"));
+            }
+            else
+            {
+                string tlbOutput = MiniWebServer.Host.MiniPager.PagerRunner.RunAsidContextSwitch(
+                    tlbCapacity, contextSwitches);
+                response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                    Encoding.UTF8.GetBytes(tlbOutput));
+            }
+        }
         else if (parsedRequest.Path.StartsWith("/scheduler/run"))
         {
             // MiniScheduler demo. ?algo=mlfq|stride|lottery&workload=two|cpu|mixed|proportional&ticks=N&q=N&boost=M

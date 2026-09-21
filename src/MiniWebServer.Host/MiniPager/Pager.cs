@@ -337,6 +337,11 @@ public sealed class Pager
             ? new TwoLevelLookup()
             : new LinearLookup();
         _lookups[pid] = pt;
+        // Slice 28.1: bump the per-process ASID on every fork boundary.
+        // Wrapping at 255 is harmless: the simulator never holds more
+        // than a handful of address spaces, and a real OS would
+        // flush-on-rollover (see M28 deviations).
+        if (CurrentAsid < byte.MaxValue) CurrentAsid++;
         return pt;
     }
 
@@ -346,6 +351,23 @@ public sealed class Pager
     /// pager behaves as in slice 14.1 (page-table only).
     /// </summary>
     public Tlb? Tlb { get; set; }
+
+    /// <summary>
+    /// Slice 28.1 (ASID-tagged TLB): the address-space identifier of
+    /// the process that "currently" owns the CPU. OSEP §19.5 calls
+    /// this the ASID register; OSEP §19.7 makes it explicit for the
+    /// MIPS R4000 (8 bits).
+    ///
+    /// The field is bumped on every <see cref="CreateProcess"/> call
+    /// to model a fresh address space (fork/exec). When the OS later
+    /// runs a context switch, it calls <see cref="Tlb.Flush(int?)"/>
+    /// with this ASID instead of the M16-era full flush.
+    ///
+    /// The kernel conventionally owns ASID <c>0</c>; per the slice
+    /// deviations, we never assign that to a user process (user PIDs
+    /// start at 1, so the first <c>CreateProcess</c> yields ASID 1).
+    /// </summary>
+    public byte CurrentAsid { get; private set; }
 
     /// <summary>Reset all frame allocations (clear all memory). Used for repeatable smoke runs.</summary>
     public void ResetFrames()

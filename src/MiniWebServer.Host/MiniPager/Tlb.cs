@@ -24,8 +24,17 @@ public struct TlbEntry
     public int Vpn;
     public int Pfn;
     public bool Valid;
-    public int Asid;       // OSEP §19.5: which process owns this entry
-    public byte Prot;      // OSEP §19.4: protection bits (read/write/exec)
+    // OSEP §19.5: which address space owns this entry. MIPS R4000 uses
+    // 8 bits (matches RISC-V SV39). Stored as byte to reflect the
+    // hardware width; call sites that have a wider PID cast at the
+    // boundary (the simulator's PID never exceeds 255 in practice).
+    public byte Asid;
+    // OSEP §19.7 "A Real TLB Entry" (MIPS R4000): when set, the entry
+    // matches any ASID on lookup. Used for kernel mappings that live
+    // in every address space.
+    public bool IsGlobal;
+    // OSEP §19.4: protection bits (read/write/exec).
+    public byte Prot;
 
     public static readonly TlbEntry Empty = new() { Valid = false, Pfn = -1 };
 }
@@ -89,12 +98,22 @@ public sealed class Tlb
     /// On hit, increments Hits + updates lastUsed.
     /// On miss, increments Misses (the caller should then walk the page
     /// table and call Insert).
+    ///
+    /// Slice 28.1 (ASID-tagged TLB): a non-global entry matches only
+    /// when its <see cref="TlbEntry.Asid"/> equals the caller's ASID.
+    /// A global entry (<see cref="TlbEntry.IsGlobal"/> == true) matches
+    /// regardless of ASID — used for kernel mappings that live in
+    /// every address space. OSEP §19.7 (MIPS R4000).
     /// </summary>
     public bool Lookup(int asid, int vpn, out int pfn)
     {
+        byte wantAsid = (byte)asid;
         for (int i = 0; i < _entries.Length; i++)
         {
-            if (_entries[i].Valid && _entries[i].Asid == asid && _entries[i].Vpn == vpn)
+            if (!_entries[i].Valid || _entries[i].Vpn != vpn) continue;
+            // OSEP §19.7: G bit set → match any ASID. Otherwise the
+            // entry's ASID must match the caller's.
+            if (_entries[i].IsGlobal || _entries[i].Asid == wantAsid)
             {
                 pfn = _entries[i].Pfn;
                 _lastUsed[i] = Misses + Hits;
@@ -110,8 +129,12 @@ public sealed class Tlb
     /// <summary>
     /// OSEP §19.1 step 5: TLB_Insert(VPN, PTE.PFN, PTE.ProtectBits).
     /// If the TLB is full, evict an entry first (Random policy).
+    ///
+    /// Slice 28.1: <paramref name="isGlobal"/> defaults to false
+    /// (a per-process mapping). Kernel code passes true for mappings
+    /// that should be visible to every ASID (OSEP §19.7 G bit).
     /// </summary>
-    public void Insert(int asid, int vpn, int pfn, byte prot = 0)
+    public void Insert(int asid, int vpn, int pfn, byte prot = 0, bool isGlobal = false)
     {
         // Look for an invalid slot first (OSEP §19.5: "we usually find
         // an invalid slot in the TLB upon a miss; only after the OS
@@ -138,11 +161,21 @@ public sealed class Tlb
             Vpn = vpn,
             Pfn = pfn,
             Valid = true,
-            Asid = asid,
+            Asid = (byte)asid,
+            IsGlobal = isGlobal,
             Prot = prot,
         };
         _lastUsed[slot] = Misses + Hits;
     }
+
+    /// <summary>
+    /// Slice 28.1 explicit "fill a specific slot" used by the demo
+    /// to seed the TLB with predictable entries across ASIDs. Thin
+    /// wrapper around <see cref="Insert"/>; named to match the
+    /// slice doc's vocabulary.
+    /// </summary>
+    public void Fill(int vpn, int pfn, int asid, bool isGlobal)
+        => Insert(asid, vpn, pfn, prot: 0, isGlobal: isGlobal);
 
     /// <summary>
     /// OSEP §19.5 "Issue: Context Switches":
@@ -156,6 +189,80 @@ public sealed class Tlb
         {
             _entries[i] = TlbEntry.Empty;
             _lastUsed[i] = 0;
+        }
+    }
+
+    /// <summary>
+    /// Slice 28.1: per-ASID flush (OSEP §19.5 + §19.7).
+    ///
+    /// <list type="bullet">
+    /// <item><c>asid == null</c> — full TLB flush (all entries, global
+    /// or not). Used when the kernel edits page-table entries and
+    /// cannot trust any cached translation.</item>
+    /// <item><c>asid != null</c> — flush only entries that belong to
+    /// that ASID and are NOT global. Global entries (kernel mappings)
+    /// and entries owned by other ASIDs survive. This is the
+    /// hardware-supported alternative to blowing the whole TLB on
+    /// every context switch.</item>
+    /// </list>
+    /// </summary>
+    /// <returns>The number of entries removed.</returns>
+    public int Flush(int? asid)
+    {
+        if (asid is null)
+        {
+            int n = 0;
+            for (int i = 0; i < _entries.Length; i++) if (_entries[i].Valid) n++;
+            Flush();
+            return n;
+        }
+        byte target = (byte)asid.Value;
+        int removed = 0;
+        for (int i = 0; i < _entries.Length; i++)
+        {
+            var e = _entries[i];
+            if (e.Valid && !e.IsGlobal && e.Asid == target)
+            {
+                _entries[i] = TlbEntry.Empty;
+                _lastUsed[i] = 0;
+                removed++;
+            }
+        }
+        return removed;
+    }
+
+    /// <summary>Count of currently-valid entries (used by smoke reports).</summary>
+    public int ValidCount
+    {
+        get
+        {
+            int n = 0;
+            for (int i = 0; i < _entries.Length; i++) if (_entries[i].Valid) n++;
+            return n;
+        }
+    }
+
+    /// <summary>Count of currently-valid entries owned by <paramref name="asid"/>.</summary>
+    public int CountOwnedBy(int asid)
+    {
+        byte target = (byte)asid;
+        int n = 0;
+        for (int i = 0; i < _entries.Length; i++)
+        {
+            var e = _entries[i];
+            if (e.Valid && !e.IsGlobal && e.Asid == target) n++;
+        }
+        return n;
+    }
+
+    /// <summary>Count of currently-valid global entries.</summary>
+    public int GlobalCount
+    {
+        get
+        {
+            int n = 0;
+            for (int i = 0; i < _entries.Length; i++) if (_entries[i].Valid && _entries[i].IsGlobal) n++;
+            return n;
         }
     }
 

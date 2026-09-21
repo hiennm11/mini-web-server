@@ -612,6 +612,73 @@ Run("integrity scrubber reports clean + corrupted blocks", () =>
     AssertEqual(true, badSet.Contains(5));
 });
 
+Run("tlb asid isolates address spaces (slice 28.1)", () =>
+{
+    // Fill entries for ASID 1 and ASID 2.
+    var tlb = new MiniWebServer.Host.MiniPager.Tlb(capacity: 8);
+    tlb.Fill(vpn: 0, pfn: 100, asid: 1, isGlobal: false);
+    tlb.Fill(vpn: 1, pfn: 101, asid: 1, isGlobal: false);
+    tlb.Fill(vpn: 0, pfn: 200, asid: 2, isGlobal: false);
+    tlb.Fill(vpn: 1, pfn: 201, asid: 2, isGlobal: false);
+    AssertEqual(4, tlb.ValidCount);
+    // Flush ASID 1 only.
+    int removed = tlb.Flush(asid: 1);
+    AssertEqual(2, removed);
+    AssertEqual(2, tlb.ValidCount);
+    // ASID 2 entries still hit.
+    AssertEqual(true, tlb.Lookup(asid: 2, vpn: 0, out int pfn0));
+    AssertEqual(200, pfn0);
+    AssertEqual(true, tlb.Lookup(asid: 2, vpn: 1, out int pfn1));
+    AssertEqual(201, pfn1);
+    // ASID 1 entries are gone.
+    AssertEqual(false, tlb.Lookup(asid: 1, vpn: 0, out _));
+    // Flush ASID 2; nothing survives.
+    tlb.Flush(asid: 2);
+    AssertEqual(0, tlb.ValidCount);
+});
+
+Run("tlb global entries survive per-ASID flush but not full flush (slice 28.1)", () =>
+{
+    var tlb = new MiniWebServer.Host.MiniPager.Tlb(capacity: 4);
+    tlb.Fill(vpn: 0, pfn: 100, asid: 1, isGlobal: false);
+    tlb.Fill(vpn: 50, pfn: 250, asid: 0, isGlobal: true);
+    tlb.Fill(vpn: 51, pfn: 251, asid: 0, isGlobal: true);
+    AssertEqual(3, tlb.ValidCount);
+    // Per-ASID flush of ASID 1 removes only the non-global entry.
+    int removed = tlb.Flush(asid: 1);
+    AssertEqual(1, removed);
+    AssertEqual(2, tlb.ValidCount);
+    AssertEqual(2, tlb.GlobalCount);
+    // Global entries still hit under any ASID.
+    AssertEqual(true, tlb.Lookup(asid: 7, vpn: 50, out int pfn));
+    AssertEqual(250, pfn);
+    // Full flush wipes everything including globals.
+    tlb.Flush();
+    AssertEqual(0, tlb.ValidCount);
+    AssertEqual(false, tlb.Lookup(asid: 7, vpn: 50, out _));
+});
+
+Run("tlb lookup with mismatched asid misses (slice 28.1)", () =>
+{
+    var tlb = new MiniWebServer.Host.MiniPager.Tlb(capacity: 4);
+    tlb.Fill(vpn: 10, pfn: 999, asid: 1, isGlobal: false);
+    // Same VPN, different ASID: must miss (no global bit).
+    AssertEqual(false, tlb.Lookup(asid: 2, vpn: 10, out _));
+    // Correct ASID: hits.
+    AssertEqual(true, tlb.Lookup(asid: 1, vpn: 10, out int pfn));
+    AssertEqual(999, pfn);
+});
+
+Run("pager CurrentAsid bumps on CreateProcess (slice 28.1)", () =>
+{
+    var pager = new MiniWebServer.Host.MiniPager.Pager(numFrames: 4);
+    AssertEqual(0, pager.CurrentAsid);
+    pager.CreateProcess(1);
+    AssertEqual(1, pager.CurrentAsid);
+    pager.CreateProcess(2);
+    AssertEqual(2, pager.CurrentAsid);
+});
+
 Console.WriteLine("All tests passed.");
 
 static string CreateTempWebRoot()

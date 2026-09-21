@@ -1010,6 +1010,91 @@ static void HandleClient(Socket clientSocket, string webRoot)
             response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
                 Encoding.UTF8.GetBytes(raidOutput));
         }
+        else if (parsedRequest.Path.StartsWith("/lfs/run"))
+        {
+            // LFS simulator (M25 / OSEP Ch. 43). ?scenario=create|rewrite|clean&segments=N&blocks=M&files=K
+            // Default scenario: create K files with one block each, then flush,
+            // and (for rewrite) overwrite some of them to introduce garbage,
+            // then (for clean) run the segment cleaner.
+            string scenario = "create";
+            int segments = 8;
+            int blocks = 6;
+            int files = 3;
+            int qIdx = parsedRequest.Path.IndexOf('?');
+            if (qIdx >= 0)
+            {
+                foreach (var kv in parsedRequest.Path.Substring(qIdx + 1).Split('&'))
+                {
+                    int eq = kv.IndexOf('=');
+                    if (eq <= 0) continue;
+                    var k = kv.Substring(0, eq);
+                    var v = kv.Substring(eq + 1);
+                    if (k == "scenario") scenario = v;
+                    else if (k == "segments" && int.TryParse(v, out var sv)) segments = sv;
+                    else if (k == "blocks" && int.TryParse(v, out var bv)) blocks = bv;
+                    else if (k == "files" && int.TryParse(v, out var fv)) files = fv;
+                }
+            }
+            var lfs = new MiniWebServer.Host.MiniScheduler.Lfs(segments, blocks);
+
+            string trace = "";
+            string lfsOutput;
+            try
+            {
+                // Create N files with one block each.
+                for (int i = 0; i < files; i++)
+                {
+                    lfs.CreateFile($"/f{i}");
+                    lfs.WriteData($"/f{i}", 0, (byte)('A' + (i % 26)));
+                }
+                lfs.Flush();
+                trace += $"create: wrote {files} files, live={lfs.LiveBlockCount} dead={lfs.DeadBlockCount}" + Environment.NewLine;
+
+                if (scenario == "rewrite" || scenario == "clean")
+                {
+                    // Rewrite all but the last file to introduce garbage.
+                    for (int i = 0; i < files - 1; i++)
+                    {
+                        lfs.WriteData($"/f{i}", 0, (byte)('a' + (i % 26)));
+                    }
+                    lfs.Flush();
+                    trace += $"rewrite: live={lfs.LiveBlockCount} dead={lfs.DeadBlockCount}" + Environment.NewLine;
+                }
+
+                if (scenario == "clean")
+                {
+                    // Run the cleaner several times.
+                    int cleaned = 0;
+                    for (int i = 0; i < 5; i++)
+                    {
+                        var report = lfs.Clean();
+                        if (report.CleanedSegment < 0) break;
+                        cleaned++;
+                    }
+                    trace += $"clean: ran {cleaned} times, free segments={lfs.FreeSegmentCount}" + Environment.NewLine;
+                }
+
+                // Smoke-read every file.
+                var reads = new System.Collections.Generic.List<string>();
+                for (int i = 0; i < files; i++)
+                {
+                    byte v = lfs.Read($"/f{i}", 0);
+                    reads.Add($"/f{i}={(char)v}");
+                }
+                trace += $"read OK: {string.Join(" ", reads)}";
+
+                lfsOutput = lfs.FormatLayout() + Environment.NewLine + "trace:" + Environment.NewLine + trace;
+            }
+            catch (Exception ex)
+            {
+                trace += $"FAIL: {ex.Message}";
+                try { lfsOutput = lfs.FormatLayout() + Environment.NewLine + "trace:" + Environment.NewLine + trace; }
+                catch (Exception ex2) { lfsOutput = $"LFS error: {ex.Message} (also layout failed: {ex2.Message})"; }
+            }
+
+            response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                Encoding.UTF8.GetBytes(lfsOutput));
+        }
         else if (parsedRequest.Path.StartsWith("/auth/"))
         {
             // Password-based authentication (M23 / OSEP Ch. 54). Routes:

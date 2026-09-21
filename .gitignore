@@ -6,6 +6,9 @@
 # dotenv files
 .env
 
+# Local harness / agent config (per-user, not part of the repo)
+.claude/
+
 # User-specific files
 *.rsuser
 *.suo

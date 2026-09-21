@@ -38,8 +38,17 @@ docs/learning/
 ├── m25-lfs/                         ← persistence (Ch. 43)
 ├── m26-ssd/                         ← persistence (Ch. 44)
 ├── m27-integrity/                   ← persistence (Ch. 45)
+├── m28-asid/                        ← paging (§19.4, spec-only)
+├── m29-cv/                          ← concurrency (§32.2, spec-only)
+├── m30-deadlock/                    ← concurrency (§32.3, spec-only)
+├── m31-lfs-extensions/              ← persistence (§43.3 + §43.12, spec-only)
+├── m32-ssd-extensions/              ← persistence (§44.9, spec-only)
+├── m33-integrity-extensions/        ← persistence (§45.8, spec-only)
+├── m34-device-drivers/              ← I/O (§36.3-§36.6, spec-only)
 └── m15-arraypool/                   ← perf
 ```
+
+> **Note on "spec-only" milestones** (M28-M34): the `overview.md` + `s1-*.md` (and `s2-*.md` for M31) docs are written; the implementation, ADR, tests, and code are not. These are the remaining natural OSEP coverage gaps called out in `CONTEXT.md`. Each can be implemented in a single small slice following the established M24-M27 pattern.
 
 ## Naming convention
 
@@ -92,6 +101,15 @@ Within a folder, slices are numbered sequentially (`s1`, `s2`, ...). The milesto
 
 7. **Performance**:
    - `m15-arraypool/`
+
+8. **Spec-only (docs written, not implemented)** — the remaining natural OSEP gaps; each can be implemented as a small slice:
+   - `m28-asid/` — ASID-tagged TLB (§19.4)
+   - `m29-cv/` — condition variables (§32.2)
+   - `m30-deadlock/` — deadlock prevention + Banker's (§32.3)
+   - `m31-lfs-extensions/` — segment-size math + two-CR alternation (§43.3 + §43.12)
+   - `m32-ssd-extensions/` — block-level + hybrid FTL (§44.9)
+   - `m33-integrity-extensions/` — periodic scrubbing schedule (§45.8)
+   - `m34-device-drivers/` — interrupt-driven I/O + DMA (§36.3-§36.6)
 
 ## Cross-references
 

@@ -33,6 +33,8 @@ docs/learning/
 ├── m20-dining-philosophers/         ← concurrency (Ch. 31.6)
 ├── m21-ffs/                         ← persistence (Ch. 41)
 ├── m22-lock-free/                   ← concurrency (Ch. 32.3)
+├── m23-totp/                        ← security (Ch. 54.5)
+├── m24-raid/                        ← persistence (Ch. 38)
 └── m15-arraypool/                   ← perf
 ```
 
@@ -61,9 +63,10 @@ Within a folder, slices are numbered sequentially (`s1`, `s2`, ...). The milesto
    - `m10-threadpool-cap/`
    - `m11-raw-syscall-demo/`
 
-3. **Persistence** (Mini FS journal → FFS block-group placement):
+3. **Persistence** (Mini FS journal → FFS block-group placement → RAID):
    - `m12-mini-file-system/` (overview + 7 slices)
    - `m21-ffs/`
+   - `m24-raid/`
 
 4. **Scheduling** (MLFQ → proportional-share → multi-CPU):
    - `m13-mlfq/`

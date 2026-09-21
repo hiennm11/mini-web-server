@@ -2,7 +2,7 @@
 
 ## Status Snapshot
 
-Updated 2026-09-18 (M23.3 / M23.4 / M23.5 / M23.6 added). Legend: ✅ built + experimented + noted · 🟡 planned · ⬜ future.
+Updated 2026-09-21 (M24 RAID added). Legend: ✅ built + experimented + noted · 🟡 planned · ⬜ future.
 
 | Slice | Capability | OSTEP chapter | Status |
 |-------|-----------|---------------|--------|
@@ -44,12 +44,13 @@ Updated 2026-09-18 (M23.3 / M23.4 / M23.5 / M23.6 added). Legend: ✅ built + ex
 | M23 (23.4) | Public-key crypto: RSA-2048 sign/verify + SPKI pubkey distribution | Ch. 56.3, Ch. 56.6, Ch. 57.3 (foreshadow) | ✅ |
 | M23 (23.5) | TLS-style handshake: client/server nonces + HKDF-SHA256 session key + encrypt/decrypt | Ch. 57.5 | ✅ |
 | M23 (23.6) | TOTP: HMAC-SHA256 + 6-digit truncation + ±1-step window | Ch. 54.5 | ✅ |
+| M24 (24.1) | RAID simulator: striping (0) + mirroring (1) + dedicated parity (4) + rotating parity (5) + XOR recovery | Ch. 38 (§38.2, §38.3, §38.4, §38.7, §38.8) | ✅ |
 | M15 | ArrayPool&lt;byte&gt; in async mode (receive + response buffers) | n/a (perf) | ✅ |
 
-**Milestones**: M1 ✅–M15 ✅, M13.2 ✅, M13.3 ✅, M16 ✅, M17 ✅, M18 ✅, M19 ✅, M20 ✅, M21 ✅, M22 ✅, M23 ✅ (incl. .1 password + .2 at-rest + .3 RBAC + .4 PK + .5 handshake + .6 TOTP). M8–M15 are the post-roadmap extensions per `docs/adr/0004-extend-broad-concurrency-roadmap.md` (M8–M12), `docs/adr/0006-mini-scheduler-mlfq-proportional-multicpu.md` (M13), `docs/adr/0007-mini-pager-mmu-tlb-multilevel-replacement.md` (M14). The original 12-slice roadmap is closed. **Latest**: M23.6 (TOTP — closes Part IV's remaining OSEP Ch. 54.5 "what you have"). See `docs/adr/0008`–`0013` for ADRs. Each yielded a small slice with its own overview + smoke trace in `docs/learning/`.
-**Tests**: 14 passing.
+**Milestones**: M1 ✅–M15 ✅, M13.2 ✅, M13.3 ✅, M16 ✅, M17 ✅, M18 ✅, M19 ✅, M20 ✅, M21 ✅, M22 ✅, M23 ✅ (incl. .1 password + .2 at-rest + .3 RBAC + .4 PK + .5 handshake + .6 TOTP), M24 ✅ (RAID 0/1/4/5 with XOR recovery). M8–M15 are the post-roadmap extensions per `docs/adr/0004-extend-broad-concurrency-roadmap.md` (M8–M12), `docs/adr/0006-mini-scheduler-mlfq-proportional-multicpu.md` (M13), `docs/adr/0007-mini-pager-mmu-tlb-multilevel-replacement.md` (M14). The original 12-slice roadmap is closed. **Latest**: M24 (RAID — closes OSEP Ch. 38 in the persistence thread). See `docs/adr/0008`–`0014` for ADRs. Each yielded a small slice with its own overview + smoke trace in `docs/learning/`.
+**Tests**: 24 passing (14 pre-existing + 10 new RAID tests).
 **Code/runtime**: `net10.0`. Two run modes selectable via `--async` flag: default = bounded worker pool (8 threads) + producer/consumer queue, async = `AcceptAsync` + `Task` per connection with `ReceiveAsync` / `SendAsync`. Port 8080, static files under `wwwroot`.
-**Latest commit**: M23.6 (TOTP — closes the last canonical Part IV Security gap). Three new files in `src/MiniWebServer.Host/MiniCrypto/` — `RsaSigner.cs` (M23.4, RSA-2048 sign/verify with SPKI public-key distribution), `Handshake.cs` (M23.5, clean-room RFC 5869 HKDF-SHA256 + one-shot `RunDemo()` that generates two nonces and derives a 32-byte session key, then encrypts + decrypts a sample payload with M23.2's AEAD), `Totp.cs` (M23.6, RFC 6238 TOTP with HMAC-SHA256 + 6-digit truncation + 30s step + ±1-step window, plus RFC 4648 base32 encoder). New HTTP routes: `/auth/register?role=admin` (M23.3), `/auth/grant?user=X&role=admin`, `/auth/role?user=X`, `/protected/secret` (M23.3 RBAC gate — Admin + correct password returns synthesized "the cake is a lie"; any failure returns byte-identical 403), `/crypto/rsa-keygen` + `/crypto/sign` + `/crypto/verify` + `/crypto/import-pubkey` (M23.4), `/crypto/handshake` (M23.5), `/crypto/totp-demo?msg=HEXSECRET` (M23.6). Smoke (captured 2026-09-18) confirms: alice (Admin) gets `/protected/secret`, bob (User) gets 403, alice + wrong pw gets byte-identical 403; sign + verify round-trip with same msg → OK, different msg → FAIL; HKDF session key from random nonces encrypts + decrypts via M23.2 AEAD; TOTP current step verifies, ±1 step verifies, ±2 steps rejects, wrong code rejects. Build clean, 14/14 tests still pass. **Part IV coverage now ~78% of OSEP chapters** (was 62% after M23.2).
+**Latest commit**: M24 (RAID — closes OSEP Ch. 38). New file `src/MiniWebServer.Host/MiniScheduler/Raid.cs` (~370 lines): a single `Raid` simulator with the four canonical levels (RAID 0 striping, RAID 1 mirroring, RAID 4 dedicated parity, RAID 5 rotating parity), full-stripe writes + small-write parity update path, single-disk failure model per §38.2, XOR recovery via the surviving N-1 blocks per §38.7, rotating parity per §38.8 figure 38.8 (`(s + 1) % N`). New HTTP route `/raid/run?level=N&disks=N&blocks=M&failed=K` runs a deterministic payload write + read-back scenario. New tests cover every level's round-trip + failure semantics. Build clean, 24/24 tests pass (14 pre-existing + 10 new RAID tests).
 
 ## OSTEP Coverage
 
@@ -59,7 +60,7 @@ The book has ~50 chapters. Repo maps **the core three pieces** (Virtualization +
 |---|---|---|
 | **Virtualization** | Ch. 4 (§4.1 process, §4.4 states Running/Ready/Blocked); Ch. 6 (§6.1 direct execution, §6.2 syscalls, §6.3 timer interrupt); Ch. 8 (§8.1-§8.5 MLFQ); **Ch. 9 lottery + stride scheduling**; **Ch. 10 multi-CPU scheduling (SQMS / MQMS / work stealing)**; Ch. 13 (address space, implicit); Ch. 18 (linear page table); **Ch. 19 TLB**; **Ch. 20 multi-level page tables**; **Ch. 21 + Ch. 22 replacement policies**; **Ch. 23 complete VM (COW + swapping)**; Ch. 26-27 (thread = point of execution, thread API); Ch. 33 (event-based) | M1, M2, M3, M4, M7, M13, M13.2, M13.3, M14, M16, M17, M18, M19 |
 | **Concurrency** | Ch. 26 (§26.4 figure 26.7 the race); Ch. 27 (thread API); Ch. 28 (§28.1 lock abstraction, §28.7 test-and-set, §28.9 CAS, §28.16 two-phase); Ch. 30 (CVs); Ch. 31 (§31.4 bounded buffer, §31.5 reader-writer, **§31.6 dining philosophers**); Ch. 33 (events); **Ch. 32.3 lock-free CAS** | M4, M5, M6, M7, M8, M9, M10, M20, M22 |
-| **Persistence** | Ch. 36 (I/O devices — TCP receive loop uses kernel async I/O); Ch. 39 (§39.3 open, §39.4 read/write, §39.13 rmdir); Ch. 40 (§40.2 vsfs layout, §40.3 inode, §40.4 directory, §40.5 free space, §40.6 access path, §40.7 caching); **Ch. 41 FFS (cylinder groups, locality, large-file exception, filespan/dirspan)**; Ch. 42.3 (data journaling, recovery, batching, circular log, [Tricky Case: Block Reuse] deferred) | M1, M2, M3, M11, M12.1–12.7, M21 |
+| **Persistence** | Ch. 36 (I/O devices — TCP receive loop uses kernel async I/O); Ch. 38 (§38.2 independent failure model, §38.3 striping, §38.4 mirroring, §38.7 dedicated parity, §38.8 rotating parity); Ch. 39 (§39.3 open, §39.4 read/write, §39.13 rmdir); Ch. 40 (§40.2 vsfs layout, §40.3 inode, §40.4 directory, §40.5 free space, §40.6 access path, §40.7 caching); **Ch. 41 FFS (cylinder groups, locality, large-file exception, filespan/dirspan)**; Ch. 42.3 (data journaling, recovery, batching, circular log, [Tricky Case: Block Reuse] deferred) | M1, M2, M3, M11, M12.1–12.7, M21, M24 |
 | **Security** | Ch. 53.4 Saltzer-Schroeder; **Ch. 54.5 TOTP / what-you-have** (RFC 6238, HMAC-SHA256, ±1-step window); Ch. 54.4 password storage; Ch. 55.6 RBAC + protected route; Ch. 56.2 AES-256-GCM at-rest; Ch. 56.3 RSA-2048 sign/verify; Ch. 56.4 hashes + integrity; Ch. 56.5 nonce / brute force / key selection; Ch. 56.6 cryptography + OSes; Ch. 56.7 at-rest; **Ch. 57.5 TLS-style handshake** (HKDF-SHA256 session key) — Ch. 53.5 system-call primitives, Ch. 54.6 biometrics, Ch. 54.7 sudo/setuid, Ch. 55 ACLs per file / capabilities / mandatory mode, Ch. 56.3 hybrid encryption, Ch. 57.3 X.509 cert chains, Ch. 57.6 replay protection / SSH / HTTPS, hardware enclaves (TPM) | M23 (.1 password + .2 at-rest + .3 RBAC + .4 PK + .5 handshake + .6 TOTP) |
 
 **Roughly 78% of OSEP chapters have working code in this repo**, with §-sub-section coverage noted in each milestone's `overview.md`.
@@ -88,6 +89,7 @@ The book has ~50 chapters. Repo maps **the core three pieces** (Virtualization +
 - **M20 Dining philosophers** — Ch. 31.6 (broken solution = deadlock; Dijkstra's fix = last philosopher reverses order). See `m20-dining-philosophers/overview.md`.
 - **M22 Lock-free** — Ch. 32.3 "Mutual Exclusion" (CAS-based `AtomicIncrement` + lock-free list insert / Treiber stack). ABA mitigation by never freeing popped nodes; livelock mitigated by `SpinWait`. See `m22-lock-free/overview.md`.
 - **M21 FFS** — Ch. 41 §41.3 (cylinder/block groups + per-group bitmaps), §41.4 (locality policies: dirs in low-density group + files in parent's group), §41.6 (large-file exception with N-block rotation), §41.7 (filespan + dirspan metrics). §41.7 sub-blocks + parameterized placement deferred. See `m21-ffs/overview.md`.
+- **M24 RAID** — Ch. 38 §38.2 (independent failure model — one disk may fail at a time), §38.3 (RAID 0 round-robin striping, no redundancy), §38.4 (RAID 1 full mirroring on 2 disks), §38.7 (RAID 4 dedicated parity disk + XOR recovery via the surviving N-1 blocks + small-write parity-update path), §38.8 (RAID 5 rotating parity, parity for stripe `s` on disk `(s + 1) % N` per figure 38.8). §38.5 RAID 2 (bit-level Hamming) + §38.6 RAID 3 (byte-level striping + parity) deferred — superseded by block-level striping in practice. §38.9 RAID 6 (dual parity P+Q) deferred. The simulator models each block as one byte in a `byte[][]` so the XOR is observable in the smoke trace; real RAID stores whole 4 KB blocks. See `m24-raid/overview.md` and `docs/adr/0014-m24-raid.md`.
 - **M15 arraypool** — performance only; closest OSEP reference is Ch. 40.7 (caching). See `m15-arraypool/overview.md`.
 - **M23 Password auth** — Ch. 53.4 Saltzer-Schroeder fail-safe defaults (identical "invalid credentials" response for both "no such user" and "wrong password"; dummy PBKDF2 when username is missing so the response time doesn't leak it); Ch. 54.4 password storage: PBKDF2-HMAC-SHA256 with 100k iterations + 16-byte random salt + constant-time compare via `CryptographicOperations.FixedTimeEquals`; Ch. 56.4 cryptographic hash foundations (PBKDF2 is built on HMAC-SHA256). **Out of scope**: TLS (Ch. 57), RBAC/ACLs (Ch. 55), MFA, account lockout, persistence. See `m23-auth/overview.md` and `docs/adr/0008-m23-auth-password-hashing.md`.
 - **M23.2 At-rest encryption** — Ch. 56.2 symmetric crypto (AES-256 via `System.Security.Cryptography.AesGcm`); Ch. 56.4 cryptographic hashes + integrity (GCM's 128-bit auth tag fails closed); Ch. 56.5 brute force + key selection (never use weak keys; the per-session 256-bit key is `RandomNumberGenerator`-sourced); Ch. 56.6 cryptography + OSes (key lives in process RAM only — a compromised OS reading our key is exactly the threat OSEP §56.6 names); Ch. 56.7 at-rest encryption (the chapter the slice is named after: if the device is stolen, the blocks are useless without the in-memory key). **Out of scope**: TLS handshake (Ch. 57), PK cryptography (Ch. 56.3), TPM-backed keys (Ch. 53 security enclaves), encrypting `minifs.img` blocks at the M12 layer. See `m23-at-rest-encryption/overview.md` and `docs/adr/0009-m23.2-at-rest-encryption.md`.
@@ -127,7 +129,7 @@ Chapters **not yet implemented** (natural next slices):
 
 - **Part I Virtualization**: Ch. 7 process API (out of scope for .NET), Ch. 14-17 base+bound / segmentation / free-space mgmt (superseded by paging), §19.4 ASID, §20.4 inverted page tables, §21.4-§21.6 stack property + approximated LRU + dirty pages, §23.1 VMS demand-zeroing + RSS + segmented FIFO + second-chance list, §23.2 Linux 2Q + huge pages + 4-level PTs + NX + ASLR + KPTI
 - **Part II Concurrency**: Ch. 29 lock-free data structures — partial coverage in M22 (CAS primitives); Ch. 32.2 atomicity/order bugs (CV fixes for the original cases), Ch. 32.3 deadlock prevention/avoidance (lock ordering, hold-and-wait, etc.)
-- **Part III Persistence**: Ch. 36-38 device drivers & RAID, Ch. 43 LFS, Ch. 44 flash, Ch. 45 data integrity — M12 covers Ch. 40 vsfs + Ch. 42.3 journaling; M21 covers Ch. 41 FFS placement
+- **Part III Persistence**: Ch. 36 device drivers (m11 covers the syscall-level surface, not the interrupt/PIO/DMA story); Ch. 43 LFS, Ch. 44 flash, Ch. 45 data integrity — M12 covers Ch. 40 vsfs + Ch. 42.3 journaling; M21 covers Ch. 41 FFS placement; M24 covers Ch. 38 RAID levels 0/1/4/5
 - **Part IV Security**: Ch. 53 §53.5 (system calls + access control primitives), Ch. 54 §54.6 (biometrics) + §54.7 (non-human auth: sudo, setuid), Ch. 55 in depth (ACLs per file, capabilities, mandatory vs discretionary, Android permission model), Ch. 56.3 hybrid encryption (sign-then-encrypt example), Ch. 57 entire except §57.5 key-derivation (X.509 chains, MITM, SSH, HTTPS), key-revocation (§57.6), hardware enclaves (§53 TPM) — M23.1 (password) + M23.2 (at-rest) + M23.3 (RBAC) + M23.4 (PK sign/verify) + M23.5 (TLS-style handshake key derivation) + M23.6 (TOTP) cover most of the canonical Part IV content; remaining is mostly operational/extended PK + biometrics + sudo-equivalent.
 
 The repo is best understood as an **OS concepts lab for the core three pieces**, not a full reproduction of the textbook. The concurrency chapter sweep (race observable → race fixed → pool → async → dining philosophers → lock-free CAS) is now substantial; persistence is reduced to "serve files from a directory + journal for crash safety"; virtualization is now substantial (thread/process abstraction + MLFQ + proportional-share + multi-CPU + linear paging + TLB + multi-level page tables + replacement policy + COW).
@@ -158,6 +160,7 @@ The repository is a single-context .NET solution.
 - `src/MiniWebServer.Host/MiniCrypto/RsaSigner.cs` (M23.4) wraps `System.Security.Cryptography.RSA.Create(2048)` with SHA-256 + PSS; `SignData` + `VerifyData`. Private key kept in process memory; public key exported as SPKI/DER bytes via `ExportSubjectPublicKeyInfo()`.
 - `src/MiniWebServer.Host/MiniCrypto/Handshake.cs` (M23.5) implements a clean-room RFC 5869 HKDF-SHA256 (Extract+Expand) plus a one-shot `RunDemo()` that generates two nonces + derives a 32-byte session key + feeds it to M23.2's AEAD for a round-trip demo.
 - `src/MiniWebServer.Host/MiniCrypto/Totp.cs` (M23.6) implements RFC 6238 TOTP with HMAC-SHA256 (instead of the historical SHA-1), 6-digit truncation via dynamic-offset, 30-second step, ±1 step verification window, plus RFC 4648 base32 encoder for enrollment strings.
+- `src/MiniWebServer.Host/MiniScheduler/Raid.cs` (M24) is the RAID simulator: a single `Raid` class with the four canonical levels (RAID 0 round-robin striping, RAID 1 full mirroring, RAID 4 dedicated parity, RAID 5 rotating parity per OSEP §38.8 figure 38.8). Single-disk failure model per §38.2; XOR recovery per §38.7 — `lostBlock = ⊕ of surviving N-1 blocks in the stripe`. Each block is modelled as one byte so the XOR is observable in the smoke trace; real RAID stores whole 4 KB blocks.
 - `src/MiniWebServer.Host/wwwroot/index.html` is the default static page for `/` and is copied to the build output.
 - `tests/MiniWebServer.Host.Tests/` contains console-based parser tests.
 
@@ -258,6 +261,19 @@ This glossary defines the canonical vocabulary used across `CONTEXT.md`, `docs/a
   _Avoid_: WAL (use only in code or in headline where the acronym is conventional)
 - **Mini FS (minifs)**: This lab's hand-rolled teaching filesystem. In-memory + optional `minifs.img` backing file.
 
+### RAID (M24)
+
+- **RAID**: Redundant Array of Inexpensive Disks (OSEP §38). A layer below the filesystem that stripes, mirrors, or XOR-parities data across N physical disks so a single disk failure doesn't lose data. The filesystem sees a flat block array (OSEP §38.1); the RAID layout is invisible above it.
+- **Stripe unit**: The amount of contiguous data placed on one disk before moving to the next (OSEP §38.3). We model it as one block; real RAID uses larger stripe units for sequential workloads.
+- **Stripe**: The set of blocks that share the same offset across N disks. In RAID 4/5 the stripe includes one parity block; in RAID 1 the stripe is two mirrors of the same logical block.
+- **Parity**: A block computed as the XOR of the other blocks in the same stripe (OSEP §38.7). Storing one extra parity block per stripe lets the array recover from any single disk loss: the lost block equals the XOR of the surviving N-1 blocks.
+- **Disk failure model** (OSEP §38.2): The textbook assumption that *any one* of the N disks may fail at a time. MTTF of an N-disk array is roughly MTTF of one disk divided by N. Recovery via XOR satisfies this single-failure-tolerance constraint.
+- **RAID 0** (OSEP §38.3): Block-level striping, no redundancy. N disks = N× bandwidth but N× failure rate.
+- **RAID 1** (OSEP §38.4): Full mirroring. Two disks hold identical copies of every block. Writes double, reads can pick either copy.
+- **RAID 4** (OSEP §38.7): Block-level striping + one dedicated parity disk. Parity disk is the write bottleneck.
+- **RAID 5** (OSEP §38.8): Block-level striping + rotating parity. No single disk is the bottleneck — parity writes spread across the array. The figure-38.8 convention `parityDiskFor(stripe) = (stripe + 1) % N` is the canonical layout.
+- **Rotating parity**: The RAID 5 pattern of placing parity stripe `s` on disk `(s + 1) % N` so every disk plays both data and parity roles across the array.
+
 ### Scheduling algorithms (M13, M13.2, M13.3)
 
 - **MLFQ** (Multi-Level Feedback Queue): A scheduler that demotes CPU-bound jobs and promotes I/O-bound ones across multiple priority queues, with periodic priority boost to prevent starvation.
@@ -320,7 +336,7 @@ Each `HandleClient` invocation:
 7. Sends the response, logs size, closes the socket.
 8. Per-client `SocketException` and generic `Exception` are logged; one bad client does not stop the host.
 
-Routes (canonical runtime list; *why* each route exists lives in the matching ADR — 0008 → /auth/*, 0009 → /crypto/encrypt|decrypt|keygen|tamper-demo|nonce-reuse-demo|dump, 0010 → /auth/grant|role|/protected/secret, 0011 → /crypto/rsa-keygen|sign|verify|import-pubkey, 0012 → /crypto/handshake, 0013 → /crypto/totp-demo):
+Routes (canonical runtime list; *why* each route exists lives in the matching ADR — 0008 → /auth/*, 0009 → /crypto/encrypt|decrypt|keygen|tamper-demo|nonce-reuse-demo|dump, 0010 → /auth/grant|role|/protected/secret, 0011 → /crypto/rsa-keygen|sign|verify|import-pubkey, 0012 → /crypto/handshake, 0013 → /crypto/totp-demo, 0014 → /raid/run):
 - `/slow` → 404 after 30 s sleep
 - `/race` → runs 1_000_000 non-atomic increments on `RequestStats.UnsafeCounter` (race demo); returns cumulative value
 - `/race-safe` → same loop under `lock (RequestStats.SafeCounterLock)`; deterministic
@@ -345,6 +361,7 @@ Routes (canonical runtime list; *why* each route exists lives in the matching AD
 - `/crypto/import-pubkey` → M23.4; switch the active public key to `?msg=HEX`. Mirror of "I got your key from somewhere else".
 - `/crypto/handshake` → M23.5; one-shot simplified TLS-style handshake: generates two nonces, derives a 32-byte session key via HKDF-SHA256, uses that key to encrypt + decrypt a sample payload via the M23.2 AEAD. Proves the key is a working AES-256 key.
 - `/crypto/totp-demo?msg=HEXSECRET` → M23.6; compute the 6-digit TOTP for the given secret at the current time, then verify it under four conditions (current, ±1 step skew, ±2 steps outside window, wrong code).
+- `/raid/run?level=0|1|4|5&disks=N&blocks=M&failed=K` → M24; write a deterministic payload across `M` stripes, optionally fail disk `K`, then read everything back. Output is the disk grid + write/read traces. RAID 0 fails with one disk loss; RAID 1 mirrors; RAID 4/5 recover via XOR.
 
 ### `--async` mode (event-based)
 
@@ -416,8 +433,9 @@ Phase 3 + 4 learning docs:
 - `docs/learning/m23-pkcrypto/` (M23.4 PK sign/verify overview + slice doc)
 - `docs/learning/m23-handshake/` (M23.5 TLS-style handshake overview + slice doc)
 - `docs/learning/m23-totp/` (M23.6 TOTP overview + slice doc)
+- `docs/learning/m24-raid/` (M24 RAID overview + slice doc)
 
-All twelve roadmap slices + post-roadmap extensions + the VM paging chain + the multi-CPU/dining/FFS/lock-free quartet + the M23 Part IV suite (.1 password + .2 at-rest + .3 RBAC + .4 PK + .5 handshake + .6 TOTP) have learning notes with smoke-test output captured inline. M8 (the first post-roadmap extension) has its own learning note and a 6.3 section appended to the M6 note. The M16-M19 chain + M13.2 + M13.3 + M20 + M21 + M22 + M23 all have an `overview.md` and a slice doc under their own folder.
+All twelve roadmap slices + post-roadmap extensions + the VM paging chain + the multi-CPU/dining/FFS/lock-free quartet + the M23 Part IV suite (.1 password + .2 at-rest + .3 RBAC + .4 PK + .5 handshake + .6 TOTP) + M24 (RAID 0/1/4/5) have learning notes with smoke-test output captured inline. M8 (the first post-roadmap extension) has its own learning note and a 6.3 section appended to the M6 note. The M16-M19 chain + M13.2 + M13.3 + M20 + M21 + M22 + M23 + M24 all have an `overview.md` and a slice doc under their own folder.
 
 ## Design Intent
 

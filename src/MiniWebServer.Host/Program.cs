@@ -888,6 +888,128 @@ static void HandleClient(Socket clientSocket, string webRoot)
             response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
                 Encoding.UTF8.GetBytes(output));
         }
+        else if (parsedRequest.Path.StartsWith("/raid/run"))
+        {
+            // RAID simulator (M24 / OSEP Ch. 38). ?level=0|1|4|5&disks=N&blocks=M&failed=K
+            // Default scenario: write a deterministic payload across all stripes,
+            // optionally fail disk K, then read everything back and report.
+            int level = 5;
+            int disks = 4;
+            int blocks = 4;
+            int failed = -1;
+            int qIdx = parsedRequest.Path.IndexOf('?');
+            if (qIdx >= 0)
+            {
+                foreach (var kv in parsedRequest.Path.Substring(qIdx + 1).Split('&'))
+                {
+                    int eq = kv.IndexOf('=');
+                    if (eq <= 0) continue;
+                    var k = kv.Substring(0, eq);
+                    var v = kv.Substring(eq + 1);
+                    if (k == "level" && int.TryParse(v, out var lv)) level = lv;
+                    else if (k == "disks" && int.TryParse(v, out var dv)) disks = dv;
+                    else if (k == "blocks" && int.TryParse(v, out var bv)) blocks = bv;
+                    else if (k == "failed" && int.TryParse(v, out var fv)) failed = fv;
+                }
+            }
+            if (level != 0 && level != 1 && level != 4 && level != 5)
+                level = 5;
+            var raidLevel = level switch
+            {
+                0 => MiniWebServer.Host.MiniScheduler.RaidLevel.Raid0,
+                1 => MiniWebServer.Host.MiniScheduler.RaidLevel.Raid1,
+                4 => MiniWebServer.Host.MiniScheduler.RaidLevel.Raid4,
+                5 => MiniWebServer.Host.MiniScheduler.RaidLevel.Raid5,
+                _ => MiniWebServer.Host.MiniScheduler.RaidLevel.Raid5,
+            };
+            var raid = new MiniWebServer.Host.MiniScheduler.Raid(raidLevel, disks, blocks);
+
+            // Write a deterministic payload: each logical block gets a unique byte.
+            // For RAID 0 each logical block is its own disk slot; for RAID 1 each is a
+            // position on both disks; for RAID 4/5 we fill stripes.
+            string writeTrace;
+            if (raidLevel == MiniWebServer.Host.MiniScheduler.RaidLevel.Raid0)
+            {
+                // Total logical blocks = disks * blocks. Write b'A'..b'Z' wrapping.
+                int total = disks * blocks;
+                writeTrace = $"wrote {total} logical blocks across {disks} disks";
+                for (int i = 0; i < total; i++)
+                {
+                    byte b = (byte)('A' + (i % 26));
+                    raid.WriteRaid0(i, b);
+                }
+            }
+            else if (raidLevel == MiniWebServer.Host.MiniScheduler.RaidLevel.Raid1)
+            {
+                writeTrace = $"wrote {blocks} logical blocks mirrored across 2 disks";
+                for (int i = 0; i < blocks; i++)
+                {
+                    byte b = (byte)('A' + (i % 26));
+                    raid.WriteRaid1(i, b);
+                }
+            }
+            else
+            {
+                // RAID 4/5: fill `blocks` stripes.
+                int dataDisks = disks - 1;
+                writeTrace = $"wrote {blocks} stripes with {dataDisks} data bytes each";
+                for (int s = 0; s < blocks; s++)
+                {
+                    var data = new byte[dataDisks];
+                    for (int i = 0; i < dataDisks; i++)
+                        data[i] = (byte)('A' + ((s * dataDisks + i) % 26));
+                    raid.WriteStripeRaidParity(s, data);
+                }
+            }
+
+            // Optionally fail a disk.
+            string readTrace;
+            if (failed >= 0)
+            {
+                raid.FailDisk(failed);
+            }
+            // Read back.
+            var reads = new System.Collections.Generic.List<string>();
+            try
+            {
+                if (raidLevel == MiniWebServer.Host.MiniScheduler.RaidLevel.Raid0)
+                {
+                    int total = disks * blocks;
+                    for (int i = 0; i < total; i++)
+                        reads.Add(((char)raid.ReadRaid0(i)).ToString());
+                }
+                else if (raidLevel == MiniWebServer.Host.MiniScheduler.RaidLevel.Raid1)
+                {
+                    for (int i = 0; i < blocks; i++)
+                        reads.Add(((char)raid.ReadRaid1(i)).ToString());
+                }
+                else
+                {
+                    int dataDisks = disks - 1;
+                    for (int s = 0; s < blocks; s++)
+                    {
+                        var cells = new System.Collections.Generic.List<string>();
+                        for (int i = 0; i < dataDisks; i++)
+                            cells.Add(((char)raid.ReadRaidParity(s, i)).ToString());
+                        cells.Add("P" + ((char)raid.ReadParity(s)).ToString());
+                        reads.Add($"stripe{s}=[{string.Join(",", cells)}]");
+                    }
+                }
+                readTrace = $"read OK: {string.Join(" ", reads)}";
+            }
+            catch (Exception ex)
+            {
+                readTrace = $"read FAIL: {ex.Message}";
+            }
+
+            string raidOutput = raid.FormatLayout()
+                + Environment.NewLine
+                + $"trace: {writeTrace}"
+                + Environment.NewLine
+                + $"trace: {readTrace}";
+            response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                Encoding.UTF8.GetBytes(raidOutput));
+        }
         else if (parsedRequest.Path.StartsWith("/auth/"))
         {
             // Password-based authentication (M23 / OSEP Ch. 54). Routes:

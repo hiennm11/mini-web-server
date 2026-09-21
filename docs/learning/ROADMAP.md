@@ -19,16 +19,16 @@ Remaining chapters and the slices that will cover them. Ordered roughly by "depe
 | 10d | **M23.4 PK crypto** | Ch. 56.3 | none | Medium | ✅ |
 | 10e | **M23.5 TLS handshake** | Ch. 57.5 | M23.2 + M23.4 | Medium | ✅ |
 | 10f | **M23.6 TOTP** | Ch. 54.5 | none | Small | ✅ |
-| 11 | **M24 RAID** | Ch. 38 | M11 | Small | ⬜ |
+| 11 | **M24 RAID** | Ch. 38 | M11 | Small | ✅ |
 | 12 | **M25 LFS** | Ch. 43 | M12, M21 | Medium | ⬜ |
 | 13 | **M26 Flash-based SSDs** | Ch. 44 | M12 | Small | ⬜ |
 | 14 | **M27 Data integrity** | Ch. 45 | M12 | Small | ⬜ |
 
 This covers Ch. 9, 10, 19, 20, 21, 22, 23, 31.6, 32.3, 38, 41, 43, 44, 45, 53-57 — the rest of OSEP after M1-M15.
 
-**Done**: M13.2, M13.3, M16, M17, M18, M19 (the VM paging chain), M20 (dining philosophers), M21 (FFS), M22 (lock-free CAS), the M23 Part IV suite (.1 password + .2 at-rest + .3 RBAC + .4 PK sign/verify + .5 TLS-style handshake + .6 TOTP) — all have `overview.md` + slice doc under `docs/learning/`. Part IV remaining: only X.509 cert chains, biometrics, sudo-equivalent — strictly operational.
+**Done**: M13.2, M13.3, M16, M17, M18, M19 (the VM paging chain), M20 (dining philosophers), M21 (FFS), M22 (lock-free CAS), the M23 Part IV suite (.1 password + .2 at-rest + .3 RBAC + .4 PK sign/verify + .5 TLS-style handshake + .6 TOTP), M24 (RAID 0/1/4/5 with XOR recovery) — all have `overview.md` + slice doc under `docs/learning/`. Part IV remaining: only X.509 cert chains, biometrics, sudo-equivalent — strictly operational.
 
-**Next**: **M24 RAID** (Ch. 38, depends on M11 raw block I/O) — Part III Persistence slice, smallest-effort remaining.
+**Next**: **M25 LFS** (Ch. 43, depends on M12 + M21) — Part III Persistence slice, log-structured writes.
 
 Excluded (not addressing in this roadmap):
 - Ch. 7 Process API (`fork`/`exec`/`wait`) — out of scope for .NET

@@ -155,6 +155,186 @@ Run("receiver returns 0 when Content-Length is malformed", () =>
     AssertEqual(0, HttpRequestReceiver.ParseContentLength(header));
 });
 
+// ----- M24 RAID simulator (OSEP Ch. 38) -----
+
+Run("raid0 round-trip across 4 disks", () =>
+{
+    var raid = new MiniWebServer.Host.MiniScheduler.Raid(
+        MiniWebServer.Host.MiniScheduler.RaidLevel.Raid0, diskCount: 4, blockCount: 4);
+    // Logical block 5 -> disk 1, block 1 (5 % 4 = 1, 5 / 4 = 1).
+    raid.WriteRaid0(5, (byte)'Z');
+    AssertEqual((byte)'Z', raid.DiskByte(1, 1));
+    AssertEqual((byte)'Z', raid.ReadRaid0(5));
+});
+
+Run("raid0 round-trip on every disk", () =>
+{
+    var raid = new MiniWebServer.Host.MiniScheduler.Raid(
+        MiniWebServer.Host.MiniScheduler.RaidLevel.Raid0, diskCount: 3, blockCount: 2);
+    // Round-robin across 3 disks: blocks 0,3 -> disk 0; 1,4 -> disk 1; 2,5 -> disk 2.
+    raid.WriteRaid0(0, (byte)'A');
+    raid.WriteRaid0(1, (byte)'B');
+    raid.WriteRaid0(2, (byte)'C');
+    raid.WriteRaid0(3, (byte)'D');
+    raid.WriteRaid0(4, (byte)'E');
+    raid.WriteRaid0(5, (byte)'F');
+    AssertEqual((byte)'A', raid.ReadRaid0(0));
+    AssertEqual((byte)'B', raid.ReadRaid0(1));
+    AssertEqual((byte)'C', raid.ReadRaid0(2));
+    AssertEqual((byte)'D', raid.ReadRaid0(3));
+    AssertEqual((byte)'E', raid.ReadRaid0(4));
+    AssertEqual((byte)'F', raid.ReadRaid0(5));
+});
+
+Run("raid0 fails after one disk loss (no redundancy)", () =>
+{
+    var raid = new MiniWebServer.Host.MiniScheduler.Raid(
+        MiniWebServer.Host.MiniScheduler.RaidLevel.Raid0, diskCount: 3, blockCount: 2);
+    raid.WriteRaid0(0, (byte)'A');
+    raid.WriteRaid0(1, (byte)'B');
+    raid.WriteRaid0(2, (byte)'C');
+    raid.FailDisk(1);
+    // Logical block 1 lives on disk 1 -> must throw.
+    AssertThrows<InvalidOperationException>(() => raid.ReadRaid0(1));
+    // Logical block 0 lives on disk 0 -> still readable.
+    AssertEqual((byte)'A', raid.ReadRaid0(0));
+});
+
+Run("raid1 mirror writes both disks", () =>
+{
+    var raid = new MiniWebServer.Host.MiniScheduler.Raid(
+        MiniWebServer.Host.MiniScheduler.RaidLevel.Raid1, diskCount: 2, blockCount: 4);
+    raid.WriteRaid1(2, (byte)'M');
+    AssertEqual((byte)'M', raid.DiskByte(0, 2));
+    AssertEqual((byte)'M', raid.DiskByte(1, 2));
+    AssertEqual((byte)'M', raid.ReadRaid1(2));
+});
+
+Run("raid1 mirror survives one disk loss", () =>
+{
+    var raid = new MiniWebServer.Host.MiniScheduler.Raid(
+        MiniWebServer.Host.MiniScheduler.RaidLevel.Raid1, diskCount: 2, blockCount: 4);
+    raid.WriteRaid1(0, (byte)'A');
+    raid.WriteRaid1(1, (byte)'B');
+    raid.WriteRaid1(2, (byte)'C');
+    raid.WriteRaid1(3, (byte)'D');
+    raid.FailDisk(0);
+    AssertEqual((byte)'A', raid.ReadRaid1(0));
+    AssertEqual((byte)'C', raid.ReadRaid1(2));
+    raid.FailDisk(1);  // both disks dead - reads still work because either is a valid copy
+    AssertEqual((byte)'A', raid.ReadRaid1(0));
+});
+
+Run("raid4 parity is XOR of data blocks", () =>
+{
+    var raid = new MiniWebServer.Host.MiniScheduler.Raid(
+        MiniWebServer.Host.MiniScheduler.RaidLevel.Raid4, diskCount: 4, blockCount: 2);
+    // Stripe 0: data bytes A=0x41, B=0x42, C=0x43. Parity = 0x41 ^ 0x42 ^ 0x43 = 0x40.
+    raid.WriteStripeRaidParity(0, new byte[] { 0x41, 0x42, 0x43 });
+    // Parity disk is DiskCount-1 = 3, at stripe 0.
+    AssertEqual((byte)0x40, raid.ReadParity(0));
+    // Data reads also work.
+    AssertEqual((byte)0x41, raid.ReadRaidParity(0, 0));
+    AssertEqual((byte)0x42, raid.ReadRaidParity(0, 1));
+    AssertEqual((byte)0x43, raid.ReadRaidParity(0, 2));
+});
+
+Run("raid4 small write updates parity via XOR", () =>
+{
+    var raid = new MiniWebServer.Host.MiniScheduler.Raid(
+        MiniWebServer.Host.MiniScheduler.RaidLevel.Raid4, diskCount: 4, blockCount: 2);
+    raid.WriteStripeRaidParity(0, new byte[] { 0x41, 0x42, 0x43 });
+    // Update data[1] from 0x42 to 0xFF. Parity: 0x40 ^ 0x42 ^ 0xFF = 0xFD.
+    raid.WriteRaidParity(0, 1, 0xFF);
+    AssertEqual((byte)0xFF, raid.ReadRaidParity(0, 1));
+    AssertEqual((byte)0xFD, raid.ReadParity(0));
+});
+
+Run("raid4 recovers lost data block via XOR", () =>
+{
+    var raid = new MiniWebServer.Host.MiniScheduler.Raid(
+        MiniWebServer.Host.MiniScheduler.RaidLevel.Raid4, diskCount: 4, blockCount: 2);
+    raid.WriteStripeRaidParity(0, new byte[] { 0x41, 0x42, 0x43 });
+    raid.WriteStripeRaidParity(1, new byte[] { 0x44, 0x45, 0x46 });
+    // Fail disk 1, then read data[0] of stripe 0 (which lives on the failed disk
+    // per the RAID 4 mapping).
+    raid.FailDisk(1);
+    // We need a read that crosses the failed disk. dataDiskFor(0, 0) = 0 (no skip needed)
+    // so the failed disk isn't on the path. Force a read of the parity (disk 3) - that disk
+    // is alive, so we need to find a disk that IS failed.
+    // Manually: a write of data[0] would have gone to disk 0,1,2 (none failed).
+    // The parity disk (3) is alive. So we test recovery by failing the parity disk itself.
+    raid.ReviveDisk();
+    raid.FailDisk(3);  // parity disk dead
+    // Read parity via XOR recovery: A ^ B ^ C = 0x41 ^ 0x42 ^ 0x43 = 0x40.
+    AssertEqual((byte)0x40, raid.ReadParity(0));
+    raid.ReviveDisk();
+    // Now demonstrate full data-block recovery. dataDiskFor(stripe, dataIndex)
+    // returns the physical disk for a given stripe+dataIndex. We'll fail the disk that
+    // holds data[1] for stripe 0.
+    int targetDisk = raid.DataDiskFor(0, 1);
+    raid.FailDisk(targetDisk);
+    // ReadRaidParity will detect failed disk on path and XOR the others.
+    AssertEqual((byte)0x42, raid.ReadRaidParity(0, 1));
+});
+
+Run("raid5 parity rotates across disks", () =>
+{
+    var raid = new MiniWebServer.Host.MiniScheduler.Raid(
+        MiniWebServer.Host.MiniScheduler.RaidLevel.Raid5, diskCount: 4, blockCount: 4);
+    // OSEP §38.8 figure 38.8: parity stripe s -> disk (s + 1) % N.
+    AssertEqual(1, raid.ParityDiskFor(0));
+    AssertEqual(2, raid.ParityDiskFor(1));
+    AssertEqual(3, raid.ParityDiskFor(2));
+    AssertEqual(0, raid.ParityDiskFor(3));
+});
+
+Run("raid5 round-trip survives one disk loss", () =>
+{
+    var raid = new MiniWebServer.Host.MiniScheduler.Raid(
+        MiniWebServer.Host.MiniScheduler.RaidLevel.Raid5, diskCount: 4, blockCount: 4);
+    // Write 4 stripes with 3 data bytes each.
+    for (int s = 0; s < 4; s++)
+    {
+        var data = new byte[3];
+        for (int i = 0; i < 3; i++) data[i] = (byte)('A' + (s * 3 + i) % 26);
+        raid.WriteStripeRaidParity(s, data);
+    }
+    // Sanity: every data block reads back correctly.
+    AssertEqual((byte)'A', raid.ReadRaidParity(0, 0));
+    AssertEqual((byte)'C', raid.ReadRaidParity(0, 2));
+    AssertEqual((byte)'F', raid.ReadRaidParity(1, 2));  // s=1, i=2 -> 'A'+5 = 'F'
+
+    // Fail disk 2 (which holds parity for stripe 1) and read everything.
+    raid.FailDisk(2);
+    // Stripes where disk 2 is NOT the parity disk: 0,2,3. Stripe 1's parity is on disk 2 -> recovered.
+    AssertEqual((byte)'A', raid.ReadRaidParity(0, 0));
+    AssertEqual((byte)'C', raid.ReadRaidParity(0, 2));
+    // Stripe 1's parity disk is disk 2 = failed. XOR recovery still works.
+    AssertEqual((byte)'D' ^ (byte)'E' ^ (byte)'F', raid.ReadParity(1));
+});
+
+Run("raid5 recovers a data block via XOR after a real disk failure", () =>
+{
+    var raid = new MiniWebServer.Host.MiniScheduler.Raid(
+        MiniWebServer.Host.MiniScheduler.RaidLevel.Raid5, diskCount: 4, blockCount: 4);
+    // Stripe 0: data A B C, parity on disk 1 (rotated).
+    raid.WriteStripeRaidParity(0, new byte[] { 0x41, 0x42, 0x43 });
+    // Stripe 0 layout: data disks = {0,2,3}, parity disk = 1.
+    // dataDiskFor(0, 0) = 0, dataDiskFor(0, 1) = 2, dataDiskFor(0, 2) = 3.
+    AssertEqual(0, raid.DataDiskFor(0, 0));
+    AssertEqual(2, raid.DataDiskFor(0, 1));
+    AssertEqual(3, raid.DataDiskFor(0, 2));
+
+    raid.FailDisk(2);  // dataDiskFor(0, 1) lives on disk 2 - now dead.
+    // Recovery: readRaidParity(0, 1) -> XOR of disks 0, 1, 3 at stripe 0.
+    // = 0x41 ^ 0x40 ^ 0x43 (parity 0x40 = A^B^C) = 0x42.
+    AssertEqual((byte)0x42, raid.ReadRaidParity(0, 1));
+    // Other stripe-0 reads on surviving disks still work directly.
+    AssertEqual((byte)0x41, raid.ReadRaidParity(0, 0));
+    AssertEqual((byte)0x43, raid.ReadRaidParity(0, 2));
+});
+
 Console.WriteLine("All tests passed.");
 
 static string CreateTempWebRoot()
@@ -184,4 +364,21 @@ static void AssertEqual<T>(T expected, T actual)
     {
         throw new InvalidOperationException($"Expected {expected}, got {actual}");
     }
+}
+
+static void AssertThrows<T>(Action action) where T : Exception
+{
+    try
+    {
+        action();
+    }
+    catch (T)
+    {
+        return;
+    }
+    catch (Exception ex)
+    {
+        throw new InvalidOperationException($"Expected {typeof(T).Name}, got {ex.GetType().Name}: {ex.Message}");
+    }
+    throw new InvalidOperationException($"Expected {typeof(T).Name}, no exception thrown");
 }

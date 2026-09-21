@@ -1183,6 +1183,87 @@ static void HandleClient(Socket clientSocket, string webRoot)
             response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
                 Encoding.UTF8.GetBytes(ssdOutput));
         }
+        else if (parsedRequest.Path.StartsWith("/integrity/run"))
+        {
+            // Integrity simulator (M27 / OSEP Ch. 45). ?scenario=compute|corrupt|scrub&blocks=N&blockSize=M
+            // Default scenario:
+            //   compute: write a payload, then run all three checksums + report.
+            //   corrupt: write + inject each fault + show detection.
+            //   scrub: write N blocks + inject faults + run scrubber + report.
+            string scenario = "compute";
+            int blocks = 8;
+            int blockSize = 16;
+            int qIdx = parsedRequest.Path.IndexOf('?');
+            if (qIdx >= 0)
+            {
+                foreach (var kv in parsedRequest.Path.Substring(qIdx + 1).Split('&'))
+                {
+                    int eq = kv.IndexOf('=');
+                    if (eq <= 0) continue;
+                    var k = kv.Substring(0, eq);
+                    var v = kv.Substring(eq + 1);
+                    if (k == "scenario") scenario = v;
+                    else if (k == "blocks" && int.TryParse(v, out var bv)) blocks = bv;
+                    else if (k == "blockSize" && int.TryParse(v, out var sv)) blockSize = sv;
+                }
+            }
+            var store = new MiniWebServer.Host.MiniScheduler.IntegrityStore(diskId: 0, blocks: blocks, blockSize: blockSize);
+
+            string trace = "";
+            string output;
+            try
+            {
+                // Always write block 0 with a fixed payload.
+                var payload = new byte[] { 0x36, 0x5e, 0xc4, 0xcd, 0xba, 0x14, 0x8a, 0x92 };
+                store.Write(0, payload);
+
+                if (scenario == "compute")
+                {
+                    byte xor = MiniWebServer.Host.MiniScheduler.IntegrityChecksums.Xor(payload);
+                    byte add = MiniWebServer.Host.MiniScheduler.IntegrityChecksums.Additive(payload);
+                    var (s1, s2) = MiniWebServer.Host.MiniScheduler.IntegrityChecksums.Fletcher(payload);
+                    trace += $"payload (hex): {BitConverter.ToString(payload)}" + Environment.NewLine;
+                    trace += $"xor checksum: 0x{xor:X2}" + Environment.NewLine;
+                    trace += $"additive checksum: 0x{add:X2}" + Environment.NewLine;
+                    trace += $"fletcher checksum: (s1=0x{s1:X2}, s2=0x{s2:X2})" + Environment.NewLine;
+                }
+                else if (scenario == "corrupt")
+                {
+                    // Inject one of each fault and report detection.
+                    store.InjectCorruption(0, 0, 0x01);  // flip bit 0 of byte 0
+                    var blk = store.GetBlock(0);
+                    var failures = store.Verify(blk);
+                    trace += $"after corruption: {failures.Count} failures detected:" + Environment.NewLine;
+                    foreach (var f in failures) trace += $"  - {f}" + Environment.NewLine;
+                }
+                else if (scenario == "scrub")
+                {
+                    // Write 8 blocks + inject faults on 2 of them.
+                    for (int i = 0; i < blocks; i++)
+                    {
+                        store.Write(i, new byte[] { (byte)('A' + i), (byte)('0' + i) });
+                    }
+                    store.InjectCorruption(2, 0, 0x10);
+                    store.InjectMisdirectedWrite(5, 99);
+                    var report = store.Scrub();
+                    trace += $"scrub: {report.OkCount} OK, {report.BadCount} BAD" + Environment.NewLine;
+                    foreach (var (bid, fails) in report.BadBlocks)
+                    {
+                        trace += $"  block {bid}:" + Environment.NewLine;
+                        foreach (var f in fails) trace += $"    - {f}" + Environment.NewLine;
+                    }
+                }
+                output = store.FormatLayout() + Environment.NewLine + "trace:" + Environment.NewLine + trace;
+            }
+            catch (Exception ex)
+            {
+                trace += $"FAIL: {ex.Message}";
+                output = "trace:" + Environment.NewLine + trace;
+            }
+
+            response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                Encoding.UTF8.GetBytes(output));
+        }
         else if (parsedRequest.Path.StartsWith("/auth/"))
         {
             // Password-based authentication (M23 / OSEP Ch. 54). Routes:

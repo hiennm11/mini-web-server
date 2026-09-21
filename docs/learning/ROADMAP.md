@@ -22,13 +22,13 @@ Remaining chapters and the slices that will cover them. Ordered roughly by "depe
 | 11 | **M24 RAID** | Ch. 38 | M11 | Small | ✅ |
 | 12 | **M25 LFS** | Ch. 43 | M12, M21 | Medium | ✅ |
 | 13 | **M26 Flash-based SSDs** | Ch. 44 | M12 | Small | ✅ |
-| 14 | **M27 Data integrity** | Ch. 45 | M12 | Small | ⬜ |
+| 14 | **M27 Data integrity** | Ch. 45 | M12 | Small | ✅ |
 
 This covers Ch. 9, 10, 19, 20, 21, 22, 23, 31.6, 32.3, 38, 41, 43, 44, 45, 53-57 — the rest of OSEP after M1-M15.
 
-**Done**: M13.2, M13.3, M16, M17, M18, M19 (the VM paging chain), M20 (dining philosophers), M21 (FFS), M22 (lock-free CAS), the M23 Part IV suite (.1 password + .2 at-rest + .3 RBAC + .4 PK sign/verify + .5 TLS-style handshake + .6 TOTP), M24 (RAID 0/1/4/5 with XOR recovery), M25 (LFS segments + imap + CR + cleaner) — all have `overview.md` + slice doc under `docs/learning/`. Part IV remaining: only X.509 cert chains, biometrics, sudo-equivalent — strictly operational.
+**Done**: M13.2, M13.3, M16, M17, M18, M19 (the VM paging chain), M20 (dining philosophers), M21 (FFS), M22 (lock-free CAS), the M23 Part IV suite (.1 password + .2 at-rest + .3 RBAC + .4 PK sign/verify + .5 TLS-style handshake + .6 TOTP), M24 (RAID 0/1/4/5 with XOR recovery), M25 (LFS segments + imap + CR + cleaner), M26 (SSD FTL + GC + wear), M27 (data integrity: XOR/Additive/Fletcher checksums + physical ID + write sequence + scrubber) — all have `overview.md` + slice doc under `docs/learning/`. **Part III Persistence is now closed.** Part IV remaining: only X.509 cert chains, biometrics, sudo-equivalent — strictly operational.
 
-**Next**: **M27 Data integrity** (Ch. 45, depends on M12) — Part III Persistence slice, checksums + scrubbing.
+**Next**: no canonical persistence slice left; the persistence thread is done. Remaining natural slices are strictly operational/extended PK + biometrics + sudo-equivalent (Part IV Security gaps).
 
 Excluded (not addressing in this roadmap):
 - Ch. 7 Process API (`fork`/`exec`/`wait`) — out of scope for .NET

@@ -533,6 +533,85 @@ Run("ssd gc migrates live pages and erases a block", () =>
     AssertEqual((byte)'4', ssd.Read(3));
 });
 
+// ----- M27 Integrity simulator (OSEP Ch. 45) -----
+
+Run("integrity xor checksum on a known payload", () =>
+{
+    byte[] data = new byte[] { 0x01, 0x02, 0x03, 0x04 };
+    AssertEqual((byte)(0x01 ^ 0x02 ^ 0x03 ^ 0x04), MiniWebServer.Host.MiniScheduler.IntegrityChecksums.Xor(data));
+});
+
+Run("integrity additive checksum on a known payload", () =>
+{
+    byte[] data = new byte[] { 0x01, 0x02, 0x03, 0x04 };
+    AssertEqual((byte)((0x01 + 0x02 + 0x03 + 0x04) & 0xff), MiniWebServer.Host.MiniScheduler.IntegrityChecksums.Additive(data));
+});
+
+Run("integrity fletcher checksum catches reordering", () =>
+{
+    byte[] a = new byte[] { 0x01, 0x02, 0x03, 0x04 };
+    byte[] b = new byte[] { 0x04, 0x03, 0x02, 0x01 };
+    // XOR + additive are order-independent (commutative), Fletcher is not.
+    AssertEqual(MiniWebServer.Host.MiniScheduler.IntegrityChecksums.Xor(a),
+                MiniWebServer.Host.MiniScheduler.IntegrityChecksums.Xor(b));
+    AssertEqual(MiniWebServer.Host.MiniScheduler.IntegrityChecksums.Additive(a),
+                MiniWebServer.Host.MiniScheduler.IntegrityChecksums.Additive(b));
+    AssertEqual(true,
+                MiniWebServer.Host.MiniScheduler.IntegrityChecksums.Fletcher(a) !=
+                MiniWebServer.Host.MiniScheduler.IntegrityChecksums.Fletcher(b));
+});
+
+Run("integrity write + read round-trip", () =>
+{
+    var store = new MiniWebServer.Host.MiniScheduler.IntegrityStore(diskId: 0, blocks: 4, blockSize: 16);
+    store.Write(0, System.Text.Encoding.UTF8.GetBytes("Hello"));
+    store.Write(1, System.Text.Encoding.UTF8.GetBytes("World"));
+    byte[] r0 = store.Read(0);
+    byte[] r1 = store.Read(1);
+    AssertEqual("Hello", System.Text.Encoding.UTF8.GetString(r0).TrimEnd('\0'));
+    AssertEqual("World", System.Text.Encoding.UTF8.GetString(r1).TrimEnd('\0'));
+});
+
+Run("integrity corruption is detected by checksum", () =>
+{
+    var store = new MiniWebServer.Host.MiniScheduler.IntegrityStore(diskId: 0, blocks: 4, blockSize: 16);
+    store.Write(0, System.Text.Encoding.UTF8.GetBytes("Hello"));
+    store.InjectCorruption(0, byteIdx: 0, bitMask: 0x80);  // flip high bit of first byte
+    var failures = store.Verify(store.GetBlock(0));
+    AssertEqual(true, failures.Count > 0);
+});
+
+Run("integrity misdirected write is detected by physical ID", () =>
+{
+    var store = new MiniWebServer.Host.MiniScheduler.IntegrityStore(diskId: 0, blocks: 4, blockSize: 16);
+    store.Write(0, System.Text.Encoding.UTF8.GetBytes("Hello"));
+    store.InjectMisdirectedWrite(0, fakeDiskId: 99);
+    var failures = store.Verify(store.GetBlock(0));
+    AssertEqual(true, failures.Count > 0);
+    AssertEqual(true, failures[0].StartsWith("physical-id-mismatch"));
+});
+
+Run("integrity scrubber reports clean + corrupted blocks", () =>
+{
+    var store = new MiniWebServer.Host.MiniScheduler.IntegrityStore(diskId: 0, blocks: 8, blockSize: 16);
+    // Write 8 blocks.
+    for (int i = 0; i < 8; i++)
+    {
+        store.Write(i, new byte[] { (byte)('A' + i), (byte)('0' + i) });
+    }
+    // Inject one corruption, one misdirected write.
+    store.InjectCorruption(3, 0, 0x01);
+    store.InjectMisdirectedWrite(5, 99);
+    // Run the scrubber.
+    var report = store.Scrub();
+    AssertEqual(6, report.OkCount);
+    AssertEqual(2, report.BadCount);
+    // Bad blocks should be 3 and 5.
+    var badSet = new System.Collections.Generic.HashSet<int>(report.BadBlocks.Select(b => b.BlockId));
+    AssertEqual(true, badSet.Contains(3));
+    AssertEqual(true, badSet.Contains(5));
+});
+
 Console.WriteLine("All tests passed.");
 
 static string CreateTempWebRoot()

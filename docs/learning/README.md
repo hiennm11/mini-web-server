@@ -37,6 +37,7 @@ docs/learning/
 ├── m24-raid/                        ← persistence (Ch. 38)
 ├── m25-lfs/                         ← persistence (Ch. 43)
 ├── m26-ssd/                         ← persistence (Ch. 44)
+├── m27-integrity/                   ← persistence (Ch. 45)
 └── m15-arraypool/                   ← perf
 ```
 
@@ -65,12 +66,13 @@ Within a folder, slices are numbered sequentially (`s1`, `s2`, ...). The milesto
    - `m10-threadpool-cap/`
    - `m11-raw-syscall-demo/`
 
-3. **Persistence** (Mini FS journal → FFS block-group placement → RAID → LFS → SSD):
+3. **Persistence** (Mini FS journal → FFS block-group placement → RAID → LFS → SSD → data integrity):
    - `m12-mini-file-system/` (overview + 7 slices)
    - `m21-ffs/`
    - `m24-raid/`
    - `m25-lfs/`
    - `m26-ssd/`
+   - `m27-integrity/`
 
 4. **Scheduling** (MLFQ → proportional-share → multi-CPU):
    - `m13-mlfq/`

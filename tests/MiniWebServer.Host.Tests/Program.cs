@@ -679,6 +679,170 @@ Run("pager CurrentAsid bumps on CreateProcess (slice 28.1)", () =>
     AssertEqual(2, pager.CurrentAsid);
 });
 
+Run("cv wait without the lock is rejected (slice 29.1)", () =>
+{
+    // Waiting without holding the lock reintroduces the very race the CV
+    // removes, so the primitive refuses instead of hanging silently.
+    var gate = new object();
+    var cv = new MiniWebServer.Host.MiniScheduler.ConditionVariable();
+    AssertThrows<System.Threading.SynchronizationLockException>(() => cv.Wait(gate));
+});
+
+Run("cv signal releases exactly one waiter and broadcast releases all (slice 29.1)", () =>
+{
+    var gate = new object();
+    var cv = new MiniWebServer.Host.MiniScheduler.ConditionVariable();
+
+    // Each waiter parks exactly once, so WaitingCount falls monotonically and
+    // the release order is observable. (A waiter that re-checked a still-false
+    // predicate would legitimately park again - that is the Mesa rule, covered
+    // by the waitwhile test below.)
+    var parked = new List<System.Threading.Thread>();
+    for (int i = 0; i < 3; i++)
+    {
+        var t = new System.Threading.Thread(() =>
+        {
+            lock (gate) { cv.Wait(gate); }
+        }) { IsBackground = true };
+        parked.Add(t);
+        t.Start();
+    }
+
+    SpinWait.SpinUntil(() => cv.WaitingCount == 3, 4000);
+    AssertEqual(3, cv.WaitingCount);
+
+    // Signal releases the head of the queue and nobody else.
+    lock (gate) { cv.Signal(); }
+    SpinWait.SpinUntil(() => cv.WaitingCount == 2, 4000);
+    AssertEqual(2, cv.WaitingCount);
+    AssertEqual(1L, cv.SignalCount);
+
+    // Broadcast releases everyone that is left.
+    lock (gate) { cv.Broadcast(); }
+    SpinWait.SpinUntil(() => cv.WaitingCount == 0, 4000);
+    AssertEqual(0, cv.WaitingCount);
+    AssertEqual(2L, cv.BroadcastWakeCount);
+
+    foreach (var t in parked) t.Join(4000);
+    foreach (var t in parked) AssertEqual(false, t.IsAlive);
+});
+
+Run("cv separate instances are separate queues so a fill signal cannot wake a producer (slice 29.1)", () =>
+{
+    // The §30.2 fix depends on this: a consumer signals `fill`, and no producer
+    // is parked on `fill`, so no producer can be woken by mistake. Monitor.Pulse
+    // could not express this - one monitor means one queue.
+    //
+    // The waiter uses a bare Wait, not a predicate loop. With a predicate, a
+    // cross-wake would be masked: the waiter would re-park on its unmet
+    // predicate and WaitingCount would look unchanged, so the test would pass
+    // even with the queues wrongly shared.
+    var gate = new object();
+    var empty = new MiniWebServer.Host.MiniScheduler.ConditionVariable();
+    var fill = new MiniWebServer.Host.MiniScheduler.ConditionVariable();
+    bool consumerReturned = false;
+
+    var consumer = new System.Threading.Thread(() =>
+    {
+        lock (gate)
+        {
+            fill.Wait(gate);
+            consumerReturned = true;
+        }
+    }) { IsBackground = true };
+    consumer.Start();
+    SpinWait.SpinUntil(() => fill.WaitingCount == 1, 4000);
+
+    // Signalling the wrong CV must not release the `fill` waiter.
+    lock (gate) { empty.Signal(); }
+
+    System.Threading.Thread.Sleep(200);
+    AssertEqual(false, consumerReturned);
+    AssertEqual(1, fill.WaitingCount);
+
+    // Signalling the right one does.
+    lock (gate) { fill.Signal(); }
+    consumer.Join(4000);
+    AssertEqual(false, consumer.IsAlive);
+    AssertEqual(true, consumerReturned);
+});
+
+Run("cv waitwhile re-checks the predicate after every wakeup (slice 29.1)", () =>
+{
+    // Mesa: a signal is a hint. Woken while the predicate still holds, the
+    // waiter must park again rather than proceed (§30.1 "always use while").
+    // WaitWhile owns that re-check, so the observable effect is: the waiter
+    // does not return until the predicate finally goes false.
+    var gate = new object();
+    var cv = new MiniWebServer.Host.MiniScheduler.ConditionVariable();
+    int generation = 0;       // advances on each signal
+    int generationNeeded = 2; // the only state the waiter will accept
+    bool returned = false;
+
+    var t = new System.Threading.Thread(() =>
+    {
+        lock (gate)
+        {
+            cv.WaitWhile(gate, () => generation != generationNeeded);
+            returned = true;
+        }
+    }) { IsBackground = true };
+    t.Start();
+    SpinWait.SpinUntil(() => cv.WaitingCount == 1, 4000);
+
+    // Signal into a state the predicate still rejects: the hint is not a
+    // guarantee, so the waiter re-parks instead of proceeding.
+    lock (gate) { generation = 1; cv.Signal(); }
+    SpinWait.SpinUntil(() => cv.WaitingCount == 1, 4000);
+    AssertEqual(false, returned);
+    AssertEqual(1, cv.WaitingCount);
+
+    // Now satisfy the predicate; the waiter returns for good.
+    lock (gate) { generation = 2; cv.Signal(); }
+    t.Join(4000);
+    AssertEqual(false, t.IsAlive);
+    AssertEqual(true, returned);
+    AssertEqual(2L, cv.WaitCount);
+});
+
+Run("cv lost-wakeup reproduces without a state variable and is fixed with one (slice 29.1)", () =>
+{
+    var result = MiniWebServer.Host.MiniScheduler.ConditionVariableDemos.Run("lost-wakeup");
+    var text = string.Join("\n", result.Lines);
+
+    // The demo only means something if the broken variant actually hangs and
+    // the fixed one actually finishes; otherwise it proves nothing about §30.1.
+    AssertEqual(true, text.Contains("broken (no state variable)          : HUNG"));
+    AssertEqual(true, text.Contains("fixed  (predicate + while loop)     : completed"));
+    AssertEqual(true, result.Completed);
+});
+
+Run("cv single shared condition variable hangs while two conditions complete (slice 29.1)", () =>
+{
+    var single = MiniWebServer.Host.MiniScheduler.ConditionVariableDemos.Run("single-cv");
+    AssertEqual(false, single.Completed);
+
+    var two = MiniWebServer.Host.MiniScheduler.ConditionVariableDemos.Run("two-cv");
+    AssertEqual(true, two.Completed);
+    var text = string.Join("\n", two.Lines);
+    // Every item moved exactly once.
+    AssertEqual(true, text.Contains("every value consumed exactly once: True"));
+    // The buffer stayed within capacity. Asserted as a bound, not as equality:
+    // a schedule where consumers keep up never fills it to 8, and that is a
+    // correct execution, not a failure.
+    AssertEqual(true, text.Contains("produced=1000 consumed=1000"));
+});
+
+Run("cv broadcast wakes the waiter's predicate that a signal could have missed (slice 29.1)", () =>
+{
+    var covering = MiniWebServer.Host.MiniScheduler.ConditionVariableDemos.Run("covering-condition");
+    AssertEqual(true, covering.Completed);
+    var text = string.Join("\n", covering.Lines);
+    // The 10-byte waiter proceeds; the 100-byte waiter is still unsatisfied.
+    AssertEqual(true, text.Contains("Tb (10-byte request, satisfied by the 50 free)   : allocated"));
+    AssertEqual(true, text.Contains("Ta (100-byte request, still unsatisfied)            : correctly still parked"));
+});
+
 Console.WriteLine("All tests passed.");
 
 static string CreateTempWebRoot()

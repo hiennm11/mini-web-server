@@ -38,8 +38,8 @@ docs/learning/
 ├── m25-lfs/                         ← persistence (Ch. 43)
 ├── m26-ssd/                         ← persistence (Ch. 44)
 ├── m27-integrity/                   ← persistence (Ch. 45)
-├── m28-asid/                        ← paging (Ch. 19 §19.5+§19.7, spec-only)
-├── m29-cv/                          ← concurrency (Ch. 30 §30.1-§30.3, spec-only)
+├── m28-asid/                        ← paging (Ch. 19 §19.5+§19.7)
+├── m29-cv/                          ← concurrency (Ch. 30 §30.1-§30.3)
 ├── m30-deadlock/                    ← concurrency (Ch. 32 §32.3, spec-only)
 ├── m31-lfs-extensions/              ← persistence (Ch. 43 §43.3+§43.12, spec-only)
 ├── m32-ssd-extensions/              ← persistence (Ch. 44 §44.9, spec-only)
@@ -48,7 +48,7 @@ docs/learning/
 └── m15-arraypool/                   ← perf
 ```
 
-> **Note on "spec-only" milestones** (M28-M34): the `overview.md` + `s1-*.md` (and `s2-*.md` for M31) docs are written; the implementation, ADR, tests, and code are not. These cover the remaining natural OSEP coverage gaps called out in `CONTEXT.md`. Each can be implemented in a single small slice following the established M24-M27 pattern.
+> **Note on "spec-only" milestones** (M30-M34): the `overview.md` + `s1-*.md` (and `s2-*.md` for M31) docs are written; the implementation, ADR, tests, and code are not. These cover the remaining natural OSTEP coverage gaps called out in `CONTEXT.md`. Each can be implemented in a single small slice following the established M24-M29 pattern.
 
 ## Naming convention
 
@@ -88,23 +88,23 @@ Within a folder, slices are numbered sequentially (`s1`, `s2`, ...). The milesto
    - `m13.2-stride-lottery/`
    - `m13.3-multicpu-scheduling/`
 
-5. **Paging** (linear PT → TLB → multi-level → replacement → complete VM):
+5. **Paging** (linear PT → TLB → ASID → multi-level → replacement → complete VM):
    - `m14-pager/`
    - `m16-tlb/`
+   - `m28-asid/`
    - `m17-multi-level-pt/`
    - `m18-replacement/`
    - `m19-complete-vm/`
 
-6. **Concurrency deep-dive** (dining philosophers → lock-free CAS):
+6. **Concurrency deep-dive** (dining philosophers → lock-free CAS → condition variables):
    - `m20-dining-philosophers/`
    - `m22-lock-free/`
+   - `m29-cv/`
 
 7. **Performance**:
    - `m15-arraypool/`
 
-8. **Spec-only (docs written, not implemented)** — the remaining natural OSEP gaps; each can be implemented as a small slice following the M24-M27 pattern:
-   - `m28-asid/` — ASID-tagged TLB (Ch. 19 §19.5 + §19.7)
-   - `m29-cv/` — condition variables (Ch. 30 §30.1-§30.3)
+8. **Spec-only (docs written, not implemented)** — the remaining natural OSTEP gaps; each can be implemented as a small slice following the M24-M29 pattern:
    - `m30-deadlock/` — deadlock prevention + Banker's (Ch. 32 §32.3)
    - `m31-lfs-extensions/` — segment-size cost model + two-CR alternation (Ch. 43 §43.3 + §43.12)
    - `m32-ssd-extensions/` — block-level + hybrid FTL (Ch. 44 §44.9)

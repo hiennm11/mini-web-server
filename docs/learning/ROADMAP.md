@@ -37,11 +37,13 @@ This covers Ch. 9, 10, 19, 20, 21, 22, 23, 29.1-§29.2 (lock-free CAS), 30 §30.
 
 **Spec-only**: none. Every milestone in this table is implemented.
 
-**Next**: M34 (device drivers: canonical protocol + interrupts + DMA + PIO/MMIO, Ch. 36 §36.2-§36.6). It is the last remaining natural OSEP gap, and unlike M28-M33 it is an I/O milestone rather than a persistence or concurrency one.
+**Done (M32-M34)**: M32 (block-level + hybrid FTL, Ch. 44 §44.9), M33 (scrubbing schedule, Ch. 45 §45.7 + §45.8), M34 (device drivers: canonical protocol + interrupts + DMA + PIO/MMIO, Ch. 36 §36.2-§36.6) — each with `overview.md` + slice doc + ADR 0022-0024.
+
+**Next**: none. The table above is fully implemented, and `CONTEXT.md` §"OSEP coverage gaps" lists what is deliberately left: the Ch. 36 §36.7-§36.10 device-driver abstraction, Part IV's operational material (X.509 chains, biometrics, sudo-equivalent), and the §-level deferrals already noted in each `overview.md`. Any next milestone should come from that list rather than from a new chapter.
 
 Excluded (not addressing in this roadmap):
 - Ch. 7 Process API (`fork`/`exec`/`wait`) — out of scope for .NET
 - Ch. 14-17 (base+bound, segmentation, free-space mgmt) — superseded by paging
-- Ch. 36-37 device drivers & buses — too low-level for this lab
+- Ch. 37 buses — too low-level for this lab. Ch. 36 is no longer excluded: §36.2-§36.6 landed as M34, and only §36.7-§36.10 (device-driver abstraction + IDE case study) remains deferred
 
 Each milestone will follow the established pattern: folder under `docs/learning/m{N}-{name}/` with `overview.md` + `s{N}.{S}-*.md` slices + a new ADR if needed.

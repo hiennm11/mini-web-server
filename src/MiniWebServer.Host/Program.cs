@@ -1449,6 +1449,15 @@ static void HandleClient(Socket clientSocket, string webRoot)
                 Encoding.UTF8.GetBytes(output));
             }
         }
+        else if (parsedRequest.Path.StartsWith("/device/run"))
+        {
+            // Device simulator (M34 / OSEP §36.2-§36.6).
+            //   ?scenario=canonical-protocol&payload=N&latency=T
+            //   ?scenario=pio-vs-dma&transfer_bytes=N
+            //   ?scenario=interrupt-vs-poll&latency=T
+            //   ?scenario=mmio
+            response = BuildDeviceResponse(parsedRequest.Path);
+        }
         else if (parsedRequest.Path.StartsWith("/auth/"))
         {
             // Password-based authentication (M23 / OSEP Ch. 54). Routes:
@@ -2196,6 +2205,106 @@ static void HandleClient(Socket clientSocket, string webRoot)
         Console.WriteLine($"[thread {threadId}] Sent {responseBytes.Length} response bytes.");
         Console.WriteLine($"[thread {threadId}] Closed client socket.");
     }
+}
+
+/// <summary>
+/// The M34 scenarios behind <c>/device/run</c> (OSEP §36.2-§36.6).
+/// </summary>
+static HttpResponse BuildDeviceResponse(string path)
+{
+    string scenario = "pio-vs-dma";
+    int transferBytes = 4096;
+    int payloadSize = 256;
+    int latencyTicks = 4;
+
+    foreach (var kv in MiniWebServer.Host.MiniScheduler.FtlDemos.QueryParts(path))
+    {
+        switch (kv.Key)
+        {
+            case "scenario":
+                scenario = kv.Value;
+                break;
+            case "transfer_bytes" or "bytes":
+                if (!int.TryParse(kv.Value, out transferBytes) || transferBytes < 1)
+                    return DeviceBadRequest($"transfer_bytes must be a positive integer, got '{kv.Value}'");
+                break;
+            case "payload":
+                if (!int.TryParse(kv.Value, out payloadSize) || payloadSize < 1)
+                    return DeviceBadRequest($"payload must be a positive integer, got '{kv.Value}'");
+                break;
+            case "latency" or "latency_ticks":
+                if (!int.TryParse(kv.Value, out latencyTicks) || latencyTicks < 0)
+                    return DeviceBadRequest($"latency must be a non-negative integer, got '{kv.Value}'");
+                break;
+        }
+    }
+
+// The scenarios that run a device size it from the requested transfer, so a
+    // caller asking for a 4 KB transfer gets a device that can hold one. The
+    // arithmetic-only scenarios never touch a device at all.
+    if (scenario is "canonical-protocol" or "mmio")
+    {
+        if (payloadSize < transferBytes) payloadSize = transferBytes;
+        // Both demonstrations read a fixed 16 bytes from block 0, so a device
+        // smaller than that cannot serve them. Answering 400 beats letting the
+        // read throw past the route.
+        const int demonstrationRead = 16;
+        if (payloadSize < demonstrationRead)
+            return DeviceBadRequest($"payload must be at least {demonstrationRead} bytes for {scenario}, got {payloadSize}");
+    }
+
+    string body = scenario switch
+    {
+        "canonical-protocol" => MiniWebServer.Host.MiniScheduler.DeviceDemos.FormatCanonicalProtocol(payloadSize, latencyTicks),
+        "pio-vs-dma" => MiniWebServer.Host.MiniScheduler.DeviceDemos.FormatPioVsDma(transferBytes),
+        "interrupt-vs-poll" => MiniWebServer.Host.MiniScheduler.DeviceDemos.FormatInterruptVsPoll(latencyTicks),
+        "mmio" => FormatMmioVsPorts(payloadSize, latencyTicks),
+        _ => $"unknown device scenario '{scenario}' (use canonical-protocol, pio-vs-dma, interrupt-vs-poll, mmio)\n",
+    };
+    int status = body.StartsWith("unknown device scenario") ? 400 : 200;
+    return new HttpResponse(status, status == 400 ? "Bad Request" : "OK",
+        "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes(body));
+
+    static HttpResponse DeviceBadRequest(string message) =>
+        new(400, "Bad Request", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes(message + "\n"));
+}
+
+/// <summary>
+/// §36.6's two ways of reaching a device register, run side by side.
+/// </summary>
+static string FormatMmioVsPorts(int payloadSize, int latencyTicks)
+{
+    var mmio = new MiniWebServer.Host.MiniScheduler.Device(payloadSize, latencyTicks);
+    var ports = new MiniWebServer.Host.MiniScheduler.Device(payloadSize, latencyTicks);
+    for (int i = 0; i < payloadSize; i++)
+    {
+        mmio.BackingStore[i] = (byte)('A' + (i % 26));
+        ports.BackingStore[i] = (byte)('A' + (i % 26));
+    }
+
+    const int readLength = 16;
+    var viaMmio = mmio.CanonicalRead(0, readLength);
+    var viaPorts = ports.CanonicalReadViaPorts(0, readLength);
+
+    var sb = new System.Text.StringBuilder();
+    sb.AppendLine("=== Memory-mapped I/O vs explicit I/O instructions (M34 / OSEP §36.6) ===");
+    sb.AppendLine($"both ran §36.3's four-step protocol for a {readLength}-byte read");
+    sb.AppendLine();
+    sb.AppendLine("access        | registers read | cpu cycles | data");
+    sb.AppendLine("---------------|----------------|------------|------");
+    sb.AppendLine($"memory-mapped | {mmio.PollsExecuted,14} | {mmio.CpuCycles,10} | {string.Join("", viaMmio.Select(b => (char)b))}");
+    sb.AppendLine($"port I/O      | {ports.PollsExecuted,14} | {ports.CpuCycles,10} | {string.Join("", viaPorts.Select(b => (char)b))}");
+    sb.AppendLine();
+    bool same = viaMmio.SequenceEqual(viaPorts) && mmio.CpuCycles == ports.CpuCycles;
+    sb.AppendLine($"identical result and identical cost: {(same ? "yes" : "NO")}");
+    sb.AppendLine();
+    sb.AppendLine("§36.6, verbatim: \"There is not some great advantage to one approach or the other.");
+    sb.AppendLine("The memory-mapped approach is nice in that no new instructions are needed to support it,");
+    sb.AppendLine("but both approaches are still in use today.\"");
+    sb.AppendLine();
+    sb.AppendLine("§36.6 also notes such instructions \"are usually privileged. The OS controls devices, and");
+    sb.AppendLine("the OS thus is the only entity allowed to directly communicate with them.\"");
+    return sb.ToString();
 }
 
 /// <summary>

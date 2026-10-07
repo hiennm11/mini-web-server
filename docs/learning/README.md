@@ -44,11 +44,10 @@ docs/learning/
 ├── m31-lfs-extensions/              ← persistence (Ch. 43 §43.3 + §43.12)
 ├── m32-ssd-extensions/              ← persistence (Ch. 44 §44.9)
 ├── m33-integrity-extensions/        ← persistence (Ch. 45 §45.7 + §45.8)
-├── m34-device-drivers/              ← I/O (Ch. 36 §36.2-§36.6, spec-only)
+├── m34-device-drivers/              ← I/O (Ch. 36 §36.2-§36.6)
 └── m15-arraypool/                   ← perf
 ```
 
-> **Note on "spec-only" milestones** (M34): the `overview.md` + `s1-*.md` docs are written; the implementation, ADR, tests, and code are not. These cover the remaining natural OSTEP coverage gaps called out in `CONTEXT.md`. Each can be implemented in a single small slice following the established M24-M33 pattern.
 
 ## Naming convention
 
@@ -105,11 +104,12 @@ Within a folder, slices are numbered sequentially (`s1`, `s2`, ...). The milesto
    - `m29-cv/`
    - `m30-deadlock/`
 
-7. **Performance**:
-   - `m15-arraypool/`
+7. **I/O** (syscall side → device side):
+   - `m11-raw-syscall-demo/`
+   - `m34-device-drivers/` (canonical device + PIO/DMA + interrupts)
 
-8. **Spec-only (docs written, not implemented)** — the remaining natural OSTEP gaps; each can be implemented as a small slice following the M24-M33 pattern:
-   - `m34-device-drivers/` — canonical protocol + interrupts + DMA + PIO/MMIO (Ch. 36 §36.2-§36.6)
+8. **Performance**:
+   - `m15-arraypool/`
 
 ## Cross-references
 

@@ -10,7 +10,7 @@ A standalone **device-simulator** in `src/MiniWebServer.Host/MiniScheduler/Devic
 - **§36.5 More Efficient Data Movement With DMA**: the CPU programs a DMA channel with source/dest/count, returns to other work, gets an interrupt when DMA completes. Burns fewer CPU cycles than PIO for large transfers.
 - **§36.6 Methods Of Device Interaction**: explicit I/O instructions (x86 `in`/`out`, PIO) vs. memory-mapped I/O (MMIO — device registers appear as memory locations). We expose MMIO because .NET can't issue PIO.
 
-The simulator compares PIO vs DMA via `/device/run?scenario=pio-vs-dma&transfer_bytes=N` and reports CPU cycles burned + interrupt count.
+The simulator compares PIO vs DMA via `/device/run?scenario=pio-vs-dma&transfer_bytes=N` and reports CPU cycles burned + interrupt count, and shows where DMA starts paying for itself.
 
 ## Slice
 - **[s1-interrupt-dma.md](./s1-interrupt-dma.md)** — device simulator + PIO/DMA comparison route.
@@ -24,13 +24,16 @@ The simulator compares PIO vs DMA via `/device/run?scenario=pio-vs-dma&transfer_
 - **Cross-reference**: M11 covered the syscall-side of I/O (`open`/`read`/`close`). M34 covers the device-side: how the kernel reaches the device registers.
 
 ## Files
-- `src/MiniWebServer.Host/MiniScheduler/Device.cs` — new file. `Device`, `PioChannel`, `DmaChannel`, `InterruptController`.
-- `src/MiniWebServer.Host/Program.cs` — `/device/run?scenario=pio-vs-dma&transfer_bytes=N` route.
+- `src/MiniWebServer.Host/MiniScheduler/Device.cs` — `Device` (three registers, hand-clocked), `DeviceCostModel`, `DeviceDemos`.
+- `src/MiniWebServer.Host/Program.cs` — `/device/run` with four scenarios: `canonical-protocol`, `pio-vs-dma`, `interrupt-vs-poll`, `mmio`.
+
+Four scenarios rather than one: §36.4 argues that polling and interrupts each win on different devices, so a single PIO-vs-DMA table would miss the section's actual conclusion.
 
 ## Implementation deviations from OSEP
 - **Software-emulated cycles**: real CPU cycles are nanoseconds; the simulator counts in "abstract work units" so the PIO vs DMA comparison is observable in the smoke trace.
-- **No real MMIO**: .NET runs in user-mode; we can't actually map device registers. The simulator models the access pattern via a struct field with `volatile`-like semantics.
-- **No real interrupts**: the simulator uses a callback function instead of a hardware IRQ. The structural pattern is what matters.
+- **No real MMIO**: .NET runs in user mode and cannot map device registers. `CanonicalRead` and `CanonicalReadViaPorts` reach the same registers through different access spellings, which is the part §36.6 is about.
+- **No real interrupts**: `OnInterrupt` is a callback, not a hardware IRQ.
+- **The device is clocked by hand** via `Tick()`. Every protocol here is a claim about when the CPU looks, and a background thread would make the ordering depend on scheduling luck.
 - **Single device**: real systems have many devices on a shared bus with arbitration. The slice models one device.
 
 ## What this slice does NOT do

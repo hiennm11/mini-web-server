@@ -772,6 +772,262 @@ Run("hybrid FTL log block budget delays the first merge", () =>
     }
 });
 
+// ----- M34 Device drivers (OSEP §36.2-§36.6) -----
+
+Run("device canonical protocol reads a block through the three registers", () =>
+{
+    // §36.3, verbatim: "While (STATUS == BUSY) ; // wait until device is not
+    // busy / Write data to DATA register / Write command to COMMAND register /
+    // While (STATUS == BUSY) ; // wait until device is done with your request".
+    var dev = new MiniWebServer.Host.MiniScheduler.Device(payloadSize: 64, latencyTicks: 3);
+    for (int i = 0; i < 64; i++) dev.BackingStore[i] = (byte)('A' + (i % 26));
+
+    byte[] read = dev.CanonicalRead(block: 1, length: 16);
+    AssertEqual(16, read.Length);
+    // Block 1 starts at byte 16, and the backing store cycles A-Z, so the
+    // contents are the same 16 bytes as block 0 but reached at a different
+    // offset - which is what makes the offset arithmetic observable.
+    for (int i = 0; i < 16; i++) AssertEqual(dev.BackingStore[16 + i], read[i]);
+
+    // §36.3's fourth step ends with the device reporting success or failure - it
+    // does not go back to Idle, because that is the state the OS would next
+    // wait for *before* issuing a command, and the value it reads now is the
+    // result of the command it just issued.
+    AssertEqual(MiniWebServer.Host.MiniScheduler.DeviceStatus.Complete, dev.Status);
+});
+
+Run("device reports BUSY between the command and its completion", () =>
+{
+    // §36.3's polling loops only make sense if BUSY is observable while the
+    // device works. A device that answered BUSY only at the end would make both
+    // waits no-ops, and the protocol would collapse to a sleep.
+    var dev = new MiniWebServer.Host.MiniScheduler.Device(payloadSize: 32, latencyTicks: 4);
+    AssertEqual(MiniWebServer.Host.MiniScheduler.DeviceStatus.Idle, dev.Status);
+
+    // Writing a command is what starts the device (§36.3, step 3).
+    dev.Command = MiniWebServer.Host.MiniScheduler.DeviceCommand.Read;
+    AssertEqual(MiniWebServer.Host.MiniScheduler.DeviceStatus.Busy, dev.Status);
+
+    // The Busy polls and the one that saw it finish are all real status reads;
+// deriving the second count from PollsExecuted keeps it honest rather than
+// asserting a literal that would hold no matter what the device did.
+long pollsBefore = dev.PollsExecuted;
+    int busyObservations = 0;
+    while (dev.Status == MiniWebServer.Host.MiniScheduler.DeviceStatus.Busy)
+    {
+        busyObservations++;
+        dev.Tick();
+    }
+
+    AssertEqual(4, busyObservations);                  // 4 ticks of latency
+    // One status read per busy poll, plus the one that observed completion.
+    AssertEqual(busyObservations + 1L, dev.PollsExecuted - pollsBefore);
+    AssertEqual(MiniWebServer.Host.MiniScheduler.DeviceStatus.Complete, dev.Status);
+    AssertEqual(1L, dev.InterruptsRaised);              // one completion, one interrupt
+
+    // Extra ticks after completion must not raise a second interrupt.
+    dev.Tick(); dev.Tick();
+    AssertEqual(1L, dev.InterruptsRaised);
+});
+
+Run("DMA burns fewer CPU cycles than PIO for a large transfer", () =>
+{
+    // §36.5: with PIO "the CPU is once again overburdened with a rather
+    // trivial task", because the copy happens "explicitly, one word at a
+    // time". With DMA the CPU programs the channel and is done; the copy is
+    // off the CPU entirely.
+    const int n = 4096;
+    var cost = new MiniWebServer.Host.MiniScheduler.DeviceCostModel();
+    double pio = cost.PioCycles(n);
+    double dma = cost.DmaCycles(n);
+    AssertEqual(true, dma < pio);
+    // PIO's marginal cost is linear in the byte count - that is §36.5's "one
+    // word at a time" - while DMA's total is flat, because the copy happens off
+    // the CPU. The difference between two PIO transfers therefore depends only
+    // on the extra bytes, not on the transfer size.
+    AssertClose(pio + n, cost.PioCycles(2 * n));
+    AssertClose(dma, cost.DmaCycles(2 * n));
+    AssertEqual(true, cost.PioCycles(2 * n) > cost.PioCycles(n));
+});
+
+Run("PIO beats DMA below the crossover and DMA wins above it", () =>
+{
+    // §36.5 frames DMA as the answer to transferring "a large chunk of data".
+    // The chapter never gives a number, so the threshold follows from the cost
+    // model: DMA's fixed setup has to be smaller than the per-byte work PIO
+    // would otherwise do.
+    var cost = new MiniWebServer.Host.MiniScheduler.DeviceCostModel();
+    int crossover = cost.DmaCrossoverBytes;
+    AssertEqual(true, crossover > 1);
+
+    // Below the crossover PIO is strictly cheaper; at crossover-1 the two tie
+    // exactly, which is why the crossover is defined as the first size where
+    // DMA is strictly cheaper rather than the first where it is not dearer.
+    AssertEqual(true, cost.PioCycles(crossover - 2) < cost.DmaCycles(crossover - 2));
+    AssertClose(cost.DmaCycles(crossover), cost.PioCycles(crossover - 1));
+    AssertEqual(true, cost.DmaCycles(crossover) < cost.PioCycles(crossover));
+    // A tiny transfer is the clear PIO case §36.5 implies.
+    AssertEqual(true, cost.PioCycles(1) < cost.DmaCycles(1));
+});
+
+Run("DMA raises exactly one interrupt per transfer", () =>
+{
+    // §36.5: "When the DMA is complete, the DMA controller raises an
+    // interrupt, and the OS thus knows the transfer is complete." One, not
+    // one per byte - that difference is the whole point of DMA.
+    var dev = new MiniWebServer.Host.MiniScheduler.Device(payloadSize: 128, latencyTicks: 2);
+    for (int i = 0; i < 128; i++) dev.BackingStore[i] = (byte)('A' + (i % 26));
+    int interrupts = 0;
+    dev.OnInterrupt = () => interrupts++;
+
+    // A read: the engine pulls bytes out of the device into host memory.
+    var buffer = new byte[100];
+    dev.DmaTransferToDevice(buffer, fromDevice: true);
+    dev.RunUntilIdle();
+    AssertEqual(1, interrupts);
+    for (int i = 0; i < buffer.Length; i++) AssertEqual((byte)('A' + (i % 26)), buffer[i]);
+
+    // A write: the engine pushes host memory into the device. Still one
+    // interrupt per transfer, not one per byte.
+    var buffer2 = new byte[64];
+    for (int i = 0; i < buffer2.Length; i++) buffer2[i] = (byte)('0' + (i % 10));
+    dev.DmaTransferToDevice(buffer2, fromDevice: false);
+    dev.RunUntilIdle();
+    AssertEqual(2, interrupts);
+    for (int i = 0; i < buffer2.Length; i++) AssertEqual(buffer2[i], dev.BackingStore[i]);
+});
+
+Run("interrupt loses to polling on a fast device and wins on a slow one", () =>
+{
+    // §36.4, verbatim: "if a device is fast, it may be best to poll; if it is
+    // slow, interrupts, which allow overlap, are best." A driver that always
+    // used interrupts would be wrong for half the devices.
+    var cost = new MiniWebServer.Host.MiniScheduler.DeviceCostModel();
+
+    // Fast device: the first poll usually finds it done, so the interrupt's
+    // switch-and-handle cost is pure overhead.
+    double pollFast = cost.InterruptDriveCycles(deviceLatencyTicks: 1, interruptCost: MiniWebServer.Host.MiniScheduler.DeviceCostModel.DefaultInterruptCost);
+    AssertEqual(true, cost.PollDriveCycles(deviceLatencyTicks: 1) < pollFast);
+
+    // Slow device: overlap wins.
+    double pollSlow = cost.PollDriveCycles(deviceLatencyTicks: 500);
+    AssertEqual(true, cost.InterruptDriveCycles(500, MiniWebServer.Host.MiniScheduler.DeviceCostModel.DefaultInterruptCost) < pollSlow);
+});
+
+Run("hybrid polling falls back to an interrupt and pays neither full cost", () =>
+{
+    // §36.4: "it may be best to use a hybrid that polls for a little while
+    // and then, if the device is not yet finished, uses interrupts. This
+    // two-phased approach may achieve the best of both worlds."
+    var cost = new MiniWebServer.Host.MiniScheduler.DeviceCostModel();
+    int threshold = MiniWebServer.Host.MiniScheduler.DeviceCostModel.DefaultPollThresholdTicks;
+    double hybridFast = cost.HybridDriveCycles(deviceLatencyTicks: 1);
+    double pollFast = cost.PollDriveCycles(deviceLatencyTicks: 1);
+    double interruptFast = cost.InterruptDriveCycles(1, MiniWebServer.Host.MiniScheduler.DeviceCostModel.DefaultInterruptCost);
+
+    // On a fast device the hybrid behaves like polling...
+    AssertEqual(true, hybridFast <= pollFast);
+    // ... and still beats going straight to interrupts.
+    AssertEqual(true, hybridFast < interruptFast);
+
+    double hybridSlow = cost.HybridDriveCycles(deviceLatencyTicks: threshold + 50);
+    AssertEqual(true, hybridSlow < cost.PollDriveCycles(threshold + 50));
+});
+
+Run("MMIO and explicit I/O reach the same registers at the same cost", () =>
+{
+    // §36.6: "There is not some great advantage to one approach or the
+    // other. The memory-mapped approach is nice in that no new instructions are
+    // needed to support it, but both approaches are still in use today."
+    var mmio = new MiniWebServer.Host.MiniScheduler.Device(payloadSize: 32, latencyTicks: 2);
+    var ports = new MiniWebServer.Host.MiniScheduler.Device(payloadSize: 32, latencyTicks: 2);
+    for (int i = 0; i < 32; i++)
+    {
+        mmio.BackingStore[i] = (byte)('x');
+        ports.BackingStore[i] = (byte)('x');
+    }
+
+    var viaMmio = mmio.CanonicalRead(0, 8);
+    var viaPorts = ports.CanonicalReadViaPorts(0, 8);
+    AssertEqual(viaMmio.Length, viaPorts.Length);
+    for (int i = 0; i < viaMmio.Length; i++) AssertEqual(viaMmio[i], viaPorts[i]);
+    AssertClose(mmio.CpuCycles, ports.CpuCycles);
+    AssertClose(mmio.PollsExecuted, ports.PollsExecuted);
+});
+
+Run("a zero-latency device still completes its command", () =>
+{
+    // The polling loop spins while BUSY, so a device that accepted a command
+    // and then never reported completion would hang the caller forever rather
+    // than return. Zero latency has to mean "done immediately", not "never done".
+    var dev = new MiniWebServer.Host.MiniScheduler.Device(payloadSize: 32, latencyTicks: 0);
+    int interrupts = 0;
+    dev.OnInterrupt = () => interrupts++;
+
+    var read = dev.CanonicalRead(0, 16);
+    AssertEqual(16, read.Length);
+    AssertEqual(1, interrupts);
+    AssertEqual(MiniWebServer.Host.MiniScheduler.DeviceStatus.Complete, dev.Status);
+    AssertEqual(false, dev.IsBusy);
+});
+
+Run("DMA refuses a transfer larger than the device", () =>
+{
+    // Silently copying only what fits would report a successful completion
+    // while dropping write data or leaving stale bytes in a read buffer.
+    var dev = new MiniWebServer.Host.MiniScheduler.Device(payloadSize: 16, latencyTicks: 1);
+    var tooBig = new byte[17];
+    AssertThrows<ArgumentOutOfRangeException>(() => dev.DmaTransferToDevice(tooBig, fromDevice: false));
+
+    // A rejected transfer must not have started anything or raised an interrupt.
+    int interrupts = 0;
+    dev.OnInterrupt = () => interrupts++;
+    dev.RunUntilIdle();
+    AssertEqual(0, interrupts);
+    AssertEqual(false, dev.IsBusy);
+
+    // The largest transfer that does fit still works.
+    var exact = new byte[16];
+    dev.DmaTransferToDevice(exact, fromDevice: true);
+    dev.RunUntilIdle();
+    AssertEqual(1, interrupts);
+});
+
+Run("cost model stays finite for very large transfers", () =>
+{
+    // int arithmetic wrapped before the conversion to double and produced a
+    // negative cost, which is worse than useless in a report about which method
+    // is cheaper.
+    var cost = new MiniWebServer.Host.MiniScheduler.DeviceCostModel();
+    double huge = cost.PioCycles(int.MaxValue);
+    AssertEqual(true, huge > 0);
+    AssertClose((double)int.MaxValue + 1, huge);
+    AssertEqual(true, cost.PollDriveCycles(int.MaxValue) > 0);
+    // DMA does not grow with size, so DMA still wins by a wide margin.
+    AssertEqual(true, cost.DmaCycles(int.MaxValue) < cost.PioCycles(int.MaxValue));
+});
+
+Run("both register-access paths refuse a read past the end of the device", () =>
+{
+    // §36.6 says neither access method has an advantage, which includes not
+    // being a way to escape the device's bounds: the port path used to read
+    // straight past the backing store where the memory-mapped path checked.
+    var dev = new MiniWebServer.Host.MiniScheduler.Device(payloadSize: 32, latencyTicks: 2);
+    for (int i = 0; i < 32; i++) dev.BackingStore[i] = (byte)('a' + (i % 26));
+
+    AssertThrows<ArgumentOutOfRangeException>(() => dev.CanonicalRead(block: 2, length: 16));
+    AssertThrows<ArgumentOutOfRangeException>(() => dev.CanonicalReadViaPorts(block: 2, length: 16));
+
+    // A large block index would wrap to a negative offset in int arithmetic and
+    // slip past a bounds check written on the wrapped value.
+    AssertThrows<ArgumentOutOfRangeException>(() => dev.CanonicalRead(block: int.MaxValue, length: 8));
+    AssertThrows<ArgumentOutOfRangeException>(() => dev.CanonicalReadViaPorts(block: int.MaxValue, length: 8));
+
+    // The last in-bounds read still works on both paths.
+    AssertEqual(16, dev.CanonicalRead(block: 1, length: 16).Length);
+    AssertEqual(16, dev.CanonicalReadViaPorts(block: 1, length: 16).Length);
+});
+
 // ----- M27 Integrity simulator (OSEP Ch. 45) -----
 
 Run("integrity xor checksum on a known payload", () =>

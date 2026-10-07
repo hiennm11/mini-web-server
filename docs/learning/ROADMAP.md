@@ -29,13 +29,13 @@ Remaining chapters and the slices that will cover them. Ordered roughly by "depe
 | 18 | **M31 LFS extensions** | Ch. 43 §43.3 + §43.12 | M25 | Small | ✅ |
 | 19 | **M32 Block-level FTL** | Ch. 44 §44.9 | M26 | Small | ✅ |
 | 20 | **M33 Scrubbing schedule** | Ch. 45 §45.7 + §45.8 | M27 | Small | ✅ |
-| 21 | **M34 Device drivers** | Ch. 36 §36.2-§36.6 | M11 | Small | spec |
+| 21 | **M34 Device drivers** | Ch. 36 §36.2-§36.6 | M11 | Small | ✅ |
 
 This covers Ch. 9, 10, 19, 20, 21, 22, 23, 29.1-§29.2 (lock-free CAS), 30 §30.1-§30.3 (CVs), 31.6, 32 §32.3 (deadlock prevention), 36 §36.2-§36.6 (device drivers), 38, 41, 43, 44, 45, 53-57 — the rest of OSEP after M1-M15.
 
 **Done**: M13.2, M13.3, M16, M17, M18, M19 (the VM paging chain), M20 (dining philosophers), M21 (FFS), M22 (lock-free CAS — Ch. 29 §29.1-§29.2), the M23 Part IV suite (.1 password + .2 at-rest + .3 RBAC + .4 PK sign/verify + .5 TLS-style handshake + .6 TOTP), M24 (RAID 0/1/4/5 with XOR recovery), M25 (LFS segments + imap + CR + cleaner), M26 (SSD FTL + GC + wear), M27 (data integrity: XOR/Additive/Fletcher checksums + physical ID + write sequence + scrubber), M28 (ASID-tagged TLB + Global bit + per-ASID flush), M29 (condition variables: own wait queue + lost-wakeup + one-CV bug + two-CV fix + covering conditions), M30 (deadlock prevention + Banker's avoidance, Ch. 32 §32.3), M31 (LFS segment-size cost model + two-CR crash recovery, Ch. 43 §43.3 + §43.12) — all have `overview.md` + slice doc under `docs/learning/`. **Part III Persistence is closed.** The Virtualization paging chain is closed through §19.7; the Concurrency deep-dive is closed through §32.3. Part IV remaining: only X.509 cert chains, biometrics, sudo-equivalent — strictly operational.
 
-**Spec-only** (overview + slice docs written; not yet implemented): M34 (device drivers: canonical protocol + interrupts + DMA + PIO/MMIO, Ch. 36 §36.2-§36.6). These cover the remaining natural OSTEP gaps called out in `CONTEXT.md`.
+**Spec-only**: none. Every milestone in this table is implemented.
 
 **Next**: M34 (device drivers: canonical protocol + interrupts + DMA + PIO/MMIO, Ch. 36 §36.2-§36.6). It is the last remaining natural OSEP gap, and unlike M28-M33 it is an I/O milestone rather than a persistence or concurrency one.
 

@@ -698,6 +698,33 @@ static void HandleClient(Socket clientSocket, string webRoot)
                     Encoding.UTF8.GetBytes(ex.Message + "\n"));
             }
         }
+        else if (parsedRequest.Path.StartsWith("/deadlock/run"))
+        {
+            // Slice 30.1 (deadlock prevention + avoidance). ?scenario=naive|ordering|batch|preempt|banker
+            string dlScenario = "ordering";
+            int qIdx = parsedRequest.Path.IndexOf('?');
+            if (qIdx >= 0)
+            {
+                foreach (var kv in parsedRequest.Path.Substring(qIdx + 1).Split('&'))
+                {
+                    int eq = kv.IndexOf('=');
+                    if (eq <= 0) continue;
+                    if (kv.Substring(0, eq) == "scenario") dlScenario = kv.Substring(eq + 1);
+                }
+            }
+            try
+            {
+                var dlResult = MiniWebServer.Host.MiniScheduler.DeadlockSim.Run(dlScenario);
+                response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                    Encoding.UTF8.GetBytes(
+                        MiniWebServer.Host.MiniScheduler.DeadlockSim.Format(dlResult)));
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+            {
+                response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8",
+                    Encoding.UTF8.GetBytes(ex.Message + "\n"));
+            }
+        }
         else if (parsedRequest.Path.StartsWith("/tlb/run"))
         {
             // Slice 28.1 (ASID-tagged TLB). ?scenario=flushall-vs-flushasid&tlb=N&context_switches=N

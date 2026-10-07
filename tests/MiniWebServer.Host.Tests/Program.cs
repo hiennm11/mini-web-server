@@ -843,6 +843,173 @@ Run("cv broadcast wakes the waiter's predicate that a signal could have missed (
     AssertEqual(true, text.Contains("Ta (100-byte request, still unsatisfied)            : correctly still parked"));
 });
 
+Run("cv timed wait returns false on timeout and true when signaled (slice 29.1 follow-up)", () =>
+{
+    var gate = new object();
+    var cv = new MiniWebServer.Host.MiniScheduler.ConditionVariable();
+
+    // No signaller: the wait must give up on its own and hand the lock back.
+    bool signaled = false;
+    bool returned = false;
+    var t = new System.Threading.Thread(() =>
+    {
+        lock (gate)
+        {
+            signaled = cv.Wait(gate, TimeSpan.FromMilliseconds(150));
+            returned = true;
+        }
+    }) { IsBackground = true };
+    var sw = System.Diagnostics.Stopwatch.StartNew();
+    t.Start();
+    t.Join(4000);
+    sw.Stop();
+
+    AssertEqual(false, t.IsAlive);
+    AssertEqual(true, returned);
+    AssertEqual(false, signaled);
+    // Timed out rather than hanging: comfortably under the join deadline.
+    AssertEqual(true, sw.ElapsedMilliseconds < 3000);
+
+    // With a signaller it reports a signal.
+    bool signaled2 = false;
+    var t2 = new System.Threading.Thread(() =>
+    {
+        lock (gate) { signaled2 = cv.Wait(gate, TimeSpan.FromSeconds(5)); }
+    }) { IsBackground = true };
+    t2.Start();
+    SpinWait.SpinUntil(() => cv.WaitingCount == 1, 2000);
+    lock (gate) { cv.Signal(); }
+    t2.Join(4000);
+    AssertEqual(true, signaled2);
+
+    // A timed-out waiter must not still be queued: it left on its own.
+    AssertEqual(0, cv.WaitingCount);
+});
+
+Run("deadlock naive scenario deadlocks and prevention scenarios do not (slice 30.1)", () =>
+{
+    var naive = MiniWebServer.Host.MiniScheduler.DeadlockSim.Run("naive");
+    AssertEqual(true, naive.Deadlocked);
+    var naiveText = string.Join("\n", naive.Lines);
+    AssertEqual(true, naiveText.Contains("DEADLOCK"));
+    // The completion count is snapshotted before teardown, so a DEADLOCK
+    // verdict must not be paired with "everyone finished".
+    AssertEqual(true, naiveText.Contains("completed=0/4"));
+
+    // Each prevention technique must clear the same workload. This is the
+    // contrast the milestone exists to show: same callers, same lock pair,
+    // different acquisition discipline.
+    foreach (var scenario in new[] { "ordering", "batch", "preempt" })
+    {
+        var result = MiniWebServer.Host.MiniScheduler.DeadlockSim.Run(scenario);
+        AssertEqual(false, result.Deadlocked);
+        var text = string.Join("\n", result.Lines);
+        AssertEqual(true, text.Contains("completed=4/4"));
+    }
+
+    // The batch scenario's whole claim is that the prevention lock admits one
+// thread at a time. If that lock were removed the overlap would exceed 1.
+var batchText = string.Join("\n",
+    MiniWebServer.Host.MiniScheduler.DeadlockSim.Run("batch").Lines);
+AssertEqual(true, batchText.Contains("max threads inside the prevention lock at once: 1"));
+
+// The trylock scenario only teaches something if its contended branch
+    // actually runs. With a uniform acquisition order the threads queue on the
+    // first lock and the second is always free, so the branch is never taken.
+    var preemptText = string.Join("\n",
+        MiniWebServer.Host.MiniScheduler.DeadlockSim.Run("preempt").Lines);
+    var retries = int.Parse(preemptText.Split("retried): ")[1].Split('\n')[0]);
+    AssertEqual(true, retries > 0);
+});
+
+Run("banker refuses the unsafe request and grants the safe one (slice 30.1)", () =>
+{
+    // Available = [3,3,2]; classic five-thread allocation/max.
+    int[,] allocation = { { 0, 1, 0 }, { 2, 0, 0 }, { 3, 0, 2 }, { 2, 1, 1 }, { 0, 0, 2 } };
+    int[,] max = { { 7, 5, 3 }, { 3, 2, 2 }, { 9, 0, 2 }, { 2, 2, 2 }, { 4, 3, 3 } };
+    var banker = new MiniWebServer.Host.MiniScheduler.Banker(new[] { 3, 3, 2 }, allocation, max);
+
+    // The starting state itself is safe.
+    AssertEqual(true, banker.FindSafeSequence() != null);
+
+    // T4 asking [3,3,0] fits Available [3,3,2] and T4's declared Need [4,3,1],
+    // so it passes both cheap checks and reaches the safety test. Granting it
+    // leaves Available [0,0,2] with T0 needing [7,4,3] and T2 needing [6,0,0]
+    // — nothing can finish, so the grant would deadlock. A request that merely
+    // exceeded Available would be refused earlier and never exercise this.
+    var availBefore = banker.Available;
+    var needsBefore = Enumerable.Range(0, 5).Select(banker.NeedOf).Select(n => string.Join(",", n)).ToArray();
+    AssertEqual(false, banker.TryRequest(4, new[] { 3, 3, 0 }, out string? unsafeReason));
+    AssertEqual(true, unsafeReason!.Contains("no safe sequence"));
+
+    // A refusal after a tentative grant must roll the grant back completely,
+    // not just Available but every thread's allocation (visible via Need).
+    AssertEqual(string.Join(",", availBefore), string.Join(",", banker.Available));
+    var needsAfter = Enumerable.Range(0, 5).Select(banker.NeedOf).Select(n => string.Join(",", n)).ToArray();
+    for (int i = 0; i < 5; i++)
+    {
+        AssertEqual(needsBefore[i], needsAfter[i]);
+    }
+
+    // T1's full remaining need is grantable: T1's allocation then equals its Max,
+    // so T1 finishes first and returns everything.
+    AssertEqual(true, banker.TryRequest(1, new[] { 1, 2, 2 }, out _));
+    AssertEqual("2,1,0", string.Join(",", banker.Available));
+
+    // A request within Available but larger than the thread's declared Need is
+    // refused on the Need check. T1's remaining need is [1,2,2] and Available is
+    // still [3,3,2], so asking for 3 of resource 0 fits what is free yet overruns
+    // what T1 ever declared.
+    var needCheck = new MiniWebServer.Host.MiniScheduler.Banker(new[] { 3, 3, 2 }, allocation, max);
+    AssertEqual(false, needCheck.TryRequest(1, new[] { 3, 0, 0 }, out string? overNeed));
+    AssertEqual(true, overNeed!.Contains("exceeds declared Need"));
+
+    // A request beyond what is free is refused on the availability check.
+    AssertEqual(false, needCheck.TryRequest(0, new[] { 9, 0, 0 }, out string? tooBig));
+    AssertEqual(true, tooBig!.Contains("Available"));
+
+    // A negative request is malformed, not merely unsafe.
+    AssertEqual(false, banker.TryRequest(0, new[] { -1, 0, 0 }, out string? negative));
+    AssertEqual(true, negative!.Contains("negative request"));
+});
+
+Run("banker detects an unsafe state rather than only refusing requests (slice 30.1)", () =>
+{
+    // Available [1,1,1] with the classic allocation/max is NOT safe: T0 needs
+    // [7,4,3], T2 needs [6,0,0] - no thread can finish, so no safe sequence
+    // exists even though every thread's remaining need is within its max.
+    int[,] allocation = { { 0, 1, 0 }, { 2, 0, 0 }, { 3, 0, 2 }, { 2, 1, 1 }, { 0, 0, 2 } };
+    int[,] max = { { 7, 5, 3 }, { 3, 2, 2 }, { 9, 0, 2 }, { 2, 2, 2 }, { 4, 3, 3 } };
+    var unsafeBanker = new MiniWebServer.Host.MiniScheduler.Banker(new[] { 1, 1, 1 }, allocation, max);
+    AssertEqual(true, unsafeBanker.FindSafeSequence() == null);
+});
+
+// Repeated deadlock scenarios must not retain their worker threads. The
+// `naive` case parks four threads on purpose, so without teardown every
+// request would strand four more for the life of the process.
+Run("deadlock scenarios do not retain threads across runs (slice 30.1)", () =>
+{
+    int proc() => System.Diagnostics.Process.GetCurrentProcess().Threads.Count;
+
+    // Warm up first: the runtime's own thread pool expands on demand, and that
+    // growth is not a leak.
+    MiniWebServer.Host.MiniScheduler.DeadlockSim.Run("naive");
+    MiniWebServer.Host.MiniScheduler.DeadlockSim.Run("preempt");
+    int before = proc();
+
+    foreach (var scenario in new[] { "naive", "ordering", "batch", "preempt" })
+    {
+        MiniWebServer.Host.MiniScheduler.DeadlockSim.Run(scenario);
+    }
+
+    int after = proc();
+    if (after > before + 2)
+    {
+        throw new InvalidOperationException(
+            $"threads grew from {before} to {after} across 4 scenario runs - workers are being retained");
+    }
+});
+
 Console.WriteLine("All tests passed.");
 
 static string CreateTempWebRoot()

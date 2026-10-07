@@ -105,6 +105,25 @@ public sealed class ConditionVariable
     /// </exception>
     public void Wait(object lockObj)
     {
+        _ = WaitCore(lockObj, timeout: null);
+    }
+
+    /// <summary>
+    /// Bounded form of <see cref="Wait"/>: parks for at most
+    /// <paramref name="timeout"/>. POSIX's <c>pthread_cond_timedwait</c>.
+    /// </summary>
+    /// <returns>
+    /// <c>true</c> if a signal released the thread, <c>false</c> if the timeout
+    /// elapsed first. Either way the lock is re-acquired, so the predicate must
+    /// still be re-checked — a timeout is not a signal (OSEP §30.1 Mesa).
+    /// </returns>
+    public bool Wait(object lockObj, TimeSpan timeout)
+    {
+        return WaitCore(lockObj, timeout);
+    }
+
+    private bool WaitCore(object lockObj, TimeSpan? timeout)
+    {
         ArgumentNullException.ThrowIfNull(lockObj);
         if (!Monitor.IsEntered(lockObj))
         {
@@ -135,12 +154,26 @@ public sealed class ConditionVariable
         Monitor.Exit(lockObj);
 
         ExceptionDispatchInfo? failure = null;
+        bool released = true;
         try
         {
-            waiter.Released.Wait();
+            if (timeout is { } limit)
+            {
+                // A timeout leaves the waiter queued; the cleanup below removes
+                // it, so a later signal cannot release a thread that already
+                // left. There is a benign race either way (signal just after the
+                // timeout, or removal just after a signal), which is why the
+                // removal is the authoritative check rather than the event.
+                released = waiter.Released.Wait(limit);
+            }
+            else
+            {
+                waiter.Released.Wait();
+            }
         }
         catch (Exception ex)
         {
+            released = true;
             failure = ExceptionDispatchInfo.Capture(ex);
         }
 
@@ -152,11 +185,12 @@ public sealed class ConditionVariable
         //
         // The waiter node is deliberately not Disposed: a signaler that dequeued
         // us microseconds earlier may still be inside Set().
+        bool stillQueued = false;
         for (; ; )
         {
             try
             {
-                lock (_queueLock) { _waiters.Remove(waiter); }
+                lock (_queueLock) { stillQueued = _waiters.Remove(waiter); }
                 break;
             }
             catch (ThreadInterruptedException)
@@ -178,6 +212,9 @@ public sealed class ConditionVariable
         }
 
         failure?.Throw();
+
+        // Timed out, and nobody had released us by the time we dequeued.
+        return released || !stillQueued;
     }
 
     /// <summary>

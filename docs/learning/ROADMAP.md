@@ -25,7 +25,7 @@ Remaining chapters and the slices that will cover them. Ordered roughly by "depe
 | 14 | **M27 Data integrity** | Ch. 45 | M12 | Small | ✅ |
 | 15 | **M28 ASID-tagged TLB** | Ch. 19 §19.5 + §19.7 | M16 | Small | ✅ |
 | 16 | **M29 Condition variables** | Ch. 30 §30.1-§30.3 | M6 | Small | ✅ |
-| 17 | **M30 Deadlock prevention** | Ch. 32 §32.3 | M20, M29 | Small | spec |
+| 17 | **M30 Deadlock prevention** | Ch. 32 §32.3 | M20, M29 | Small | ✅ |
 | 18 | **M31 LFS extensions** | Ch. 43 §43.3 + §43.12 | M25 | Small | spec |
 | 19 | **M32 Block-level FTL** | Ch. 44 §44.9 | M26 | Small | spec |
 | 20 | **M33 Scrubbing schedule** | Ch. 45 §45.7 | M27 | Small | spec |
@@ -33,11 +33,11 @@ Remaining chapters and the slices that will cover them. Ordered roughly by "depe
 
 This covers Ch. 9, 10, 19, 20, 21, 22, 23, 29.1-§29.2 (lock-free CAS), 30 §30.1-§30.3 (CVs), 31.6, 32 §32.3 (deadlock prevention), 36 §36.2-§36.6 (device drivers), 38, 41, 43, 44, 45, 53-57 — the rest of OSEP after M1-M15.
 
-**Done**: M13.2, M13.3, M16, M17, M18, M19 (the VM paging chain), M20 (dining philosophers), M21 (FFS), M22 (lock-free CAS — Ch. 29 §29.1-§29.2), the M23 Part IV suite (.1 password + .2 at-rest + .3 RBAC + .4 PK sign/verify + .5 TLS-style handshake + .6 TOTP), M24 (RAID 0/1/4/5 with XOR recovery), M25 (LFS segments + imap + CR + cleaner), M26 (SSD FTL + GC + wear), M27 (data integrity: XOR/Additive/Fletcher checksums + physical ID + write sequence + scrubber), M28 (ASID-tagged TLB + Global bit + per-ASID flush), M29 (condition variables: own wait queue + lost-wakeup + one-CV bug + two-CV fix + covering conditions) — all have `overview.md` + slice doc under `docs/learning/`. **Part III Persistence is closed.** The Virtualization paging chain is closed through §19.7. Part IV remaining: only X.509 cert chains, biometrics, sudo-equivalent — strictly operational.
+**Done**: M13.2, M13.3, M16, M17, M18, M19 (the VM paging chain), M20 (dining philosophers), M21 (FFS), M22 (lock-free CAS — Ch. 29 §29.1-§29.2), the M23 Part IV suite (.1 password + .2 at-rest + .3 RBAC + .4 PK sign/verify + .5 TLS-style handshake + .6 TOTP), M24 (RAID 0/1/4/5 with XOR recovery), M25 (LFS segments + imap + CR + cleaner), M26 (SSD FTL + GC + wear), M27 (data integrity: XOR/Additive/Fletcher checksums + physical ID + write sequence + scrubber), M28 (ASID-tagged TLB + Global bit + per-ASID flush), M29 (condition variables: own wait queue + lost-wakeup + one-CV bug + two-CV fix + covering conditions), M30 (deadlock prevention + Banker's avoidance, Ch. 32 §32.3) — all have `overview.md` + slice doc under `docs/learning/`. **Part III Persistence is closed.** The Virtualization paging chain is closed through §19.7; the Concurrency deep-dive is closed through §32.3. Part IV remaining: only X.509 cert chains, biometrics, sudo-equivalent — strictly operational.
 
-**Spec-only** (overview + slice docs written; not yet implemented): M30 (deadlock prevention + Banker's, Ch. 32 §32.3), M31 (LFS segment-size cost model + two-CR alternation, Ch. 43 §43.3+§43.12), M32 (block-level + hybrid FTL, Ch. 44 §44.9), M33 (periodic scrubbing schedule, Ch. 45 §45.7), M34 (device drivers: canonical protocol + interrupts + DMA + PIO/MMIO, Ch. 36 §36.2-§36.6). These cover the remaining natural OSTEP gaps called out in `CONTEXT.md`.
+**Spec-only** (overview + slice docs written; not yet implemented): M31 (LFS segment-size cost model + two-CR alternation, Ch. 43 §43.3+§43.12), M32 (block-level + hybrid FTL, Ch. 44 §44.9), M33 (periodic scrubbing schedule, Ch. 45 §45.7), M34 (device drivers: canonical protocol + interrupts + DMA + PIO/MMIO, Ch. 36 §36.2-§36.6). These cover the remaining natural OSTEP gaps called out in `CONTEXT.md`.
 
-**Next**: M30 (deadlock prevention + Banker's). M29 shipped the CV primitive it needs; that slice adds the timed-wait overload and consumes the primitive for lock-ordering and hold-and-wait demos. After that the remaining slices are the M31-M34 persistence group, or strictly operational/extended PK + biometrics + sudo-equivalent (Part IV Security gaps).
+**Next**: M31 (LFS segment-size cost model + two-CR alternation, Ch. 43 §43.3 + §43.12). The remaining four are all Persistence/I-O extensions that build on M25/M26/M27 and can each land as one small slice. After that, only strictly operational/extended PK + biometrics + sudo-equivalent (Part IV Security gaps) remain.
 
 Excluded (not addressing in this roadmap):
 - Ch. 7 Process API (`fork`/`exec`/`wait`) — out of scope for .NET

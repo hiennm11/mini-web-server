@@ -1380,6 +1380,17 @@ static void HandleClient(Socket clientSocket, string webRoot)
                     else if (k == "blockSize" && int.TryParse(v, out var sv)) blockSize = sv;
                 }
             }
+            // M33 / OSEP §45.7-§45.8 adds the scheduling half of scrubbing: M27's
+            // Scrub() is one-shot, while the chapter describes a system that
+            // "periodically read[s] through every block" on a policy. These
+            // scenarios do not need M27's store layout, so they are dispatched
+            // before it is constructed.
+            if (scenario is "scrub-schedule" or "scrub-sweep" or "checksum-overhead")
+            {
+                response = BuildScrubResponse(parsedRequest.Path, scenario, blocks, blockSize);
+            }
+            else
+            {
             var store = new MiniWebServer.Host.MiniScheduler.IntegrityStore(diskId: 0, blocks: blocks, blockSize: blockSize);
 
             string trace = "";
@@ -1436,6 +1447,7 @@ static void HandleClient(Socket clientSocket, string webRoot)
 
             response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
                 Encoding.UTF8.GetBytes(output));
+            }
         }
         else if (parsedRequest.Path.StartsWith("/auth/"))
         {
@@ -2184,6 +2196,195 @@ static void HandleClient(Socket clientSocket, string webRoot)
         Console.WriteLine($"[thread {threadId}] Sent {responseBytes.Length} response bytes.");
         Console.WriteLine($"[thread {threadId}] Closed client socket.");
     }
+}
+
+/// <summary>
+/// The M33 scenarios behind <c>/integrity/run</c> (OSEP §45.7-§45.8).
+/// </summary>
+/// <remarks>
+/// Kept out of the route body so the dispatcher stays readable, matching how
+/// M31 and M32 keep their demo formatting next to the simulator it describes.
+/// </remarks>
+static HttpResponse BuildScrubResponse(string path, string scenario, int blocks, int blockSize)
+{
+    int batchSize = Math.Max(1, blocks / 4);
+    int diskBlocks = Math.Max(1, blocks);
+    double blockMtbfHours = 100_000;
+    double intervalHours = 24;
+    int injected = 3;
+
+    // blockSize is only used by two of the three scenarios, but a non-positive
+    // value would throw inside a constructor rather than reaching a report, so
+    // it is rejected here where the caller can still answer 400.
+    if (blockSize < 1)
+        return BadRequest($"blockSize must be a positive integer, got '{blockSize}'");
+
+    foreach (var kv in MiniWebServer.Host.MiniScheduler.FtlDemos.QueryParts(path))
+    {
+        switch (kv.Key)
+        {
+            case "batch_size" or "batchSize":
+                if (!int.TryParse(kv.Value, out batchSize) || batchSize < 1)
+                    return BadRequest($"batch_size must be a positive integer, got '{kv.Value}'");
+                break;
+            case "blocks" or "diskBlocks":
+                if (!int.TryParse(kv.Value, out diskBlocks) || diskBlocks < 1)
+                    return BadRequest($"blocks must be a positive integer, got '{kv.Value}'");
+                break;
+            case "interval_hours" or "intervalHours":
+                // NaN and the infinities all fail these: a NaN interval would
+                // make every candidate period NaN, and an infinite one would
+                // print as a row of infinities.
+                if (!double.TryParse(kv.Value, System.Globalization.CultureInfo.InvariantCulture, out intervalHours)
+                    || double.IsNaN(intervalHours) || double.IsInfinity(intervalHours) || intervalHours <= 0)
+                    return BadRequest($"interval_hours must be a positive finite number, got '{kv.Value}'");
+                break;
+            case "block_mtbf_hours" or "mtbf":
+                // An infinite MTBF is meaningful and supported by the model -
+                // a block that never fails is always caught - so only NaN and
+                // the non-positive values are rejected here.
+                if (!double.TryParse(kv.Value, System.Globalization.CultureInfo.InvariantCulture, out blockMtbfHours)
+                    || double.IsNaN(blockMtbfHours) || blockMtbfHours <= 0)
+                    return BadRequest($"block_mtbf_hours must be a positive number, got '{kv.Value}'");
+                break;
+            case "faults":
+                if (!int.TryParse(kv.Value, out injected) || injected < 0)
+                    return BadRequest($"faults must be a non-negative integer, got '{kv.Value}'");
+                break;
+        }
+    }
+
+    if (batchSize > diskBlocks)
+        return BadRequest($"batch_size {batchSize} exceeds the {diskBlocks} blocks on the disk");
+
+    // The weekly candidate is seven intervals long and a 1%-batch sweep is a
+    // hundred intervals long; both can overflow to infinity for a large but
+    // perfectly parseable interval, which would print as garbage rather than
+    // fail. Preflight instead of formatting nonsense.
+    double widestPeriod = intervalHours * Math.Max(1.0, Math.Ceiling(diskBlocks / (double)Math.Max(1, Math.Min(batchSize, diskBlocks))));
+    if (double.IsInfinity(widestPeriod) || double.IsNaN(widestPeriod))
+        return BadRequest($"interval_hours={intervalHours} with {diskBlocks} blocks overflows the sweep period");
+
+    string body = scenario switch
+    {
+        "scrub-schedule" => MiniWebServer.Host.MiniScheduler.Scrubber.FormatScheduleComparison(
+            diskBlocks, blockMtbfHours, BuildCandidates(diskBlocks, intervalHours)),
+        "scrub-sweep" => RunScrubSweep(diskBlocks, blockSize, batchSize, injected),
+        _ => FormatChecksumOverhead(blockSize),
+    };
+    return new HttpResponse(200, "OK", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes(body));
+
+    static HttpResponse BadRequest(string message) =>
+        new(400, "Bad Request", "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes(message + "\n"));
+}
+
+/// <summary>
+/// The schedules §45.7 names, plus the smaller-batch variants a real system
+/// picks to bound how much work one background pass does.
+/// </summary>
+static (string, double, int)[] BuildCandidates(int blocks, double intervalHours)
+{
+    int whole = blocks;
+    // §45.7 names both cadences: "Typical systems schedule scans on a nightly
+    // or weekly basis". Weekly is seven times the nightly interval - not seven
+    // divided by twenty-four, which would make the "weekly" row the most
+    // frequent one on the table.
+    double weekly = intervalHours * 7;
+    return new (string, double, int)[]
+    {
+        ($"{intervalHours:g}h, whole disk", intervalHours, whole),
+        (weekly >= 1000 ? "weekly, whole disk" : $"{weekly:g}h, whole disk", weekly, whole),
+        ($"{intervalHours:g}h, quarter disk", intervalHours, Math.Max(1, whole / 4)),
+        ($"{intervalHours:g}h, 1% of disk", intervalHours, Math.Max(1, whole / 100)),
+    };
+}
+
+/// <summary>
+/// Drive a real scrubber over a disk with injected faults, showing which pass
+/// finds each one.
+/// </summary>
+static string RunScrubSweep(int blocks, int blockSize, int batchSize, int faults)
+{
+    var store = new MiniWebServer.Host.MiniScheduler.IntegrityStore(diskId: 0, blocks: blocks, blockSize: blockSize);
+    // The payload has to fit the block: IntegrityStore rejects a write longer
+    // than the block, and a one-byte block would otherwise take the route down
+    // with an exception instead of a report.
+    var seed = new byte[Math.Min(2, blockSize)];
+    for (int i = 0; i < blocks; i++)
+    {
+        for (int b = 0; b < seed.Length; b++) seed[b] = (byte)('A' + ((i + b) % 26));
+        store.Write(i, seed);
+    }
+
+    // Spread the faults so they land in different passes.
+    var injected = new List<int>();
+    int step = Math.Max(1, blocks / Math.Max(1, faults));
+    for (int f = 0; f < faults && f * step < blocks; f++)
+    {
+        int b = (f * step + blockSize / 2) % blocks;
+        store.InjectCorruption(b, 0, (byte)(1 << (f % 8)));
+        injected.Add(b);
+    }
+
+    var scrubber = new MiniWebServer.Host.MiniScheduler.Scrubber(store, batchSize);
+    var sb = new System.Text.StringBuilder();
+    sb.AppendLine("=== Incremental scrub sweep (M33 / OSEP §45.7) ===");
+    sb.AppendLine($"{blocks} blocks, batch {batchSize}, {injected.Count} faults injected at {string.Join(", ", injected)}");
+    sb.AppendLine();
+    sb.AppendLine("pass | cursor before | blocks | ok | bad | found");
+    sb.AppendLine("-----|---------------|--------|----|-----|------");
+    int passes = (blocks + batchSize - 1) / batchSize;
+    for (int p = 1; p <= passes; p++)
+    {
+        int before = scrubber.Cursor;
+        var report = scrubber.ScrubBatch();
+        sb.AppendLine($"{p,4} | {before,13} | {batchSize,6} | {report.OkCount,2} | {report.BadCount,3} | {string.Join(" ", report.BadBlocks.Select(x => x.BlockId))}");
+    }
+
+    sb.AppendLine();
+    sb.AppendLine($"after {passes} pass(es): {scrubber.BlocksScrubbed} block reads over a {blocks}-block disk.");
+    if (scrubber.BlocksScrubbed > blocks)
+    {
+        // A batch is always a whole batch, so a disk whose size is not a
+        // multiple of the batch wraps and re-reads the head of the disk on the
+        // final pass. Saying "exactly once" would be false here.
+        sb.AppendLine($"The last pass wrapped: {scrubber.BlocksScrubbed - blocks} block(s) were read twice rather than");
+        sb.AppendLine($"the disk ending mid-batch. Use batch_size dividing {blocks} for a sweep with no repeats.");
+    }
+    else
+    {
+        sb.AppendLine("Every block was covered exactly once.");
+    }
+    sb.AppendLine();
+    sb.AppendLine("§45.7: \"By periodically reading through every block of the system, and checking");
+    sb.AppendLine("whether checksums are still valid, the disk system can reduce the chances that");
+    sb.AppendLine("all copies of a certain data item become corrupted.\" A batched pass that kept");
+    sb.AppendLine("restarting at block 0 would never reach the tail of the disk.");
+    return sb.ToString();
+}
+
+/// <summary>
+/// The §45.8 overhead figures, including the chapter's own rounding.
+/// </summary>
+static string FormatChecksumOverhead(int blockSize)
+{
+    double pct = MiniWebServer.Host.MiniScheduler.ChecksumOverhead.SpacePercent(
+        MiniWebServer.Host.MiniScheduler.ChecksumOverhead.TypicalChecksumBytes, blockSize);
+    var sb = new System.Text.StringBuilder();
+    sb.AppendLine("=== Checksumming overhead (M33 / OSEP §45.8) ===");
+    sb.AppendLine($"block size: {blockSize} bytes, checksum: {MiniWebServer.Host.MiniScheduler.ChecksumOverhead.TypicalChecksumBytes} bytes");
+    sb.AppendLine($"on-disk overhead at this block size: {pct:F4}%");
+    sb.AppendLine();
+    sb.AppendLine("§45.8, verbatim: \"A typical ratio might be an 8-byte checksum per 4 KB data");
+    sb.AppendLine("block, for a 0.19% on-disk space overhead.\"");
+    sb.AppendLine();
+    sb.AppendLine($"At the chapter's 4 KB block that ratio is exactly 8/4096 = {100.0 * 8 / 4096:F6}%,");
+    sb.AppendLine("which the text prints as 0.19%.");
+    sb.AppendLine();
+    sb.AppendLine("§45.8 on time: \"the CPU must compute the checksum over each block, both when");
+    sb.AppendLine("the data is stored ... and when it is accessed\". Space overheads are small; the");
+    sb.AppendLine("time cost, and the I/O of background scrubbing, are what the schedule has to trade.");
+    return sb.ToString();
 }
 
 static byte[] ReceiveRequest(Socket clientSocket)

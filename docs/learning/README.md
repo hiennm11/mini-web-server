@@ -43,12 +43,12 @@ docs/learning/
 ├── m30-deadlock/                    ← concurrency (Ch. 32 §32.3)
 ├── m31-lfs-extensions/              ← persistence (Ch. 43 §43.3 + §43.12)
 ├── m32-ssd-extensions/              ← persistence (Ch. 44 §44.9)
-├── m33-integrity-extensions/        ← persistence (Ch. 45 §45.7, spec-only)
+├── m33-integrity-extensions/        ← persistence (Ch. 45 §45.7 + §45.8)
 ├── m34-device-drivers/              ← I/O (Ch. 36 §36.2-§36.6, spec-only)
 └── m15-arraypool/                   ← perf
 ```
 
-> **Note on "spec-only" milestones** (M33-M34): the `overview.md` + `s1-*.md` docs are written; the implementation, ADR, tests, and code are not. These cover the remaining natural OSTEP coverage gaps called out in `CONTEXT.md`. Each can be implemented in a single small slice following the established M24-M32 pattern.
+> **Note on "spec-only" milestones** (M34): the `overview.md` + `s1-*.md` docs are written; the implementation, ADR, tests, and code are not. These cover the remaining natural OSTEP coverage gaps called out in `CONTEXT.md`. Each can be implemented in a single small slice following the established M24-M33 pattern.
 
 ## Naming convention
 
@@ -84,6 +84,7 @@ Within a folder, slices are numbered sequentially (`s1`, `s2`, ...). The milesto
    - `m26-ssd/`
    - `m32-ssd-extensions/` (block-level + hybrid FTL)
    - `m27-integrity/`
+   - `m33-integrity-extensions/` (scrubbing schedule)
 
 4. **Scheduling** (MLFQ → proportional-share → multi-CPU):
    - `m13-mlfq/`
@@ -107,8 +108,7 @@ Within a folder, slices are numbered sequentially (`s1`, `s2`, ...). The milesto
 7. **Performance**:
    - `m15-arraypool/`
 
-8. **Spec-only (docs written, not implemented)** — the remaining natural OSTEP gaps; each can be implemented as a small slice following the M24-M32 pattern:
-   - `m33-integrity-extensions/` — periodic scrubbing schedule (Ch. 45 §45.7)
+8. **Spec-only (docs written, not implemented)** — the remaining natural OSTEP gaps; each can be implemented as a small slice following the M24-M33 pattern:
    - `m34-device-drivers/` — canonical protocol + interrupts + DMA + PIO/MMIO (Ch. 36 §36.2-§36.6)
 
 ## Cross-references

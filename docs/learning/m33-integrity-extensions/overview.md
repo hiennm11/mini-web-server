@@ -3,11 +3,11 @@
 ## Question
 How often should a data-integrity scrubber run? What fraction of the disk can it cover per pass without impacting foreground I/O? When does periodic scrubbing fail to catch latent corruption before it spreads?
 ## Scope
-A scheduling layer on top of the M27 integrity simulator's one-shot `Scrubber` (Ch. 45 §45.7). OSEP §45.7 says: "By periodically reading through every block of the system, and checking whether checksums are still valid, the disk system can reduce the chances that all copies of a certain data item become corrupted. Typical systems schedule scans on a nightly or weekly basis." The slice implements:
-- **Periodic schedule**: a background loop that runs the scrubber every `intervalMinutes`, covering `batchSize` blocks per pass (the un-scanned portion is left for the next pass).
-- **I/O throttling**: between batches, the scheduler sleeps for `throttleMicros` microseconds so the scrubber doesn't starve foreground reads/writes.
-- **Catch-probability model**: given a per-block MTTF, the slice computes the probability of catching corruption before it spreads under different `intervalMinutes × batchSize` combinations.
-- **Smoke-driven route**: `/integrity/run?scenario=scrub-schedule&interval_minutes=I&batch_size=B&block_mtbf_hours=MTTF` reports catches-per-pass and probability-of-spread.
+A scheduling layer over M27's `IntegrityStore` (Ch. 45 §45.7). OSEP §45.7 says: "By periodically reading through every block of the system, and checking whether checksums are still valid, the disk system can reduce the chances that all copies of a certain data item become corrupted. Typical systems schedule scans on a nightly or weekly basis." M27's `Scrub()` is one-shot; the slice adds the policy the chapter describes:
+- **Incremental sweep**: a pass covers `batchSize` blocks and resumes where the previous one stopped, wrapping at the end of the disk. A batched pass that restarted at block 0 would never reach the tail.
+- **Periodic schedule**: a background loop fires every `interval`, with a `throttle` pause between passes so the scrubber does not monopolise the device. `Stop()` joins the worker.
+- **Catch-probability model**: given a per-block MTBF, `P(caught) = exp(-sweepPeriod / MTBF)`, with the sweep period derived from the interval and batch size. The model is derived here, not quoted - OSEP states no formula.
+- **Smoke-driven route**: `/integrity/run?scenario=scrub-schedule`, `scrub-sweep` and `checksum-overhead`.
 
 ## Slice
 - **[s1-scrubbing-schedule.md](./s1-scrubbing-schedule.md)** — periodic scrubber + throttle + catch-probability model.
@@ -18,13 +18,13 @@ A scheduling layer on top of the M27 integrity simulator's one-shot `Scrubber` (
 - **Ch. 45 §45.5** (physical ID for misdirected writes) and **§45.6** (write sequence for lost writes) — both run during scrubbing.
 
 ## Files
-- `src/MiniWebServer.Host/MiniScheduler/Integrity.cs` — extend `IntegrityStore` with `Scrubber.Schedule(interval, batch, throttle)`.
-- `src/MiniWebServer.Host/Program.cs` — `/integrity/run` route handles `scrub-schedule` scenario.
+- `src/MiniWebServer.Host/MiniScheduler/Scrubber.cs` — `Scrubber` (incremental sweep + `Schedule`/`Stop`), `CatchProbability` (derived model), `ChecksumOverhead` (§45.8 figures).
+- `src/MiniWebServer.Host/Program.cs` — `/integrity/run` gains `scrub-schedule`, `scrub-sweep` and `checksum-overhead`, dispatched before M27's store is constructed.
 
 ## Implementation deviations from OSEP
-- **Throttling via `Thread.Sleep`** in the smoke loop. Real systems use IO priority classes (ionice on Linux).
+- **Throttling is a timed wait, not I/O priority.** Real systems use IO priority classes (ionice on Linux).
 - **No memory pressure awareness**: the scheduler runs at fixed intervals. Real scrubbers back off under memory pressure.
-- **Catch-probability is a closed-form approximation** — uses OSEP §45.8's Poisson-arrival model. Real systems use hardware-level BER (bit error rate) data.
+- **Catch-probability is a model derived here, not quoted** — OSEP states no probability formula. The derivation is in the code and in ADR 0023. Real systems use hardware-level BER (bit error rate) data, and §45.1's LSE findings show real errors are clustered rather than uniform.
 - **No ZFS-style end-to-end checksum tree** (M27 already deferred this; the slice doesn't add it back).
 
 ## What this slice does NOT do

@@ -851,6 +851,209 @@ Run("integrity scrubber reports clean + corrupted blocks", () =>
     AssertEqual(true, badSet.Contains(5));
 });
 
+Run("scrubber covers a batch per pass and resumes where it stopped", () =>
+{
+    // §45.7: "By periodically reading through every block of the system". A
+    // partial sweep cannot restart from zero each pass or a block would never
+    // be reached, so the cursor has to survive between passes.
+    var store = new MiniWebServer.Host.MiniScheduler.IntegrityStore(diskId: 0, blocks: 10, blockSize: 8);
+    for (int i = 0; i < 10; i++) store.Write(i, new byte[] { (byte)('A' + i) });
+    store.InjectCorruption(7, 0, 0x01);   // block 7 lands in the second pass
+
+    var scrubber = new MiniWebServer.Host.MiniScheduler.Scrubber(store, batchSize: 4);
+    var p1 = scrubber.ScrubBatch();          // blocks 0-3
+    AssertEqual(4, p1.OkCount + p1.BadCount);
+    AssertEqual(0, p1.BadCount);
+
+    var p2 = scrubber.ScrubBatch();          // blocks 4-7
+    AssertEqual(4, p2.OkCount + p2.BadCount);
+    AssertEqual(1, p2.BadCount);
+    AssertEqual(7, p2.BadBlocks[0].BlockId);
+
+    // 10 blocks at 4 per pass wraps: the third pass covers 8, 9, 0, 1.
+    var p3 = scrubber.ScrubBatch();
+    AssertEqual(4, p3.OkCount + p3.BadCount);
+    AssertEqual(0, p3.BadCount);
+
+    // A fourth pass continues from the cursor rather than restarting at zero.
+    var p4 = scrubber.ScrubBatch();
+    AssertEqual(4, p4.OkCount + p4.BadCount);
+    AssertEqual(16, scrubber.BlocksScrubbed);
+});
+
+Run("scrub catch probability follows exp(-T/MTTF) and is monotone in T", () =>
+{
+    // Derived, not quoted: a block is revisited every T hours, errors on one
+    // block arrive as a Poisson process of rate 1/MTTF, and the corruption is
+    // caught iff the next error arrives later than the next scrub visit. So
+    // P(caught) = P(Gap > T) = exp(-T/MTTF).
+    AssertClose(1.0, MiniWebServer.Host.MiniScheduler.CatchProbability.OfSweepPeriod(0.0, 100000.0));
+    AssertClose(Math.Exp(-24.0 / 100000.0),
+        MiniWebServer.Host.MiniScheduler.CatchProbability.OfSweepPeriod(24.0, 100000.0));
+
+    // Monotone: a longer gap between visits can only lose catches.
+    double prev = 1.0;
+    for (double t = 1; t <= 24 * 60; t *= 2)
+    {
+        double p = MiniWebServer.Host.MiniScheduler.CatchProbability.OfSweepPeriod(t, 100000.0);
+        AssertEqual(true, p < prev);
+        prev = p;
+    }
+
+    // A disk that never corrupts is always caught; a huge MTTF approaches 1.
+    AssertClose(1.0, MiniWebServer.Host.MiniScheduler.CatchProbability.OfSweepPeriod(24.0, double.PositiveInfinity));
+});
+
+Run("scrub schedule derives the sweep period from interval and batch size", () =>
+{
+    // A pass covers batchSize of N blocks and the schedule fires every interval,
+    // so a block is revisited once per whole sweep. Fewer, larger passes mean
+    // each individual block waits longer between visits - which is the cost of
+    // bounding the work one pass does.
+    double quarter = MiniWebServer.Host.MiniScheduler.CatchProbability.SweepPeriodHours(intervalHours: 24, totalBlocks: 1000, batchSize: 250);
+    AssertClose(24.0 * 4, quarter);           // four passes to cover the disk
+
+    double whole = MiniWebServer.Host.MiniScheduler.CatchProbability.SweepPeriodHours(intervalHours: 24, totalBlocks: 1000, batchSize: 1000);
+    AssertClose(24.0, whole);                 // one pass covers everything
+
+    // Splitting a sweep into more passes lengthens the period, so it lowers the
+    // catch probability for an individual block.
+    double pQuarter = MiniWebServer.Host.MiniScheduler.CatchProbability.OfSweepPeriod(quarter, 100000.0);
+    double pWhole = MiniWebServer.Host.MiniScheduler.CatchProbability.OfSweepPeriod(whole, 100000.0);
+    AssertEqual(true, pQuarter < pWhole);
+
+    // A nightly schedule that covers everything is what §45.7 describes; a
+    // nightly schedule covering a tenth of the disk is ten times staler per block.
+    AssertEqual(true, pWhole > 0.999);
+    AssertEqual(true, pQuarter < 0.9999);
+});
+
+Run("checksum overhead matches the §45.8 worked figure", () =>
+{
+    // §45.8, verbatim: "A typical ratio might be an 8-byte checksum per 4 KB
+    // data block, for a 0.19% on-disk space overhead."
+    //
+    // Note the chapter rounds: 8/4096 is 0.1953125%, which the text writes as
+    // 0.19%. Both are asserted - the exact ratio, and agreement with the
+    // printed figure - so a change to either would show up.
+    AssertClose(0.19, MiniWebServer.Host.MiniScheduler.ChecksumOverhead.SpacePercent(checksumBytes: 8, dataBlockBytes: 4096), 0.006);
+    AssertClose(8.0 / 4096.0 * 100.0, MiniWebServer.Host.MiniScheduler.ChecksumOverhead.SpacePercent(8, 4096));
+    AssertClose(0.1953125, MiniWebServer.Host.MiniScheduler.ChecksumOverhead.SpacePercent(8, 4096));
+    AssertEqual(8.0, MiniWebServer.Host.MiniScheduler.ChecksumOverhead.SpacePercent(8, 4096) * 4096 / 100.0);
+});
+
+Run("scrubber schedules and stops cleanly without leaking the worker", () =>
+{
+    var store = new MiniWebServer.Host.MiniScheduler.IntegrityStore(diskId: 0, blocks: 16, blockSize: 8);
+    for (int i = 0; i < 16; i++) store.Write(i, new byte[] { (byte)('A' + i) });
+
+    var scrubber = new MiniWebServer.Host.MiniScheduler.Scrubber(store, batchSize: 2);
+    scrubber.Schedule(TimeSpan.FromMilliseconds(5), TimeSpan.FromMilliseconds(1));
+    System.Threading.Thread.Sleep(120);
+
+    // The loop must actually do work: a scheduler that waited but never
+    // scrubbed would still report IsRunning, so the pass count is what
+    // distinguishes "running" from "spinning".
+    AssertEqual(true, scrubber.PassesCompleted > 0);
+    AssertEqual(true, scrubber.BlocksScrubbed > 0);
+    AssertEqual(true, scrubber.IsRunning);
+
+    scrubber.Stop();
+
+    // Stop() must join the worker, not just signal it: IsRunning is derived
+    // from the task's completion, so it can only be false once the loop has
+    // actually left. A scheduler that dropped the request and returned would
+    // leave the loop scrubbing in the background.
+    AssertEqual(false, scrubber.IsRunning);
+
+    // And nothing may keep scrubbing after Stop returns.
+    int settled = scrubber.PassesCompleted;
+    System.Threading.Thread.Sleep(80);
+    AssertEqual(settled, scrubber.PassesCompleted);
+});
+
+Run("scrubber rejects intervals the timer cannot express", () =>
+{
+    // WaitOne takes whole milliseconds, so a sub-millisecond interval would
+    // become a zero-length wait and the loop would spin. A 30-day interval
+    // exceeds int.MaxValue milliseconds and faults the worker instead. Both
+    // must fail at Schedule, where the caller can still see why.
+    var store = new MiniWebServer.Host.MiniScheduler.IntegrityStore(diskId: 0, blocks: 8, blockSize: 8);
+    for (int i = 0; i < 8; i++) store.Write(i, new byte[] { (byte)('A' + i) });
+
+    var tooShort = new MiniWebServer.Host.MiniScheduler.Scrubber(store, batchSize: 2);
+    AssertThrows<ArgumentOutOfRangeException>(
+        () => tooShort.Schedule(TimeSpan.FromTicks(1), TimeSpan.Zero));
+
+    var tooLong = new MiniWebServer.Host.MiniScheduler.Scrubber(store, batchSize: 2);
+    AssertThrows<ArgumentOutOfRangeException>(
+        () => tooLong.Schedule(TimeSpan.FromDays(30), TimeSpan.Zero));
+
+    var hugeThrottle = new MiniWebServer.Host.MiniScheduler.Scrubber(store, batchSize: 2);
+    AssertThrows<ArgumentOutOfRangeException>(
+        () => hugeThrottle.Schedule(TimeSpan.FromMilliseconds(5), TimeSpan.FromDays(30)));
+
+    // A rejected schedule must not have started anything.
+    AssertEqual(false, tooShort.IsRunning);
+    AssertEqual(0, tooShort.PassesCompleted);
+});
+
+Run("concurrent Schedule and Stop calls cannot orphan a worker", () =>
+{
+    // The stop-start-publish sequence must be atomic across threads, or two
+    // Schedules can both finish stopping before either publishes and the first
+    // worker becomes unreachable - still scrubbing, with no Stop able to reach
+    // it. Hammer the lifecycle from several threads and require that after the
+    // final Stop nothing is running.
+    var store = new MiniWebServer.Host.MiniScheduler.IntegrityStore(diskId: 0, blocks: 64, blockSize: 8);
+    for (int i = 0; i < 64; i++) store.Write(i, new byte[] { (byte)('A' + (i % 26)) });
+
+    var scrubber = new MiniWebServer.Host.MiniScheduler.Scrubber(store, batchSize: 4);
+    int failures = 0;
+    var threads = new List<System.Threading.Thread>();
+    for (int t = 0; t < 4; t++)
+    {
+        bool scheduler = t % 2 == 0;
+        var th = new System.Threading.Thread(() =>
+        {
+            try
+            {
+                for (int r = 0; r < 25; r++)
+                {
+                    if (scheduler) scrubber.Schedule(TimeSpan.FromMilliseconds(2), TimeSpan.Zero);
+                    else scrubber.Stop();
+                }
+            }
+            catch (Exception) { System.Threading.Interlocked.Increment(ref failures); }
+        });
+        threads.Add(th);
+        th.Start();
+    }
+    foreach (var th in threads) th.Join(TimeSpan.FromSeconds(30));
+
+    scrubber.Stop();
+    AssertEqual(0, failures);
+    AssertEqual(false, scrubber.IsRunning);
+
+    // Nothing may keep running after the final Stop.
+    int settled = scrubber.PassesCompleted;
+    System.Threading.Thread.Sleep(120);
+    AssertEqual(settled, scrubber.PassesCompleted);
+});
+
+Run("scrubber does not scrub while stopped", () =>
+{
+    var store = new MiniWebServer.Host.MiniScheduler.IntegrityStore(diskId: 0, blocks: 8, blockSize: 8);
+    for (int i = 0; i < 8; i++) store.Write(i, new byte[] { (byte)('A' + i) });
+
+    var scrubber = new MiniWebServer.Host.MiniScheduler.Scrubber(store, batchSize: 2);
+    // Never scheduled: a fresh scrubber must not touch the disk on its own.
+    System.Threading.Thread.Sleep(60);
+    AssertEqual(0, scrubber.PassesCompleted);
+    AssertEqual(0L, scrubber.BlocksScrubbed);
+    AssertEqual(0, scrubber.Cursor);
+});
+
 Run("tlb asid isolates address spaces (slice 28.1)", () =>
 {
     // Fill entries for ASID 1 and ASID 2.

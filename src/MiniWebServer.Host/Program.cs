@@ -1122,6 +1122,38 @@ static void HandleClient(Socket clientSocket, string webRoot)
                     else if (k == "files" && int.TryParse(v, out var fv)) files = fv;
                 }
             }
+            // Slice 31.1 + 31.2 scenarios (OSEP §43.3 + §43.12). These do not need the
+            // M25 simulator — the cost model and the CR protocol are standalone —
+            // so they are dispatched before it is constructed.
+            if (scenario is "segment-size-sweep" or "cost-model"
+                or "dual-cr-recovery" or "cr-alternation" or "cr-crash-during-write")
+            {
+                try
+                {
+                    var ext = MiniWebServer.Host.MiniScheduler.LfsExtensionsDemos.Run(scenario);
+                    response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                        Encoding.UTF8.GetBytes(
+                            MiniWebServer.Host.MiniScheduler.LfsExtensionsDemos.Format(ext)));
+                }
+                catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+                {
+                    response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8",
+                        Encoding.UTF8.GetBytes(ex.Message + "\n"));
+                }
+            }
+            else if (scenario is not ("create" or "rewrite" or "clean"))
+            {
+                // An unrecognised scenario is a client error, not a reason to run
+                // the default workload: falling through would answer 200 with
+                // unrelated output for a typo.
+                response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8",
+                    Encoding.UTF8.GetBytes(
+                        $"unknown lfs scenario '{scenario}' (use create, rewrite, clean, "
+                        + "cost-model, segment-size-sweep, dual-cr-recovery, cr-alternation, "
+                        + "cr-crash-during-write)\n"));
+            }
+            else
+            {
             var lfs = new MiniWebServer.Host.MiniScheduler.Lfs(segments, blocks);
 
             string trace = "";
@@ -1181,6 +1213,7 @@ static void HandleClient(Socket clientSocket, string webRoot)
 
             response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
                 Encoding.UTF8.GetBytes(lfsOutput));
+            }
         }
         else if (parsedRequest.Path.StartsWith("/ssd/run"))
         {

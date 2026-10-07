@@ -41,14 +41,14 @@ docs/learning/
 ├── m28-asid/                        ← paging (Ch. 19 §19.5+§19.7)
 ├── m29-cv/                          ← concurrency (Ch. 30 §30.1-§30.3)
 ├── m30-deadlock/                    ← concurrency (Ch. 32 §32.3)
-├── m31-lfs-extensions/              ← persistence (Ch. 43 §43.3+§43.12, spec-only)
+├── m31-lfs-extensions/              ← persistence (Ch. 43 §43.3 + §43.12)
 ├── m32-ssd-extensions/              ← persistence (Ch. 44 §44.9, spec-only)
 ├── m33-integrity-extensions/        ← persistence (Ch. 45 §45.7, spec-only)
 ├── m34-device-drivers/              ← I/O (Ch. 36 §36.2-§36.6, spec-only)
 └── m15-arraypool/                   ← perf
 ```
 
-> **Note on "spec-only" milestones** (M31-M34): the `overview.md` + `s1-*.md` (and `s2-*.md` for M31) docs are written; the implementation, ADR, tests, and code are not. These cover the remaining natural OSTEP coverage gaps called out in `CONTEXT.md`. Each can be implemented in a single small slice following the established M24-M30 pattern.
+> **Note on "spec-only" milestones** (M32-M34): the `overview.md` + `s1-*.md` docs are written; the implementation, ADR, tests, and code are not. These cover the remaining natural OSTEP coverage gaps called out in `CONTEXT.md`. Each can be implemented in a single small slice following the established M24-M31 pattern.
 
 ## Naming convention
 
@@ -75,11 +75,12 @@ Within a folder, slices are numbered sequentially (`s1`, `s2`, ...). The milesto
    - `m10-threadpool-cap/`
    - `m11-raw-syscall-demo/`
 
-3. **Persistence** (Mini FS journal → FFS block-group placement → RAID → LFS → SSD → data integrity):
+3. **Persistence** (Mini FS journal → FFS placement → RAID → LFS → LFS extensions → SSD → integrity):
    - `m12-mini-file-system/` (overview + 7 slices)
    - `m21-ffs/`
    - `m24-raid/`
    - `m25-lfs/`
+   - `m31-lfs-extensions/` (segment sizing + two-CR recovery)
    - `m26-ssd/`
    - `m27-integrity/`
 
@@ -105,8 +106,7 @@ Within a folder, slices are numbered sequentially (`s1`, `s2`, ...). The milesto
 7. **Performance**:
    - `m15-arraypool/`
 
-8. **Spec-only (docs written, not implemented)** — the remaining natural OSTEP gaps; each can be implemented as a small slice following the M24-M30 pattern:
-   - `m31-lfs-extensions/` — segment-size cost model + two-CR alternation (Ch. 43 §43.3 + §43.12)
+8. **Spec-only (docs written, not implemented)** — the remaining natural OSTEP gaps; each can be implemented as a small slice following the M24-M31 pattern:
    - `m32-ssd-extensions/` — block-level + hybrid FTL (Ch. 44 §44.9)
    - `m33-integrity-extensions/` — periodic scrubbing schedule (Ch. 45 §45.7)
    - `m34-device-drivers/` — canonical protocol + interrupts + DMA + PIO/MMIO (Ch. 36 §36.2-§36.6)

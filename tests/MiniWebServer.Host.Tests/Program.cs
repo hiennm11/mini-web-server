@@ -892,9 +892,14 @@ Run("deadlock naive scenario deadlocks and prevention scenarios do not (slice 30
     AssertEqual(true, naive.Deadlocked);
     var naiveText = string.Join("\n", naive.Lines);
     AssertEqual(true, naiveText.Contains("DEADLOCK"));
-    // The completion count is snapshotted before teardown, so a DEADLOCK
-    // verdict must not be paired with "everyone finished".
-    AssertEqual(true, naiveText.Contains("completed=0/4"));
+    // The verdict and the count must not disagree: a DEADLOCK means the run did
+    // not finish, so some thread is still parked. The count itself varies (a
+    // non-participant can leave during the timeout window), so assert the
+    // implication rather than an exact number.
+    int completedReported = int.Parse(
+        naiveText.Split("completed=")[1].Split('/')[0]);
+    AssertEqual(true, completedReported < 4);
+    AssertEqual(true, completedReported >= 0);
 
     // Each prevention technique must clear the same workload. This is the
     // contrast the milestone exists to show: same callers, same lock pair,
@@ -1010,6 +1015,215 @@ Run("deadlock scenarios do not retain threads across runs (slice 30.1)", () =>
     }
 });
 
+Run("segment sizer reproduces the OSEP §43.3 worked example (slice 31.1)", () =>
+{
+    // OSEP §43.3: "a disk with a positioning time of 10 milliseconds and peak
+    // transfer rate of 100 MB/s; assume we want an effective bandwidth of 90%
+    // of peak (F = 0.9). In this case, D = 0.9/0.1 x 100 MB/s x 0.01 seconds
+    // = 9 MB." Equation 43.6.
+    AssertClose(9_000_000d,
+        MiniWebServer.Host.MiniScheduler.SegmentSizer.OptimalBytes(100, 0.010, 0.9));
+
+    // The chapter also asks "how much is needed to reach 95% of peak? 99%?"
+    AssertClose(19_000_000d,
+        MiniWebServer.Host.MiniScheduler.SegmentSizer.OptimalBytes(100, 0.010, 0.95));
+    AssertClose(99_000_000d,
+        MiniWebServer.Host.MiniScheduler.SegmentSizer.OptimalBytes(100, 0.010, 0.99));
+
+    // OptimalBytes inverts equation 43.2, so feeding it back must reproduce the
+    // target fraction. Asserting only the closed form would pass even if
+    // EffectiveBandwidthFraction disagreed with it.
+    foreach (double f in new[] { 0.5, 0.9, 0.95, 0.99 })
+    {
+        double bytes = MiniWebServer.Host.MiniScheduler.SegmentSizer.OptimalBytes(100, 0.010, f);
+        double achieved = MiniWebServer.Host.MiniScheduler.SegmentSizer
+            .EffectiveBandwidthFraction(bytes, 100, 0.010);
+        AssertClose(f, achieved);
+    }
+
+    // F/(1-F) must blow up as F approaches 1, which is the chapter's point.
+    double at90 = MiniWebServer.Host.MiniScheduler.SegmentSizer.OptimalBytes(100, 0.010, 0.90);
+    double at99 = MiniWebServer.Host.MiniScheduler.SegmentSizer.OptimalBytes(100, 0.010, 0.99);
+    AssertEqual(true, at99 / at90 > 10);
+
+    // Offsets: a slower disk needs a bigger segment for the same fraction.
+    AssertEqual(true,
+        MiniWebServer.Host.MiniScheduler.SegmentSizer.OptimalBytes(200, 0.010, 0.9) > at90);
+    AssertEqual(true,
+        MiniWebServer.Host.MiniScheduler.SegmentSizer.OptimalBytes(100, 0.020, 0.9) > at90);
+
+    AssertThrows<ArgumentOutOfRangeException>(
+        () => MiniWebServer.Host.MiniScheduler.SegmentSizer.OptimalBytes(100, 0.010, 1.0));
+    AssertThrows<ArgumentOutOfRangeException>(
+        () => MiniWebServer.Host.MiniScheduler.SegmentSizer.OptimalBytes(100, 0.010, 0.0));
+});
+
+Run("segment-size write amplification falls with size and is cleaning-independent (slice 31.1)", () =>
+{
+    // Positioning overhead is amortised over the segment, so the write-path cost
+    // strictly decreases as segments grow. Measured, not assumed: an earlier
+    // model tried to make the total a U-shape on the assumption that big segments
+    // accumulate more garbage, but §43.9's arithmetic cancels segment size out of
+    // the reclaim cost.
+    int[] sizes = { 4, 8, 16, 32, 64, 128, 256 };
+    var amps = sizes
+        .Select(b => MiniWebServer.Host.MiniScheduler.SegmentSizer.WriteAmplification(
+            b, liveBlockRatio: 0.4, blockBytes: 4096,
+            positionTimeSeconds: 0.010, peakBandwidthMbPerSecond: 100))
+        .ToArray();
+
+    for (int i = 1; i < amps.Length; i++)
+    {
+        AssertEqual(true, amps[i] < amps[i - 1]);
+    }
+
+    // The cleaner's term does not depend on segment size at all: two segment
+    // sizes with the same live ratio differ only by positioning.
+    double small = MiniWebServer.Host.MiniScheduler.SegmentSizer.WriteAmplification(
+        8, 0.4, 4096, 0.010, 100);
+    double large = MiniWebServer.Host.MiniScheduler.SegmentSizer.WriteAmplification(
+        128, 0.4, 4096, 0.010, 100);
+    AssertEqual(true, large < small);
+    // The gap between two sizes is pure positioning, which is the same
+    // difference a liveRatio of 1.0 shows.
+    AssertClose(small - large,
+        MiniWebServer.Host.MiniScheduler.SegmentSizer.WriteAmplification(
+            8, 1.0, 4096, 0.010, 100)
+        - MiniWebServer.Host.MiniScheduler.SegmentSizer.WriteAmplification(
+            128, 1.0, 4096, 0.010, 100));
+
+    // A dirtier segment costs more to reclaim, and that dominates the total.
+    double clean = MiniWebServer.Host.MiniScheduler.SegmentSizer.WriteAmplification(
+        32, 0.8, 4096, 0.010, 100);
+    double dirtier = MiniWebServer.Host.MiniScheduler.SegmentSizer.WriteAmplification(
+        32, 0.2, 4096, 0.010, 100);
+    AssertEqual(true, dirtier > clean);
+    // A fully-live segment has no reclaim cost at all: 1 + positioning.
+    AssertClose(1.0, MiniWebServer.Host.MiniScheduler.SegmentSizer.WriteAmplification(
+        32, 1.0, 4096, 0.010, 100) - 0.010 / (0.010 + 32 * 4096 / 1e6 / 100));
+
+    AssertThrows<ArgumentOutOfRangeException>(
+        () => MiniWebServer.Host.MiniScheduler.SegmentSizer.WriteAmplification(
+            32, 0.0, 4096, 0.010, 100));
+});
+
+Run("dual-cr recovery takes the newest consistent CR (slice 31.2)", () =>
+{
+    var cr = new MiniWebServer.Host.MiniScheduler.DualCheckpointRegion();
+    cr.Write();  // CR0 ts=1
+    cr.Write();  // CR1 ts=2
+    cr.Write();  // CR0 ts=3
+
+    var (index, image, _) = cr.Recover();
+    AssertEqual(0, index);
+    AssertEqual(3L, image.HeaderTimestamp);
+
+    // An even count leaves CR1 newest.
+    var cr2 = new MiniWebServer.Host.MiniScheduler.DualCheckpointRegion();
+    cr2.Write();
+    cr2.Write();
+    var (index2, image2, _) = cr2.Recover();
+    AssertEqual(1, index2);
+    AssertEqual(2L, image2.HeaderTimestamp);
+
+    // Neither written at all: recovery must fail loudly rather than mount a
+    // filesystem with no anchor.
+    AssertThrows<InvalidOperationException>(
+        () => new MiniWebServer.Host.MiniScheduler.DualCheckpointRegion().Recover());
+});
+
+Run("dual-cr alternation leaves the other CR intact on a mid-write crash (slice 31.2)", () =>
+{
+    var cr = new MiniWebServer.Host.MiniScheduler.DualCheckpointRegion();
+    cr.Write();                    // CR0 ts=1 consistent
+    cr.Write();                    // CR1 ts=2 consistent
+    // Crash partway: header written, trailer never.
+    cr.Write(bodyTimestamp: 3, trailerTimestamp: -1);
+
+    // The crashed CR is visibly inconsistent - that is the detection the
+    // header/trailer pair exists for.
+    AssertEqual(false, cr.Cr0!.IsConsistent);
+    AssertEqual(true, cr.Cr1!.IsConsistent);
+
+    // Recovery falls back to CR1, the one that was not being written.
+    var (index, image, reason) = cr.Recover();
+    AssertEqual(1, index);
+    AssertEqual(2L, image.HeaderTimestamp);
+    AssertEqual(true, reason.Contains("CR0 rejected"));
+
+    // The alternation itself: N writes must leave the next target at N % 2.
+    var cr3 = new MiniWebServer.Host.MiniScheduler.DualCheckpointRegion();
+    for (int i = 0; i < 7; i++) cr3.Write();
+    AssertEqual(1, cr3.ActiveIndex);
+    AssertEqual("CR0,CR1,CR0,CR1,CR0,CR1,CR0",
+        string.Join(",", cr3.WriteLog.Select(w => $"CR{w.Cr}")));
+
+    // Both CRs inconsistent: nothing mountable, and that must be an error.
+    var broken = new MiniWebServer.Host.MiniScheduler.DualCheckpointRegion();
+    broken.Write(bodyTimestamp: 1, trailerTimestamp: -1);
+    broken.Write(bodyTimestamp: 2, trailerTimestamp: -1);
+    AssertThrows<InvalidOperationException>(() => broken.Recover());
+});
+
+Run("segment sizer rejects non-invertible and overflowing inputs (slice 31.1)", () =>
+{
+    // T_position = 0 has no positioning overhead, so every segment size reaches
+    // peak: equation 43.6 returns 0 and its inverse cannot recover F. Accepting
+    // it would produce a 0-byte "optimal" segment.
+    AssertThrows<ArgumentOutOfRangeException>(
+        () => MiniWebServer.Host.MiniScheduler.SegmentSizer.OptimalBytes(100, 0, 0.9));
+
+    // Left-associated `odds * R_peak * T` overflows on a huge bandwidth paired
+    // with a tiny seek time, returning Infinity for a finite answer (9 MB).
+    double big = MiniWebServer.Host.MiniScheduler.SegmentSizer.OptimalBytes(1e308, 1e-308, 0.9);
+    AssertClose(9_000_000d, big);
+    AssertEqual(true, double.IsFinite(big));
+
+    // The inverse must produce a finite number for the same extreme, not NaN.
+    AssertEqual(true, double.IsFinite(
+        MiniWebServer.Host.MiniScheduler.SegmentSizer.EffectiveBandwidthFraction(big, 1e308, 1e-308)));
+
+    // Non-finite parameters are rejected rather than propagating.
+    AssertThrows<ArgumentOutOfRangeException>(
+        () => MiniWebServer.Host.MiniScheduler.SegmentSizer.OptimalBytes(double.NaN, 0.01, 0.9));
+    AssertThrows<ArgumentOutOfRangeException>(
+        () => MiniWebServer.Host.MiniScheduler.SegmentSizer.OptimalBytes(100, 0.01, double.NaN));
+    AssertThrows<ArgumentOutOfRangeException>(
+        () => MiniWebServer.Host.MiniScheduler.SegmentSizer.OptimalBytes(double.PositiveInfinity, 0.01, 0.9));
+});
+
+Run("dual-cr refuses a fresh header paired with the previous write's trailer (slice 31.2)", () =>
+{
+    // The trailer is written last and always carries its own write's timestamp,
+    // so a crash cannot leave a new header beside the old trailer. Allowing it
+    // would publish a torn body behind a "consistent" header/trailer pair that
+    // recovery would happily mount.
+    var cr = new MiniWebServer.Host.MiniScheduler.DualCheckpointRegion();
+    cr.Write();                        // CR0 ts=1
+    cr.Write();                        // CR1 ts=2
+    AssertThrows<ArgumentException>(
+        () => cr.Write(bodyTimestamp: 3, trailerTimestamp: 1));  // ts=1 is CR0's old header
+
+    // The legitimate crash shape is still accepted: header written, trailer not.
+    var ok = new MiniWebServer.Host.MiniScheduler.DualCheckpointRegion();
+    ok.Write();
+    ok.Write();
+    ok.Write(bodyTimestamp: 3, trailerTimestamp: -1);
+    AssertEqual(false, ok.Cr0!.IsConsistent);
+    AssertEqual(1, ok.Recover().Index);
+});
+
+Run("assert helpers reject NaN rather than silently passing (slice 31.1)", () =>
+{
+    // A plain `difference > threshold` check lets NaN through, because every
+    // comparison with NaN is false - so a helper mutated to return NaN would
+    // pass every assertion that used it. Pin the behaviour.
+    AssertThrows<InvalidOperationException>(() => AssertClose(1.0, double.NaN));
+    AssertThrows<InvalidOperationException>(() => AssertClose(double.NaN, 1.0));
+    AssertThrows<InvalidOperationException>(() => AssertClose(1.0, double.PositiveInfinity));
+    AssertClose(1.0, 1.0 + 1e-12);
+});
+
 Console.WriteLine("All tests passed.");
 
 static string CreateTempWebRoot()
@@ -1038,6 +1252,27 @@ static void AssertEqual<T>(T expected, T actual)
     if (!Equals(expected, actual))
     {
         throw new InvalidOperationException($"Expected {expected}, got {actual}");
+    }
+}
+
+/// <summary>
+/// Assert two doubles agree to within <paramref name="tolerance"/> relative.
+/// Used where the expected value comes from a closed-form formula evaluated in
+/// floating point, so the last bits are not part of the claim.
+/// </summary>
+static void AssertClose(double expected, double actual, double tolerance = 1e-9)
+{
+    if (!double.IsFinite(expected) || !double.IsFinite(actual))
+    {
+        throw new InvalidOperationException(
+            $"Expected a finite {expected}, got {actual}");
+    }
+    // `!(difference <= threshold)` rather than `difference > threshold`: with
+    // NaN the latter is false, so a NaN actual would silently pass.
+    double scale = Math.Max(1.0, Math.Abs(expected));
+    if (!(Math.Abs(expected - actual) <= tolerance * scale))
+    {
+        throw new InvalidOperationException($"Expected {expected}, got {actual} (tolerance {tolerance})");
     }
 }
 

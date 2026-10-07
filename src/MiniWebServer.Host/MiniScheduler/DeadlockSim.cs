@@ -159,11 +159,24 @@ public static class DeadlockSim
             if (!t.Join(remaining)) anyTimedOut = true;
         }
 
-        completedCount = Volatile.Read(ref completed);
-        bool finished = !anyTimedOut && completedCount == workers.Count;
-
-        if (anyTimedOut)
+        bool finished;
+        if (!anyTimedOut)
         {
+            // Everyone returned on their own. Now, and only now, is the count
+            // final: a worker can finish between the join loop and this read,
+            // so reading it before the joins produced an occasional
+            // "DEADLOCK, completed=1/4" for a run that was simply still settling.
+            completedCount = Volatile.Read(ref completed);
+            finished = completedCount == workers.Count;
+        }
+        else
+        {
+            // Snapshot before teardown: cleanup releases the parked threads, and
+            // reporting their post-teardown count alongside a DEADLOCK verdict
+            // would claim the deadlock finished.
+            completedCount = Volatile.Read(ref completed);
+            finished = false;
+
             cleanup?.Invoke();
             foreach (var t in workers) t.Join(RunTimeoutMs);
         }
@@ -275,17 +288,25 @@ public static class DeadlockSim
 private static DeadlockRunResult RunNaive()
     {
         var (l1, l2) = MakeLocks();
-        // A two-party rendezvous, not four. Only the two threads that can
-        // actually hold a first lock at the same time — one wanting L1, one
-        // wanting L2 — can form the cycle, so staging four would deadlock on the
-        // barrier itself: T2 cannot enter L1 while T0 holds it, so T2 can never
-        // signal. Measured: with a four-party barrier only 2 of 4 threads ever
-        // reached their second-lock attempt.
-        var bothHoldFirst = new CountdownEvent(2);
         var gate = new object();
         var freed = new ConditionVariable();
         bool released = false;
         var giveUpAfter = TimeSpan.FromMilliseconds(600);
+
+        // Which threads join the collision is decided by identity, not by a
+        // countdown: a thread that skipped the rendezvous because the counter
+        // already reached zero would race ahead, possibly grabbing its second
+        // lock before the designated partner, and the deadlock would silently
+        // not happen. Naming the participants makes that impossible.
+        bool IsDesignated(string? name)
+        {
+            char last = name is { Length: > 0 } ? name[^1] : '9';
+            return last is '0' or '1';
+        }
+
+        // Both designated threads park here once each holds its first lock.
+        int designatedHeld = 0;
+        bool bothHolding = false;
 
         bool Released()
         {
@@ -296,28 +317,46 @@ private static DeadlockRunResult RunNaive()
         {
             var first = takeL1First ? l1 : l2;
             var second = takeL1First ? l2 : l1;
-            lock (first.Monitor)
+
+            // Nonparticipants wait *before* touching the locks. Waiting while
+            // holding one would park a thread on L1 and block the designated
+            // holder from ever reaching its rendezvous, so the run would time
+            // out without the lock cycle the scenario is meant to show.
+            if (!IsDesignated(Thread.CurrentThread.Name))
             {
-                if (bothHoldFirst.CurrentCount > 0)
+                while (!Released())
                 {
-                    // One designated thread per lock joins the rendezvous; the
-                    // others wait on their own lock and are never part of the
-                    // cycle.
-                    bothHoldFirst.Signal();
-                    while (!bothHoldFirst.IsSet)
+                    lock (gate)
                     {
-                        if (Released())
+                        if (released)
                         {
                             return;
                         }
-                        lock (gate)
-                        {
-                            if (bothHoldFirst.IsSet || released)
-                            {
-                                return;
-                            }
-                            freed.Wait(gate, giveUpAfter);
-                        }
+                        freed.Wait(gate, giveUpAfter);
+                    }
+                }
+                return;
+            }
+
+            lock (first.Monitor)
+            {
+                // Announce that a first lock is held, then wait for the partner.
+                // The check and the wait both happen under `gate`, so a partner
+                // that arrives between them cannot be missed: reading the flag
+                // outside the lock and re-reading it inside would let a ready
+                // rendezvous look like a cancellation and return instead.
+                lock (gate)
+                {
+                    designatedHeld++;
+                    bothHolding = designatedHeld >= 2;
+                    while (!bothHolding && !released)
+                    {
+                        freed.Wait(gate, giveUpAfter);
+                        bothHolding = designatedHeld >= 2;
+                    }
+                    if (released)
+                    {
+                        return;
                     }
                 }
 
@@ -371,6 +410,15 @@ private static DeadlockRunResult RunNaive()
             "  T1 holds L2, wants L1   L1 held by T0",
             "  -> a cycle in the wait-for graph; nobody can proceed",
         };
+
+        if (!finished && completed > 0)
+        {
+            // A partial count here means a thread returned during the timeout
+            // window, before the others were released. It is not progress on
+            // the cycle - the two threads in it never complete.
+            lines.Add("");
+            lines.Add($"note: {completed} thread(s) left before the deadline; the cycle itself never resolves.");
+        }
 
         var notes = new List<string>
         {

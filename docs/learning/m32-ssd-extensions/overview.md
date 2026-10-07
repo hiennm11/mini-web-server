@@ -18,19 +18,26 @@ The slice reports mapping-table RAM, write amplification, and GC efficiency for 
 - **Ch. 44 §44.7** (predecessor): M26's page-level FTL with the mapping table.
 
 ## Files
-- `src/MiniWebServer.Host/MiniScheduler/Ssd.cs` — extend `Ssd` with `BlockLevelFtl` + `HybridFtl` strategies.
-- `src/MiniWebServer.Host/Program.cs` — `/ssd/run` route handles `ftl-comparison` scenario.
+- `src/MiniWebServer.Host/MiniScheduler/FtlMapping.cs` — `FtlMappingCost` (table arithmetic), `RawFlash` (shared media), the three FTL strategies, `HybridMergeDemo`.
+- `src/MiniWebServer.Host/MiniScheduler/FtlDemos.cs` — route output formatting.
+- `src/MiniWebServer.Host/Program.cs` — `/ssd/run` gains `ftl-comparison`, `mapping-cost` and `merges`.
+
+Three scenarios rather than one: `mapping-cost` answers the chapter's table-size question with the book's own 1 TB figures, `merges` isolates the three merge kinds, and `ftl-comparison` drives all three strategies against one workload.
 
 ## Implementation deviations from OSEP
-- **Mapping table is in-memory** (consistent with M26). Real SSD FTL tables are stored in a small dedicated NOR flash on the controller with battery backup.
-- **Hybrid switch point is per-block update count ≥ 4** (matching OSEP §44.9 figure 44.10 worked example). Real drives tune this empirically.
-- **Block-level FTL cannot do partial-block writes**: writes that don't fill a block go through a log buffer (a small block-level log area on flash). The slice models this with a `LogBuffer` of N data blocks.
+
+- **Mapping tables are in-memory** (consistent with M26). Real FTL tables live in a small battery-backed NOR area on the controller.
+- **Merge classification is by chunk count**, not by the chapter's figures. §44.9 distinguishes partial from full merge by *where the sibling pages live* — one other block versus many. The simulator classifies by how many chunks a log block touches, which yields the same three-way ordering but simplifies the picture. See `docs/adr/0022-m32-block-hybrid-ftl.md`.
+- **No wear-aware allocation.** M26 tracks erase counts; M32 does not steer writes by them.
+- **No over-provisioning.** Every block is visible to the client, so the page-level baseline fills sooner than a real drive with spare blocks would.
 
 ## What this slice does NOT do
+
 - **DFTL** (Demand-based FTL, [GP07]) — the modern solution that page-maps only the cached mapping entries. Out of scope.
 - **FAST** (Fully Associative Sector Translation) — sibling research. Out of scope.
 - **Wear-aware block allocation** beyond M26's simple wear counter: deferred.
 
 ## Where this leads
-- Block-level FTL is what real consumer SSDs use; this slice makes the cost model observable.
+
+- Block-level FTL is what real consumer SSDs use; this slice makes the cost model observable and shows the measured figure the chapter only states: a small scattered write costs a whole block of amplification.
 - Future: a future M34-style "device drivers" slice could add FTL-above-the-disk, exposing the FTL choices to the file-system layer above.

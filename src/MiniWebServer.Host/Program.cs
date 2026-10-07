@@ -1238,8 +1238,60 @@ static void HandleClient(Socket clientSocket, string webRoot)
                     else if (k == "pages" && int.TryParse(v, out var pv)) pagesPerBlock = pv;
                 }
             }
-            var ssd = new MiniWebServer.Host.MiniScheduler.Ssd(blocks, pagesPerBlock);
+            // M32 / OSEP §44.9 adds scenarios that compare FTL mapping
+            // strategies rather than drive M26's page-level simulator. They
+            // share this route because they answer the same question: what a
+            // write costs on flash.
+            if (scenario is "ftl-comparison" or "mapping-cost" or "merges")
+            {
+                int writes = 200;
+                int lbaSpace = 1024;
+                int logBlocks = 4;
+                string ftl = "all";
+                string workload = "random";
+                foreach (var kv in MiniWebServer.Host.MiniScheduler.FtlDemos.QueryParts(parsedRequest.Path))
+                {
+                    if (kv.Key == "ftl") ftl = kv.Value;
+                    else if (kv.Key == "workload") workload = kv.Value;
+                    else if (kv.Key == "writes" && int.TryParse(kv.Value, out var wv)) writes = wv;
+                    else if (kv.Key == "lbas" && int.TryParse(kv.Value, out var lv)) lbaSpace = lv;
+                    else if (kv.Key == "logblocks" && int.TryParse(kv.Value, out var gv)) logBlocks = gv;
+                }
 
+                // An unknown FTL name or an out-of-range device size is a
+                // client error, not a reason to run the default workload and
+                // answer 200 with unrelated output.
+                if (ftl is not ("all" or "pagelevel" or "blocklevel" or "hybrid"))
+                {
+                    response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8",
+                        Encoding.UTF8.GetBytes(
+                            $"unknown ftl '{ftl}' (use all, pagelevel, blocklevel, hybrid)\n"));
+                }
+                else if (writes <= 0 || lbaSpace <= 0 || logBlocks < 0)
+                {
+                    response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8",
+                        Encoding.UTF8.GetBytes($"writes and lbas must be positive, logblocks non-negative\n"));
+                }
+                else if (workload is not ("seq" or "random"))
+                {
+                    response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8",
+                        Encoding.UTF8.GetBytes($"unknown workload '{workload}' (use seq, random)\n"));
+                }
+                else
+                {
+                    string ftlOutput = scenario switch
+                    {
+                        "ftl-comparison" => MiniWebServer.Host.MiniScheduler.FtlDemos.RunComparison(ftl, writes, workload, lbaSpace, logBlocks),
+                        "mapping-cost" => MiniWebServer.Host.MiniScheduler.FtlDemos.RunMappingCost(logBlocks),
+                        _ => MiniWebServer.Host.MiniScheduler.FtlDemos.RunMerges(pagesPerBlock),
+                    };
+                    response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                        Encoding.UTF8.GetBytes(ftlOutput));
+                }
+            }
+            else
+            {
+            var ssd = new MiniWebServer.Host.MiniScheduler.Ssd(blocks, pagesPerBlock);
             string trace = "";
             string ssdOutput;
             try
@@ -1302,6 +1354,7 @@ static void HandleClient(Socket clientSocket, string webRoot)
 
             response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
                 Encoding.UTF8.GetBytes(ssdOutput));
+            }
         }
         else if (parsedRequest.Path.StartsWith("/integrity/run"))
         {

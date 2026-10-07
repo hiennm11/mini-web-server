@@ -533,6 +533,245 @@ Run("ssd gc migrates live pages and erases a block", () =>
     AssertEqual((byte)'4', ssd.Read(3));
 });
 
+// ----- M32 Block-level + hybrid FTL (OSEP §44.9) -----
+
+Run("ftl mapping table for a 1TB drive matches the §44.9 worked figures", () =>
+{
+    // OSTEP §44.9 verbatim: "With a large 1-TB SSD, for example, a single
+    // 4-byte entry per 4-KB page results in 1 GB of memory needed by the
+    // device, just for these mappings! Thus, this page-level FTL scheme is
+    // impractical." Block-level mapping reduces the information "by a factor
+    // of Size_block / Size_page".
+    var tb = MiniWebServer.Host.MiniScheduler.FtlMappingCost.TableBytes(1L * 1024 * 1024 * 1024 * 1024, pageBytes: 4096, blockBytes: 256 * 1024, entryBytes: 4);
+    AssertEqual(1L * 1024 * 1024 * 1024, tb.PageLevelBytes);   // 1 GB, the book's number
+    AssertEqual(16L * 1024 * 1024, tb.BlockLevelBytes);         // 1 GB / 64 pages per block
+
+    // The reduction factor is exactly Size_block/Size_page.
+    AssertClose(64.0, tb.PageLevelBytes / (double)tb.BlockLevelBytes);
+
+    // A hybrid table is the block table plus a bounded per-page log table:
+    // it can never be smaller than pure block-level, and never larger than
+    // page-level for any sane log size.
+    long hybrid = MiniWebServer.Host.MiniScheduler.FtlMappingCost.TableBytes(1L * 1024 * 1024 * 1024 * 1024, pageBytes: 4096, blockBytes: 256 * 1024, entryBytes: 4, logBlocks: 64).HybridBytes;
+    AssertEqual(true, hybrid > tb.BlockLevelBytes);
+    AssertEqual(true, hybrid < tb.PageLevelBytes);
+});
+
+Run("block-level FTL preserves the page offset within a block", () =>
+{
+    // §44.9: the FTL "computes the address of the desired flash page by
+    // adding the offset from the logical address to the physical address of
+    // the block". Worked example: chunk 500 -> physical block starting at
+    // page 4; reading logical 2002 (offset 2) lands on physical page 6.
+    var ftl = new MiniWebServer.Host.MiniScheduler.BlockLevelFtl(blocks: 8, pagesPerBlock: 4);
+    // Four logical pages share one chunk, so they need ONE table entry, not four.
+    for (int i = 0; i < 4; i++) ftl.Write(2000 + i, (byte)('a' + i));
+    AssertEqual(1, ftl.DataTableEntries);
+    for (int i = 0; i < 4; i++) AssertEqual((byte)('a' + i), ftl.Read(2000 + i));
+
+    // The next chunk needs a second entry, which is what proves the split is
+    // by chunk boundary rather than by address magnitude.
+    for (int i = 0; i < 4; i++) ftl.Write(2004 + i, (byte)('A' + i));
+    AssertEqual(2, ftl.DataTableEntries);
+    for (int i = 0; i < 8; i++) AssertEqual(i < 4 ? (byte)('a' + i) : (byte)('A' + i - 4), ftl.Read(2000 + i));
+
+    int base_ = ftl.PhysicalPageOf(2002);
+    int blockStart = ftl.PhysicalPageOf(2000);
+    AssertEqual(2, base_ - blockStart);   // offset preserved, not remapped per page
+
+    // A partial-block write must copy the whole block out (read-modify-write).
+    ftl.Write(2002, (byte)'z');
+    for (int i = 0; i < 4; i++) AssertEqual(i == 2 ? (byte)'z' : (byte)('a' + i), ftl.Read(2000 + i));
+});
+
+Run("block-level FTL pays full read-modify-write on a small write", () =>
+{
+    // §44.9: "the FTL must read a large amount of live data from the old
+    // block and copy it into a new one (along with the data from the small
+    // write). This data copying increases write amplification greatly."
+    var ftl = new MiniWebServer.Host.MiniScheduler.BlockLevelFtl(blocks: 16, pagesPerBlock: 8);
+    // 96..103 is exactly chunk 12 (96/8 == 103/8), so it fills one physical block.
+    for (int i = 0; i < 8; i++) ftl.Write(96 + i, (byte)('a' + i));
+    AssertEqual(1, ftl.DataTableEntries);          // one block pointer for 8 pages
+
+    long writtenBefore = ftl.DataBytesWritten;
+    long hostBefore = ftl.HostBytesWritten;
+    ftl.Write(99, (byte)'z');                       // one small write into a full block
+
+    // The client wrote 1 page; the device must have programmed the whole 8-page
+    // block again, because the block pointer cannot address a single page.
+    AssertEqual(1L, ftl.HostBytesWritten - hostBefore);
+    AssertEqual(8L, ftl.DataBytesWritten - writtenBefore);
+    AssertEqual(8L, ftl.PagesCopiedForSmallWrite);
+});
+
+Run("hybrid FTL keeps per-page log writes and amortizes them into a data block", () =>
+{
+    // §44.9 hybrid: writes land in log blocks under per-page pointers; a
+    // merge turns a log block into a single block pointer. Use a single log
+    // block so every write folds into block pointers at the merge - with a
+    // larger budget the FTL keeps several blocks outstanding by design, which
+    // is what the next test covers.
+    var seq = new MiniWebServer.Host.MiniScheduler.HybridFtl(blocks: 64, pagesPerBlock: 4, logBlocks: 1);
+    for (int i = 0; i < 32; i++) seq.Write(i, (byte)('a' + (i % 26)));
+    seq.MergeLogBlocks();
+    // Every page is now reachable through a block pointer alone.
+    AssertEqual(0, seq.LogTableEntries);
+    for (int i = 0; i < 32; i++) AssertEqual((byte)('a' + (i % 26)), seq.Read(i));
+});
+
+Run("sequential writes trigger switch merges that copy nothing", () =>
+{
+    // §44.9's switch merge is the "best case": "all the per-page pointers
+    // required replaced by a single block pointer" with no data moved. Only a
+    // sequential workload produces it - scattered writes leave chunks
+    // incomplete in the log and force partial or full merges instead.
+    var seq = new MiniWebServer.Host.MiniScheduler.HybridFtl(blocks: 64, pagesPerBlock: 4, logBlocks: 4);
+    for (int i = 0; i < 32; i++) seq.Write(i, (byte)('a' + (i % 26)));
+
+    AssertEqual(true, seq.SwitchMerges > 0);        // sequential writes do switch-merge
+    AssertEqual(0L, seq.PagesCopiedOnMerge);        // ... and copy nothing to do it
+    AssertEqual(0, seq.PartialMerges);
+    AssertEqual(0, seq.FullMerges);
+
+    seq.MergeLogBlocks();
+    // One write in, one write out: the device programmed each page once.
+    AssertEqual(32L, seq.HostBytesWritten);
+    AssertEqual(32L, seq.DataBytesWritten);
+    AssertClose(1.0, seq.DataBytesWritten / (double)seq.HostBytesWritten);
+    for (int i = 0; i < 32; i++) AssertEqual((byte)('a' + (i % 26)), seq.Read(i));
+});
+
+Run("scattered writes force partial or full merges and copy pages", () =>
+{
+    // The same FTL under scattered writes: chunks stay incomplete in the log
+    // block, so §44.9's partial / full merge path runs and live pages have to
+    // be read out and rewritten. Eight log blocks of 32 pages each means the
+    // writes have to exceed 256 to force any cleaning at all.
+    var rnd = new MiniWebServer.Host.MiniScheduler.HybridFtl(blocks: 128, pagesPerBlock: 32, logBlocks: 8);
+    var rng = new Random(99);
+    for (int r = 0; r < 600; r++) rnd.Write(rng.Next(0, 1024), (byte)('a' + (r % 26)));
+
+    AssertEqual(0, rnd.SwitchMerges);              // no chunk ever completes in order
+    AssertEqual(true, rnd.FullMerges + rnd.PartialMerges > 0);
+    AssertEqual(true, rnd.PagesCopiedOnMerge > 0);
+});
+
+Run("hybrid FTL merge cost is switch < partial < full", () =>
+{
+    // §44.9 figure 44.10: switch merge = no page copying at all (best case);
+    // partial merge copies the sibling pages out of one other block; full
+    // merge pulls siblings from many blocks.
+    var sw = MiniWebServer.Host.MiniScheduler.HybridMergeDemo.SwitchMerge();
+    var pt = MiniWebServer.Host.MiniScheduler.HybridMergeDemo.PartialMerge();
+    var fl = MiniWebServer.Host.MiniScheduler.HybridMergeDemo.FullMerge();
+
+    AssertEqual(0, sw.PagesCopied);        // "the best case"
+    AssertEqual(true, pt.PagesCopied > sw.PagesCopied);
+    AssertEqual(true, fl.PagesCopied > pt.PagesCopied);
+    AssertEqual(1, sw.MergeKind);
+    AssertEqual(2, pt.MergeKind);
+    AssertEqual(3, fl.MergeKind);
+});
+
+Run("hybrid FTL write amplification sits between page-level and block-level", () =>
+{
+    // The §44.9 point: hybrid buys back most of block-level's amplification
+    // without block-level's memory bill. Under a scattered rewrite workload
+    // hybrid must land strictly between the two.
+    const int pages = 32;
+    var page = new MiniWebServer.Host.MiniScheduler.PageLevelFtl(blocks: 64, pagesPerBlock: pages);
+    var block = new MiniWebServer.Host.MiniScheduler.BlockLevelFtl(blocks: 64, pagesPerBlock: pages);
+    var hybrid = new MiniWebServer.Host.MiniScheduler.HybridFtl(blocks: 64, pagesPerBlock: pages, logBlocks: 8);
+    var rng = new Random(1234);
+    for (int round = 0; round < 40; round++)
+    {
+        int lba = rng.Next(0, 512);
+        byte v = (byte)('a' + (lba % 26));
+        page.Write(lba, v);
+        block.Write(lba, v);
+        hybrid.Write(lba, v);
+    }
+    page.MergeLogBlocks(); block.MergeLogBlocks(); hybrid.MergeLogBlocks();
+
+    double pa = page.DataBytesWritten / (double)page.HostBytesWritten;
+    double ba = block.DataBytesWritten / (double)block.HostBytesWritten;
+    double ha = hybrid.DataBytesWritten / (double)hybrid.HostBytesWritten;
+    if (!(pa < ha)) throw new InvalidOperationException($"page-level {pa} should be below hybrid {ha}");
+    if (!(ha < ba)) throw new InvalidOperationException($"hybrid {ha} should be below block-level {ba}");
+});
+
+Run("mapping cost arithmetic survives huge capacities and exact hybrid size", () =>
+{
+    // The hybrid table is the block table plus one per-page entry for every
+    // page of every log block. Multiplying the entry size twice would inflate
+    // the log's share; ceiling division written as (a + b - 1) / b overflows to
+    // a negative count near long.MaxValue.
+    var t = MiniWebServer.Host.MiniScheduler.FtlMappingCost.TableBytes(
+        1L * 1024 * 1024 * 1024 * 1024, pageBytes: 4096, blockBytes: 256 * 1024, entryBytes: 4, logBlocks: 64);
+    AssertEqual(16L * 1024 * 1024 + 64L * 64 * 4, t.HybridBytes);
+
+    var huge = MiniWebServer.Host.MiniScheduler.FtlMappingCost.TableBytes(long.MaxValue, pageBytes: 4096, blockBytes: 256 * 1024);
+    AssertEqual(true, huge.PageLevelBytes > 0);
+    AssertEqual(true, huge.BlockLevelBytes > 0);
+    AssertEqual(true, huge.PageLevelBytes >= huge.BlockLevelBytes);
+});
+
+Run("a permuted log block is not promoted as a zero-copy switch merge", () =>
+{
+    // A switch merge repoints the data table at the log block's base address,
+    // so it is only valid when logical offset N already sits at base+N. Writing
+    // a complete chunk out of order and promoting it would hand every offset
+    // the wrong page.
+    var h = new MiniWebServer.Host.MiniScheduler.HybridFtl(blocks: 8, pagesPerBlock: 4, logBlocks: 1);
+    h.Write(2, (byte)'C');
+    h.Write(0, (byte)'A');
+    h.Write(3, (byte)'D');
+    h.Write(1, (byte)'B');
+    h.MergeLogBlocks();
+
+    AssertEqual((byte)'A', h.Read(0));
+    AssertEqual((byte)'B', h.Read(1));
+    AssertEqual((byte)'C', h.Read(2));
+    AssertEqual((byte)'D', h.Read(3));
+    // The chunk was complete but misaligned, so this cannot be a zero-copy
+    // switch merge - the block has to be rewritten in offset order instead.
+    AssertEqual(0, h.SwitchMerges);
+    AssertEqual(1, h.PartialMerges);
+    AssertEqual(true, h.DataTableEntries > 0);
+});
+
+Run("a failed write leaves the previous value readable", () =>
+{
+    // A full device cannot accept the overwrite. The old mapping is the only
+    // remaining copy of that LBA, so the write must not invalidate it before
+    // the allocation succeeds.
+    var page = new MiniWebServer.Host.MiniScheduler.PageLevelFtl(blocks: 2, pagesPerBlock: 1);
+    page.Write(0, (byte)'A');
+    page.Write(1, (byte)'B');
+    AssertThrows<InvalidOperationException>(() => page.Write(0, (byte)'Z'));
+    AssertEqual((byte)'A', page.Read(0));
+    AssertEqual((byte)'B', page.Read(1));
+});
+
+Run("hybrid FTL log block budget delays the first merge", () =>
+{
+    // §44.9 makes the number of log blocks a tuning knob: keeping several
+    // outstanding means filling them before any cleaning happens. If the budget
+    // were ignored and every rollover merged, a larger budget would change
+    // nothing.
+    int small = CountMergesAfterWrites(logBlocks: 1, writes: 32);
+    int large = CountMergesAfterWrites(logBlocks: 8, writes: 32);
+    AssertEqual(true, small > large);
+
+    static int CountMergesAfterWrites(int logBlocks, int writes)
+    {
+        var h = new MiniWebServer.Host.MiniScheduler.HybridFtl(blocks: 64, pagesPerBlock: 4, logBlocks);
+        for (int i = 0; i < writes; i++) h.Write(i, (byte)('a' + (i % 26)));
+        return h.SwitchMerges + h.PartialMerges + h.FullMerges;
+    }
+});
+
 // ----- M27 Integrity simulator (OSEP Ch. 45) -----
 
 Run("integrity xor checksum on a known payload", () =>

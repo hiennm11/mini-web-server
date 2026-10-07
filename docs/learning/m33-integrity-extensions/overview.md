@@ -5,7 +5,7 @@ How often should a data-integrity scrubber run? What fraction of the disk can it
 ## Scope
 A scheduling layer over M27's `IntegrityStore` (Ch. 45 §45.7). OSEP §45.7 says: "By periodically reading through every block of the system, and checking whether checksums are still valid, the disk system can reduce the chances that all copies of a certain data item become corrupted. Typical systems schedule scans on a nightly or weekly basis." M27's `Scrub()` is one-shot; the slice adds the policy the chapter describes:
 - **Incremental sweep**: a pass covers `batchSize` blocks and resumes where the previous one stopped, wrapping at the end of the disk. A batched pass that restarted at block 0 would never reach the tail.
-- **Periodic schedule**: a background loop fires every `interval`, with a `throttle` pause between passes so the scrubber does not monopolise the device. `Stop()` joins the worker.
+- **Periodic schedule**: a background loop fires every `interval`, with a `throttle` pause between passes so the scrubber does not monopolise the device. `Stop()` joins the worker — and on a 5 s join timeout it keeps ownership and throws `TimeoutException` rather than reporting a stop that did not happen (bug 6 in the slice doc).
 - **Catch-probability model**: given a per-block MTBF, `P(caught) = exp(-sweepPeriod / MTBF)`, with the sweep period derived from the interval and batch size. The model is derived here, not quoted - OSEP states no formula.
 - **Smoke-driven route**: `/integrity/run?scenario=scrub-schedule`, `scrub-sweep` and `checksum-overhead`.
 

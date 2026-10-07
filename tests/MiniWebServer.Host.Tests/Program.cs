@@ -914,11 +914,20 @@ Run("interrupt loses to polling on a fast device and wins on a slow one", () =>
     AssertEqual(true, cost.InterruptDriveCycles(500, MiniWebServer.Host.MiniScheduler.DeviceCostModel.DefaultInterruptCost) < pollSlow);
 });
 
-Run("hybrid polling falls back to an interrupt and pays neither full cost", () =>
+Run("hybrid polls a fast device and falls back to an interrupt on a slow one", () =>
 {
     // §36.4: "it may be best to use a hybrid that polls for a little while
     // and then, if the device is not yet finished, uses interrupts. This
     // two-phased approach may achieve the best of both worlds."
+    //
+    // "Best of both" is the chapter's phrasing, not a claim this model
+    // supports: at the slow latency the hybrid costs 49 cycles against the
+    // interrupt's 41, because it pays the interrupt's fixed cost after eight
+    // polls it did not need. What it does win is both comparisons that DO
+    // hold - it never loses to polling, and it never loses to the interrupt.
+    // The strict-cheapest claim is deliberately not asserted, and the
+    // ordering that breaks it is pinned so the model cannot be quietly
+    // changed into one where the hybrid dominates.
     var cost = new MiniWebServer.Host.MiniScheduler.DeviceCostModel();
     int threshold = MiniWebServer.Host.MiniScheduler.DeviceCostModel.DefaultPollThresholdTicks;
     double hybridFast = cost.HybridDriveCycles(deviceLatencyTicks: 1);

@@ -1,11 +1,11 @@
 # Milestone 34: Device Drivers — Canonical Protocol + Interrupts + DMA + PIO/MMIO (Ch. 36 §36.2-§36.6)
 > **Overview** - what this milestone covers and where to start. The slice lives in this folder.
 ## Question
-What does a device look like to the OS? How do the four canonical device-protocol steps (poll status, write command, transfer data, poll status) compose into an interrupt-driven driver? What's the difference between PIO and DMA, and between PIO and memory-mapped I/O?
+What does a device look like to the OS? How do the four canonical device-protocol steps (poll status, write data, write command, poll status) compose into an interrupt-driven driver? What's the difference between PIO and DMA, and between PIO and memory-mapped I/O?
 ## Scope
 A standalone **device-simulator** in `src/MiniWebServer.Host/MiniScheduler/Device.cs` that models a simple disk controller as three address-mapped registers + a DMA channel, following OSEP §36.2-§36.6:
 - **§36.2 A Canonical Device**: models a device with three registers — `Status` (read state), `Command` (issue an operation), `Data` (transfer bytes).
-- **§36.3 The Canonical Protocol**: the four-step handshake — poll `Status` until not busy → write `Data` → write `Command` → poll `Status` until done.
+- **§36.3 The Canonical Protocol**: the four-step handshake — poll `Status` until not busy → write `Data` → write `Command` → poll `Status` until done. The order matters and is the one thing a reader will get wrong from memory: the *data* register is written **before** the *command*, because writing the command is what starts the device. A read writes no outgoing data, so step 2 is a no-op there; §36.3 places it in the protocol for the write case.
 - **§36.4 Lowering CPU Overhead With Interrupts**: instead of polling, the device raises an interrupt on completion; the OS puts the calling process to sleep and runs another task.
 - **§36.5 More Efficient Data Movement With DMA**: the CPU programs a DMA channel with source/dest/count, returns to other work, gets an interrupt when DMA completes. Burns fewer CPU cycles than PIO for large transfers.
 - **§36.6 Methods Of Device Interaction**: explicit I/O instructions (x86 `in`/`out`, PIO) vs. memory-mapped I/O (MMIO — device registers appear as memory locations). We expose MMIO because .NET can't issue PIO.

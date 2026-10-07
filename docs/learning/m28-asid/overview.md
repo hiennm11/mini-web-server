@@ -19,13 +19,16 @@ The driver route `/tlb/run?scenario=flushall-vs-flushasid&context_switches=N` re
 - **Cross-reference**: M16 `docs/learning/m16-tlb/overview.md` established the TLB primitive; this slice is a backward-compatible extension of the same surface.
 
 ## Files
-- `src/MiniWebServer.Host/MiniPager/Tlb.cs` — add `byte Asid`, `bool IsGlobal` to `TlbEntry`; change `Lookup(Vpn, Asid)`; add `Flush(int? asid)` overload.
-- `src/MiniWebServer.Host/MiniPager/Pager.cs` — track a `byte CurrentAsid` field; bump on every `Fork()`; call `Tlb.Flush(_currentAsid)` instead of `Tlb.Flush()` on context switch.
+- `src/MiniWebServer.Host/MiniPager/Tlb.cs` — add `byte Asid`, `bool IsGlobal` to `TlbEntry`; change `Lookup` to `Lookup(int asid, int vpn, out int pfn)`; add `Flush(int? asid)` overload.
+- `src/MiniWebServer.Host/MiniPager/Pager.cs` — add a `byte CurrentAsid` property; bump it on every `CreateProcess(pid)`.
+- `src/MiniWebServer.Host/MiniPager/Workloads.cs` — drives the `flushall-vs-flushasid` demo from a single starting TLB snapshot, so both policies see identical state.
 - `src/MiniWebServer.Host/Program.cs` — `/tlb/run` route handles `flushall-vs-flushasid` scenario.
 
 ## Implementation deviations from OSEP
 - **ASID width = 8 bits**, matching MIPS R4000 / RISC-V SV39. The simulator already uses a 16-bit VPN; widening the ASID to 12 bits (x86 PCID) would push the entry beyond 64 bytes.
-- **ASID rollover is a no-op**: when the 8-bit ASID wraps around (after 256 forks), the simulator does not flush. Real hardware flushes on rollover to avoid aliasing. A future slice could add an `AsidVersion` register (the [SH94] extension).
+- **`CurrentAsid` is bumped on `CreateProcess(pid)`, not on a `Fork()`.** The pager has no fork entry point: M19's copy-on-write runs inside `Workloads.CowForkDemo`, which creates two page tables via `CreateProcess`. Every fresh address space therefore gets a fresh ASID, which is the property the tag exists to express.
+- **The pager never actually calls `Flush(CurrentAsid)` on a context switch.** `Pager.Translate` / `Map` still use the full `Flush()` for a kernel page-table edit, and the per-ASID policy is exercised by `Workloads.ContextSwitchFlushDemo`, which drives both policies over one shared snapshot. M16's naive full flush is retained on purpose so `/tlb/run` can show the difference.
+- **ASID rollover is a no-op**: when the 8-bit ASID wraps around (after 256 `CreateProcess` calls; `Pager.cs` guards with `if (CurrentAsid < byte.MaxValue)`), the simulator does not flush. Real hardware flushes on rollover to avoid aliasing. A future slice could add an `AsidVersion` register (the [SH94] extension).
 - **PCID (x86)** is a later refinement of the same idea; not modeled.
 - **No ASID-tagged software TLB miss handler**: the M16 TLB is software-loaded; this slice keeps that style. The handler reads the current ASID from a register (just a field on the Pager, in our case) and writes it into the new TLB entry.
 

@@ -30,20 +30,22 @@ An unknown `ftl` or `workload` answers 400 rather than running the default workl
 | random | block-level | 16 | 12672 | **63.36×** |
 | random | hybrid | 147 (log 132 + data 15) | 641 | **3.21×** |
 | sequential | page-level | 200 | 200 | **1.00×** |
-| sequential | block-level | 4 | 256 | **1.28×** |
-| sequential | hybrid | 4 | 208 | **1.04×** |
+| sequential | block-level | 3 | 256 | **1.28×** |
+| sequential | hybrid | 137 (log 136 + data 1) | 208 | **1.04×** |
 
 The two workloads are the whole point. Block-level mapping is not "slow" — it is slow precisely when writes are smaller than a block and scattered, which is the condition §44.9 names.
 
-`scenario=mapping-cost`, using §44.9's own figures (4 KB page, 256 KB block, 4-byte entry):
+Note the hybrid's entry count on the sequential workload: 137, of which 136 are per-page log entries. The count is taken *before* the merge, and no merge has run — the log table is at its full budget because the workload of 200 writes never outruns 4 log blocks × 64 pages. Those 136 pointers are exactly what a later merge collapses into one block pointer each. The hybrid row therefore proves the *data* cost (208 bytes against block-level's 256 and page-level's 200), not that its mapping table is small: before cleaning, a hybrid's table is larger than block-level's by design.
+
+`scenario=mapping-cost`, using §44.9's own figures (4 KB page, 256 KB block, 4-byte entry, 64 log blocks):
 
 | strategy | table size |
 |---|---|
 | page-level | 1 GB |
 | block-level | 16 MB |
-| hybrid | 16 MB + 64 B per log block |
+| hybrid | 16 MB + 16 KB (one 4-byte entry per page of every log block: 64 pages × 4 B = 256 B per log block) |
 
-1 GB is the chapter's number. The reduction is exactly `Size_block/Size_page` = 64×.
+1 GB is the chapter's number. The reduction is exactly `Size_block/Size_page` = 64×. The hybrid's log table is the only per-page memory it adds, and it is bounded by the log-block budget rather than by capacity — which is why 64 log blocks cost 16 KB against page-level's 1 GB.
 
 ## Bugs found while building this
 
@@ -77,7 +79,7 @@ Each of these is now covered by a test that was mutation-checked — reverting t
 - `sequential writes trigger switch merges that copy nothing` — `SwitchMerges > 0`, `PagesCopiedOnMerge == 0`, amplification exactly 1.00, every address readable after the merge.
 - `scattered writes force partial or full merges and copy pages` — no switch merge, and pages are actually copied.
 - `hybrid FTL merge cost is switch < partial < full` — 0 < 2 < 12 pages copied.
-- `hybrid FTL write amplification sits between page-level and block-level` — 1.00 < 3.21 < 63.36 measured on the same scattered workload.
+- `hybrid FTL write amplification sits between page-level and block-level` — 40 scattered writes over a 512-LBA space on a 32-page-per-block device, asserting `page < hybrid < block` as inequalities rather than pinning numbers. The 1.00× / 3.21× / 63.36× figures in the table above come from the route (`writes=200`, 1024 LBAs), which is a different workload; the test deliberately does not re-pin those values, because they move with the workload and a test that quoted them would be testing the RNG seed.
 - `hybrid FTL keeps per-page log writes and amortizes them into a data block` — after a merge the log table is empty and every address reads through a block pointer.
 - `a permuted log block is not promoted as a zero-copy switch merge` — writing a complete chunk out of order still reads back correctly, and is counted as a copying merge rather than a switch.
 - `a failed write leaves the previous value readable` — an overwrite on a full device throws, and the old value is still readable.

@@ -93,7 +93,7 @@ Two of these — the lifecycle race and the interval range — have mutation-che
 - `scrubber rejects intervals the timer cannot express` — a one-tick interval, a 30-day interval and a 30-day throttle all throw at `Schedule`, and a rejected schedule leaves nothing running.
 - `concurrent Schedule and Stop calls cannot orphan a worker` — four threads run 25 lifecycle calls each; no exception escapes, nothing is running after the final `Stop`, and the pass counter is stable afterwards.
 
-Four of these were mutation-checked (cursor reset per pass, inverted probability, dropped percentage conversion, removed lifecycle lock, dropped interval validation). The `Stop()` join and the join-timeout branch are not — see bug 3 and the note above.
+Five of these were mutation-checked (cursor reset per pass, inverted probability, dropped percentage conversion, removed lifecycle lock, dropped interval validation). The `Stop()` join and the join-timeout branch are not — see bug 6 and the note above.
 
 ## Two corrections to the original spec
 

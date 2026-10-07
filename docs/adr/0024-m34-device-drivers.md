@@ -39,7 +39,7 @@ While (STATUS == BUSY)      // wait until device is done
 
 **2. "PIO means zero interrupts" is not the chapter's definition.** §36.3 defines PIO by *who moves the bytes*, not by how completion is signalled. The route reports interrupt counts because that is what these implementations do, and says so.
 
-**3. The spec dropped §36.4's actual conclusion.** Its scope described interrupts purely as a way to stop polling. The chapter's point is the opposite of a blanket recommendation — a fast device is better served by polling, and a hybrid beats both. `interrupt-vs-poll` exists to make that claim measurable; without it the milestone would teach half the section.
+**3. The spec dropped §36.4's actual conclusion.** Its scope described interrupts purely as a way to stop polling. The chapter's point is the opposite of a blanket recommendation — a fast device is better served by polling and a slow one by interrupts. `interrupt-vs-poll` exists to make that claim measurable; without it the milestone would teach half the section. The chapter also names a hybrid, but it does not follow that the hybrid beats both: in this model at 500 ticks the hybrid costs 49 cycles against the interrupt's 41, because it pays the interrupt's fixed cost *after* eight polls it did not need. It wins against pure polling there, and wins against the interrupt on a fast device, but it is never strictly cheapest. The `hybrid` row in `s1-interrupt-dma.md` is the measurement; this paragraph is the reading of it.
 
 ## Decision
 

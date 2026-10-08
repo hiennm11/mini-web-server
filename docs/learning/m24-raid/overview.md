@@ -51,7 +51,7 @@ OSEP §38.7 "RAID Level 5: Rotating Parity":
 
 | OSEP § | We do | We defer |
 |---|---|---|
-| §38.1 transparent interface | `Raid.Write(blockId, value)` / `Raid.Read(blockId)` — the file system sees a flat array. | True device-driver integration. |
+| §38.1 transparent interface | `Raid` presents per-level entry points (`WriteRaid0`, `WriteRaid1`, `WriteRaidParity`, …) and `FormatLayout()` showing where a block landed — the file system still sees a flat array. | True device-driver integration. |
 | §38.2 independent failure model | One disk can fail at a time. Recovery reconstructs the lost block via XOR. | Concurrency of multi-disk failure (§38.9 RAID 6 territory). |
 | §38.4 RAID 0 striping | Round-robin across `N` disks; stripe unit = one block. | Chunked striping with chunk size > 1 block. |
 | §38.5 RAID 1 mirroring | Full duplicate on `2` disks. Reads pick first surviving copy. | >2 mirrors, asymmetric read preference. |
@@ -71,15 +71,15 @@ OSEP §38.7 "RAID Level 5: Rotating Parity":
 
 ## .NET mechanism
 
-- `byte[][]` per disk (one slot per physical block). `Raid.Write(blockId, value)` writes to one or more disks depending on level; `Raid.Read(blockId)` reads + reconstructs if any disk failed.
-- XOR recovery: a `BlockAt(stripe, diskIndex)` helper that, on a failed disk, XORs the other `N-1` blocks in the stripe (OSEP §38.6 + §38.7 "to recompute parity, you can just XOR").
-- Rotating parity: parity-stripe index = `stripe % N` (the textbook choice — parity stripe `s` lives on disk `(s + 1) % N` for RAID 5, on disk `N-1` for RAID 4).
+- `byte[][]` per disk (one slot per physical block). Writes are per-level and explicit — `WriteRaid0(blockId, value)`, `WriteRaid1(blockId, value)`, `WriteRaidParity(blockId, value)` — and reads are `ReadRaidParity(blockId)` / `ReadParity(blockId)`, the latter reconstructing from surviving disks via XOR after a `FailDisk`.
+- XOR recovery: inline in `ReadRaidParity`, which on a failed disk XORs the other `N-1` blocks in the stripe (OSEP §38.6 + §38.7 "to recompute parity, you can just XOR").
+- Rotating parity: parity stripe `s` lives on disk `(s + 1) % DiskCount` for RAID 5 (`Raid.cs:163`) and on disk `N-1` for RAID 4. The simulator uses the `(s+1) % N` rule throughout — there is no separate `stripe % N` path.
 
 ## Files
 
 - `src/MiniWebServer.Host/MiniScheduler/Raid.cs` (new, ~250 lines):
   - `RaidLevel` enum: `Raid0`, `Raid1`, `Raid4`, `Raid5`.
-  - `Raid` simulator: `Write(stripeId, values)` (writes the stripe across disks), `Read(stripeId)` (returns the block reconstructed from surviving disks), `FailDisk(diskIdx)`, `FormatLayout()` (the grid showing where each block landed).
+  - `Raid` simulator: `WriteRaid0` / `WriteRaid1` / `WriteRaidParity` / `WriteStripeRaidParity`, `ReadRaidParity` / `ReadParity`, `FailDisk(diskIdx)`, `ReviveDisk`, `DiskByte`, `DataDiskFor` / `ParityDiskFor`, and `FormatLayout()` (the grid showing where each block landed).
 - `src/MiniWebServer.Host/Program.cs` — `/raid/run?level=...&disks=N&blocks=M&failed=K` route.
 
 ## What this slice does NOT do

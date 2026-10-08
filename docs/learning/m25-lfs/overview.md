@@ -59,7 +59,7 @@ OSEP §43.10:
 | §43.10 block liveness | `SegmentSummary[(inode, offset)]` per block. `IsLive(addr)` compares summary's `(inode, offset)` against the current inode's offset-N pointer. | Version-number short-circuit (§43.10 TIP). |
 | §43.11 cleaning policy | "Coldest segment first" (fewest live blocks). | Hot/cold segregation [RO91]. |
 | §43.12 crash recovery | Roll-forward: read CR, then segments referenced by the CR's head pointer. | Two-CR alternating-write protocol. |
-| §43.13 WAFL/ZFS/btrfs | Not modeled. | Snapshot + tree-structured FS. |
+| §43.13 (the chapter's Summary) | Not modeled. | Snapshot + tree-structured FS — the WAFL comparison is in the §43.11 TIP ("turn flaws into virtues"), and ZFS/btrfs appear only in the citation list, not as §43.13 content. |
 
 ## Key OSEP quotes
 
@@ -86,7 +86,7 @@ OSEP §43.10:
   - `LfsBlockKind` enum: `Data, Inode, Imap, Summary, Checkpoint`.
   - `LfsBlock` (kind, inodeNum, offset, value).
   - `LfsInode` (inodeNum, size, data addresses).
-  - `Lfs` simulator: `CreateFile`, `WriteData`, `Read`, `Flush`, `Clean`, `FormatLayout`, `SimulateCrash` (roll-forward).
+  - `Lfs` simulator: `CreateFile`, `WriteData`, `Read`, `Flush`, `Clean`, `FormatLayout`. **No crash simulation** — the simulator has no `SimulateCrash`; §43.12 crash recovery is modelled separately by `DualCheckpointRegion` (M31), and roll-forward is still deferred.
 - `src/MiniWebServer.Host/Program.cs` — `/lfs/run?scenario=...` route.
 
 ## What this slice does NOT do
@@ -96,7 +96,7 @@ OSEP §43.10:
 - Real I/O latency — disk access is in-memory array indexing.
 - Hot/cold segregation (OSEP §43.11, [RO91]).
 - Multi-piece imap chunks — we use one imap piece per segment flush.
-- Snapshot + versioning (WAFL, ZFS, btrfs §43.13).
+- Snapshot + versioning. The comparison with WAFL is in the §43.11 TIP, not §43.13 (which is the chapter's summary).
 - fsync() / write barriers — the simulator crashes only when told.
 
 ## Where this leads

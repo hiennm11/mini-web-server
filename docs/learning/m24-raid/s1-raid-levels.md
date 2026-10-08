@@ -11,7 +11,7 @@ Implements the four canonical RAID levels in OSEP Ch. 38 as a single in-memory s
 
 The simulator exposes:
 
-- `WriteX(stripe/block, value)` / `ReadX(stripe/block, ...)` — full-stripe and small-write paths.
+- `WriteRaid0` / `WriteRaid1` / `WriteRaidParity` / `WriteStripeRaidParity` and `ReadRaidParity` / `ReadParity` — the full-stripe and small-write paths, one method per RAID level rather than a generic `Write`/`Read` pair.
 - `FailDisk(d)` / `ReviveDisk()` — single-disk failure model per §38.2.
 - `FormatLayout()` — disk-grid ASCII dump with parity cells marked.
 - `ParityDiskFor(stripe)` / `DataDiskFor(stripe, idx)` — placement helpers for RAID 4/5.

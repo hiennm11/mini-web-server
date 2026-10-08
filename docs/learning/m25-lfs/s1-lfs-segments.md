@@ -154,7 +154,7 @@ OSEP §43.9 + §43.10: the cleaner ran 5 times, picked the coldest segments (tho
 - Real I/O latency — disk access is in-memory array indexing.
 - Hot/cold segregation (OSEP §43.11, [RO91]).
 - Multi-piece imap chunks — we use one imap piece per segment flush.
-- Snapshot + versioning (WAFL, ZFS, btrfs §43.13).
+- Snapshot + versioning. The comparison with WAFL is in the §43.11 TIP; §43.13 is the chapter's summary.
 - fsync() / write barriers — the simulator crashes only when told.
 
 ## Deferred (other LFS extensions)

@@ -42,8 +42,10 @@ This covers Ch. 9, 10, 19, 20, 21, 22, 23, 29.1-§29.2 (lock-free CAS), 30 §30.
 **Next**: none. The table above is fully implemented, and `CONTEXT.md` §"OSEP coverage gaps" lists what is deliberately left: the Ch. 36 §36.7-§36.10 device-driver abstraction, Part IV's operational material (X.509 chains, biometrics, sudo-equivalent), and the §-level deferrals already noted in each `overview.md`. Any next milestone should come from that list rather than from a new chapter.
 
 Excluded (not addressing in this roadmap):
-- Ch. 7 Process API (`fork`/`exec`/`wait`) — out of scope for .NET
-- Ch. 14-17 (base+bound, segmentation, free-space mgmt) — superseded by paging
-- Ch. 37 buses — too low-level for this lab. Ch. 36 is no longer excluded: §36.2-§36.6 landed as M34, and only §36.7-§36.10 (device-driver abstraction + IDE case study) remains deferred
+- Ch. 5 Process API (`fork`/`exec`/`wait`) — out of scope for .NET. (Earlier revisions of this file called this "Ch. 7"; in OSTEP v1.10 Process API is Ch. 5 and Ch. 7 is Scheduling: Introduction.)
+- Ch. 7 Scheduling: Introduction — not excluded by choice so much as overlooked: M13 covers §8-§10 but the FIFO / SJF / STCF / response-time / Round-Robin baselines are not implemented.
+- Ch. 14-17 (memory API, base+bound, segmentation, free-space mgmt) — superseded by paging
+- Ch. 37 Hard Disk Drives (disk geometry + scheduling) — M11/M31 use OSEP's simplified parameters; the geometry is not modeled. Note Ch. 37 is *not* a bus chapter: buses are Ch. 36 §36.7-§36.9.
+- Ch. 48-50 (distributed systems / NFS / AFS) — a different book-length topic
 
 Each milestone will follow the established pattern: folder under `docs/learning/m{N}-{name}/` with `overview.md` + `s{N}.{S}-*.md` slices + a new ADR if needed.

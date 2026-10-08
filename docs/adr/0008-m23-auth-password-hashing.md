@@ -10,7 +10,7 @@ Accepted
 
 ## Context
 
-The current `MiniWebServer.Host` repo covers OSTEP Part I (Virtualization), Part II (Concurrency), and Part III (Persistence) — every chapter is touched except a few that don't fit a single-process .NET HTTP server (Ch. 7 Process API, Ch. 14-17 segmentation).
+The current `MiniWebServer.Host` repo covers OSTEP Part I (Virtualization), Part II (Concurrency), and Part III (Persistence) — every chapter is touched except a few that don't fit a single-process .NET HTTP server (Ch. 5 Process API, Ch. 7 Scheduling: Introduction, Ch. 14-17 memory API / base+bound / segmentation / free-space).
 
 The one OSTEP piece the roadmap has been missing is **Part IV: Security** (Ch. 53-57). Until M23, there was no auth, no access control, and no cryptographic primitives anywhere in the codebase. Every request to every route was anonymous and either accepted or rejected on uniform logic.
 

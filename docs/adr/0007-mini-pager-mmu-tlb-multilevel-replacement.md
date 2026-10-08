@@ -62,8 +62,9 @@ The smoke tests live in `.gitnexus/smoke-m14-*.ps1`, one per slice.
 
 | Chapter | Concept | Slice |
 |---|---|---|
-| Ch. 14 | Address spaces | implicit (the simulator is the address space) |
-| Ch. 15 | Base + bound | not covered (superseded by paging) |
+| Ch. 13 | Address spaces | implicit (the simulator is the address space) |
+| Ch. 14 | Memory API (`malloc`/`free`) | not covered (superseded by the GC) |
+| Ch. 15 | Address translation (base + bound) | not covered (superseded by paging) |
 | Ch. 16 | Segmentation | not covered |
 | Ch. 18 | Paging (linear) | 14.1 |
 | Ch. 19 | TLB | 14.2 |
@@ -71,7 +72,7 @@ The smoke tests live in `.gitnexus/smoke-m14-*.ps1`, one per slice.
 | Ch. 21 | Replacement policy | 14.4 |
 | Ch. 22-23 | Complete VM | 14.5 |
 
-Ch. 15 (base+bound) and Ch. 16 (segmentation) are out of scope; modern systems use paging directly. Ch. 17 (free-space management) is implicitly covered by the journal (M12).
+Ch. 14 (memory API), Ch. 15 (base+bound) and Ch. 16 (segmentation) are out of scope; modern systems use paging directly. Ch. 17 (free-space management) is implicitly covered by the journal (M12). An earlier revision of this table listed Ch. 13 as "Ch. 14 Address spaces" and skipped Ch. 14 entirely.
 
 ## Non-goals
 

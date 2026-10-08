@@ -62,19 +62,19 @@ The smoke tests live in `.gitnexus/smoke-m13-*.ps1`, one per slice.
 
 | Chapter | Algorithm | Slice |
 |---|---|---|
-| Ch. 7 | Process API | not covered (we use threads, not processes) |
+| Ch. 5 | Process API (`fork`/`exec`/`wait`) | not covered (we use threads, not processes) |
+| Ch. 7 | Scheduling: Introduction (FIFO, SJF, STCF, response time, Round Robin) | **not covered — a real gap this table originally hid by mislabelling Ch. 7 as "Process API"** |
 | Ch. 8 | MLFQ | 13.1 |
 | Ch. 9 | Stride / Lottery | 13.2 |
 | Ch. 10 | Multi-CPU | 13.3 |
-| Ch. 11 | Energy-aware | not covered |
 
-Ch. 7 (fork/exec/wait) is implicitly covered by M11 (raw syscalls) and the rest of the repo's process model. The remaining gap is Ch. 11, which is out of scope for this ADR.
+Ch. 5 (fork/exec/wait) is implicitly covered by M11 (raw syscalls) and the rest of the repo's process model. Ch. 7 is not: this ADR took §8-§10 and left the baseline policies they are compared against unimplemented. That gap is only visible once the chapter numbers are correct — an earlier revision of this table listed Ch. 7 as "Process API" (it is Ch. 5) and Ch. 11 as "Energy-aware" (Ch. 11 is the CPU-virtualization summary dialogue; OSTEP has no energy-aware chapter).
 
 ## Consequences
 
 Good:
 
-- Closes OSEP Part I (Ch. 7-10) for the lab. The repo becomes a complete walkthrough of OSEP Parts I (intro + virtualization + concurrency) and II (persistence) at least.
+- Closes OSEP §8-§10 for the lab. The repo becomes a complete walkthrough of OSEP Parts I (intro + virtualization + concurrency) and II (persistence) at least — **with the caveat that Ch. 7's baselines remain unimplemented**.
 - Each slice is small (~30-60 min) and self-contained, so partial progress is still useful.
 - MLFQ / stride / multi-CPU are all classic algorithms with well-known behaviors that make good demonstrations.
 

@@ -72,7 +72,9 @@ The smoke tests live in `.gitnexus/smoke-m14-*.ps1`, one per slice.
 | Ch. 21 | Replacement policy | 14.4 |
 | Ch. 22-23 | Complete VM | 14.5 |
 
-Ch. 14 (memory API), Ch. 15 (base+bound) and Ch. 16 (segmentation) are out of scope; modern systems use paging directly. Ch. 17 (free-space management) is implicitly covered by the journal (M12). An earlier revision of this table listed Ch. 13 as "Ch. 14 Address spaces" and skipped Ch. 14 entirely.
+Ch. 14 (memory API), Ch. 15 (base+bound) and Ch. 16 (segmentation) are out of scope; modern systems use paging directly.
+
+**Ch. 17 (free-space management) is *not* covered.** An earlier revision of this ADR said it was "implicitly covered by the journal (M12)". That is wrong: M12's bitmap records which blocks are free, but choosing a block is the whole of §17, and `MiniFs` scans for the first clear bit — first fit, by default rather than by decision. It is now M36 (ADR 0025). An earlier revision of this table also listed Ch. 13 as "Ch. 14 Address spaces" and skipped Ch. 14 entirely.
 
 ## Non-goals
 

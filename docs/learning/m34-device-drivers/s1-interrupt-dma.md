@@ -82,7 +82,7 @@ This is §36.4's claim made visible: the same driver is wrong on half the device
 - `DMA refuses a transfer larger than the device` — rejection leaves nothing started.
 - `cost model stays finite for very large transfers` — `int.MaxValue` bytes still produces a finite, positive cost.
 - `interrupt loses to polling on a fast device and wins on a slow one` — §36.4's claim as an inequality in both directions.
-- `hybrid polling falls back to an interrupt and pays neither full cost` — the two-phased approach.
+- `hybrid polls a fast device and falls back to an interrupt on a slow one` — the two-phased approach. It does **not** beat both strategies: at 500 ticks it costs 49 cycles against the interrupt's 41. The test asserts the comparisons that hold and pins the ordering that breaks, rather than re-asserting §36.4's "best of both worlds" as a property of this model.
 - `MMIO and explicit I/O reach the same registers at the same cost` — §36.6's "no great advantage", pinned.
 - `both register-access paths refuse a read past the end of the device` — including a block index that would wrap.
 

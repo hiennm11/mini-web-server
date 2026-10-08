@@ -154,14 +154,13 @@ OSEP §43.9 + §43.10: the cleaner ran 5 times, picked the coldest segments (tho
 - Real I/O latency — disk access is in-memory array indexing.
 - Hot/cold segregation (OSEP §43.11, [RO91]).
 - Multi-piece imap chunks — we use one imap piece per segment flush.
-- Two-CR alternating writes (§43.12) — single CR slot suffices for the simulator.
 - Snapshot + versioning (WAFL, ZFS, btrfs §43.13).
 - fsync() / write barriers — the simulator crashes only when told.
 
 ## Deferred (other LFS extensions)
 
+> **Resolved since this slice** — M31 (ADR 0021) delivered both **two-CR alternating writes** (§43.12: header + body + trailer, mount the newest consistent CR) and **size-aware segment sizing** (§43.3, equation 43.6). They are no longer deferred. Everything below is still open.
+
 - **Hot/cold cleaning** (§43.11) — segregate hot (frequently-overwritten) vs cold (stable) segments; clean cold sooner.
-- **Two-CR alternating writes** (§43.12) — header + body + trailer protocol; pick the CR with consistent timestamps.
-- **Roll-forward crash recovery** (§43.12) — replay segments referenced by the CR's log-head pointer.
-- **Size-aware segment sizing** (§43.3) — D = (F / (1-F)) × R_peak × T_position.
+- **Roll-forward crash recovery** (§43.12) — replay segments referenced by the CR's log-head pointer. Still open: M31 built the checkpoint-anchored half, not this.
 - **Multi-piece imap** — split the imap across multiple chunks to reduce per-write cost.

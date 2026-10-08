@@ -41,7 +41,7 @@ docs/learning/
 ├── m28-asid/                        ← paging (Ch. 19 §19.5+§19.7)
 ├── m29-cv/                          ← concurrency (Ch. 30 §30.1-§30.3)
 ├── m30-deadlock/                    ← concurrency (Ch. 32 §32.3)
-├── m31-lfs-extensions/              ← persistence (Ch. 43 §43.3 + §43.12)
+├── m31-lfs-extensions/              ← persistence (Ch. 43 §43.3 + §43.12 first half)
 ├── m32-ssd-extensions/              ← persistence (Ch. 44 §44.9)
 ├── m33-integrity-extensions/        ← persistence (Ch. 45 §45.7 + §45.8)
 ├── m34-device-drivers/              ← I/O (Ch. 36 §36.2-§36.6)

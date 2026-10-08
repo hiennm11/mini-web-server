@@ -67,7 +67,8 @@ Five scenarios on the existing `/lfs/run`, dispatched before the M25 simulator i
 - **The cost model is a first-order approximation.** It ignores disk geometry (seek curves, rotational latency as a function of position), the cleaner's segment-selection policy, and the fact that a real cleaner batches M segments at a time rather than reclaiming one.
 - **Recovery is simulated, not exercised.** `DualCheckpointRegion` does not persist across restarts and is not wired into M25's `Lfs`, whose CR is still the single `segment 0, block 0` block M25 uses. The two coexist: M25 models a running system, M31 models the crash-recovery protocol.
 - **`WriteAmplification` is not a total LFS cost.** It is the write path plus the cleaner's rewrite. Segmented layout has further costs (segment summary blocks, partially-filled segments at the end of the log) that it omits.
-- **No roll-forward.** §43.12's second half — replaying the log past the last checkpoint to recover writes since it was taken — is deferred.
+- **No roll-forward.** §43.12's second half — replaying the log past the last checkpoint to recover writes since it was taken — is deferred. This is the **only** part of §43.12 still open; the first half is complete here.
+- **`Lfs` still uses one CR.** This milestone adds `DualCheckpointRegion` alongside M25 rather than replacing M25's slot, so the running simulator and the crash-recovery protocol are still two separate models.
 
 ## Verification
 

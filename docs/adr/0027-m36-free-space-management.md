@@ -90,6 +90,8 @@ The chapter draws its heaps as `addr:20 len:10`. An integer offset is the same n
 - Smoke: all four scenarios return 200; unknown scenario, unknown policy, non-integer and non-positive parameters, and a non-power-of-two buddy heap return 400. `split` reproduces 4088 → 3980; `buddy?request=7168` reports the 1024-byte internal fragmentation and the 57344-byte remainder.
 - 116/116 tests pass (108 before M36 + 8).
 
+> **Scope claim corrected by ADR 0029.** This milestone covers Ch. 17 in full (§17.1-§17.4), so the chapter-level claim was already accurate. The glossary entry that described it as "the gap" was not — `CONTEXT.md` had not been updated when this landed.
+
 ## Source Documents
 
 - `docs/learning/m36-free-space/overview.md` — scope and what is deliberately excluded.

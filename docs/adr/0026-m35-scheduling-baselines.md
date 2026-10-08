@@ -103,6 +103,8 @@ The chapter's wording is precise: "Any time a new job enters the system, the STC
   return 400; `/scheduler/run?algo=mlfq` is unchanged.
 - 108/108 tests pass (98 before M35 + 10).
 
+> **Scope claim corrected by ADR 0029.** This milestone implements §7.3-§7.7, not the whole chapter; Ch. 7 §7.8 is "Tips" and §7.9-§7.10 were read for the hand-off to §8 but not implemented as simulation.
+
 ## Source Documents
 
 - `docs/learning/m35-scheduling-baselines/overview.md` — scope and what is deliberately excluded.

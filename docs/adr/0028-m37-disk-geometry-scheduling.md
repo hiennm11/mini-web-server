@@ -74,6 +74,8 @@ Two simulators, because the chapter splits into two questions that share only ar
   parameter, a duplicate queue block, and a non-positive `bytes` return 400.
 - 124/124 tests pass (116 before M37 + 8).
 
+> **Scope claim corrected by ADR 0029.** This milestone implements §37.2-§37.5. The coverage table said "Ch. 37", which reads as the whole chapter; §37.1 (the interface and the sector address space) and §6.6 (the summary) are not built as simulations.
+
 ## Source Documents
 
 - `docs/learning/m37-disk-geometry/overview.md` — scope and what is deliberately excluded.

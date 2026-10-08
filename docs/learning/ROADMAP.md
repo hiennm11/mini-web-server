@@ -26,7 +26,7 @@ Remaining chapters and the slices that will cover them. Ordered roughly by "depe
 | 15 | **M28 ASID-tagged TLB** | Ch. 19 §19.5 + §19.7 | M16 | Small | ✅ |
 | 16 | **M29 Condition variables** | Ch. 30 §30.1-§30.3 | M6 | Small | ✅ |
 | 17 | **M30 Deadlock prevention** | Ch. 32 §32.3 | M20, M29 | Small | ✅ |
-| 18 | **M31 LFS extensions** | Ch. 43 §43.3 + §43.12 | M25 | Small | ✅ |
+| 18 | **M31 LFS extensions** | Ch. 43 §43.3 + §43.12 first half | M25 | Small | ✅ |
 | 19 | **M32 Block-level FTL** | Ch. 44 §44.9 | M26 | Small | ✅ |
 | 20 | **M33 Scrubbing schedule** | Ch. 45 §45.7 + §45.8 | M27 | Small | ✅ |
 | 21 | **M34 Device drivers** | Ch. 36 §36.2-§36.6 | M11 | Small | ✅ |

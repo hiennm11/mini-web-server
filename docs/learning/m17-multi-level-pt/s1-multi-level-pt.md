@@ -19,7 +19,7 @@ The HTTP route `/pager/run?pt=level2` enables the 2-level structure. The trace s
   - `TwoLevelLookup` (slice 17.1, new).
   - `Pager._lookups` is now `Dictionary<int, IPageTableLookup>`.
   - `Pager.CreateProcess(pid, twoLevel = false)` — pass `true` for 2-level.
-  - `Pager.Translate()` dispatches via `IPageTableLookup.TryTranslate()`.
+  - `Pager.Translate()` dispatches via `IPageTableLookup.TryLookup()`.
 - `src/MiniWebServer.Host/MiniPager/Workloads.cs` — `PagerRunner` accepts `twoLevel` flag; prints memory-savings line.
 - `src/MiniWebServer.Host/Program.cs` — `/pager/run?pt=linear|level2` query parameter.
 
@@ -46,7 +46,7 @@ $ curl 'http://localhost:8080/pager/run?workload=array&frames=16&pt=level2'
 
 ## .NET mechanism
 
-- `IPageTableLookup` interface — `TryTranslate(int vpn, out int frameNo)`, `Map(int vpn, int frameNo)`, plus `MemoryBytes` / `PopulatedEntries` / `Capacity`.
+- `IPageTableLookup` interface — `TryLookup(int vpn, out int frameNo, out int swapSlot)` (the third out-parameter reports which swap slot the page came from, if any), `Map(int vpn, int frameNo)`, plus `MemoryBytes` / `PopulatedEntries` / `Capacity`.
 - `TwoLevelLookup._pts` is `Dictionary<int, InnerPageTable>` — only allocated on first `Map()` for a PGD index.
 - `Marshal.SizeOf<T>()` gives actual byte cost for the comparison line.
 
@@ -55,7 +55,7 @@ $ curl 'http://localhost:8080/pager/run?workload=array&frames=16&pt=level2'
 - 3-level or 4-level page tables.
 - PT pages stored in `PhysicalMemory` (would consume real frames, complicates allocation).
 - Multi-process shared PGD (Linux kernel has this).
-- Inverted page tables (OSEP Ch. 21 alternative).
+- Inverted page tables (OSEP §20.4, deferred).
 
 ## Deferred (next slice candidates)
 

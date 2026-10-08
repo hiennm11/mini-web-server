@@ -8,7 +8,7 @@ How much memory does async mode allocate per connection, and can we reduce it vi
 
 ## Scope
 
-In the async server (`AsyncServer`), rent the receive buffer (16 KB) and response buffer (4 KB) from `ArrayPool<byte>.Shared` instead of allocating fresh per connection. Measure working-set under 150 parked /slow clients.
+In the async server (`AsyncServer`), rent the receive buffer (1 MiB) and response buffer (4 KB) from `ArrayPool<byte>.Shared` instead of allocating fresh per connection. Measure working-set under 150 parked /slow clients.
 
 ## Slice
 

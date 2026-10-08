@@ -60,8 +60,8 @@ And the warning about timing-safe comparison (implicit under §54.4 + side-chann
 - **Two-factor / multi-factor** (OSEP §54.4 + §54.5): not implemented. Pure password-only.
 - **Account enumeration** (OSEP §53.4 fail-safe defaults + §54.10): we return a generic "invalid credentials" message rather than "no such user" vs "wrong password".
 - **Persistence**: users are in-memory only. Restarting the server drops all users. A real system persists the hash database on disk; we keep it in a `ConcurrentDictionary`.
-- **Group / role ACL** (OSEP §55.4 RBAC): not implemented. We don't distinguish capabilities beyond a registered user.
-- **TLS handshake** (OSEP §57.5): not implemented. Single-process localhost.
+- **Group / role ACL** (OSEP §55.4 RBAC): **closed by M23.3** — `UserStore.Role`, `GrantRole`, `AuthenticateWithRole` and the `/protected/secret` gate. Two roles only (`User`, `Admin`); no capabilities or per-file ACLs.
+- **TLS handshake** (OSEP §57.5): **closed by M23.5** — `Handshake.RunDemo` derives a session key with HKDF-SHA256, served at `/crypto/handshake`. It is a handshake *derivation* demo, not real TLS.
 
 ## .NET mechanism
 

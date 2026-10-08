@@ -97,7 +97,7 @@ The two 401 responses differ only in their request id — `parsedRequest.Path` i
 
 §54.4 lays out the three pillars clearly:
 
-1. "Store a hash of the password, not the password itself." — we never touch plaintext after the verify call; `UserStore.AuthUser` holds only `Salt + Hash + CreatedAt`.
+1. "Store a hash of the password, not the password itself." — we never touch plaintext after the verify call; `UserStore.AuthUser` holds `CreatedAt`, `Salt`, `Hash` and `Role` — `Role` arrived later with M23.3; slice 23.1 itself had only the first three..
 2. "Before hashing a new password and storing it in your password file, generate a big random number … hash the result and store that." — `RandomNumberGenerator.Fill` does this, 16 bytes per user.
 3. "drastically slowing down the process of password checking after a few wrong guesses" — 100k PBKDF2 iterations is the OWASP 2024 minimum; if you really want to slow brute force, bump it to 600k (OWASP recommended) but every login then takes ~500 ms which is annoyingly slow for a localhost demo.
 

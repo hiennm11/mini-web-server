@@ -26,7 +26,7 @@ Add a 2-level page table (Page Directory + Page Tables) alongside the linear one
 
 - OSEP §20.1 example: 32-bit VA, 4 KB pages → 10-bit PGD index + 10-bit PT index + 12-bit offset. We use the same bit layout (constants `PgdBits = 10`, `PtBits = 10`, `OffsetBits = 12`).
 - OSEP §20.1 "page directory" + "page-of-pages" array. Our `TwoLevelLookup` uses `Dictionary<int, InnerPageTable>` to hold the inner PT pages — only populated PGD entries get a real PT. This matches OSEP's "Page Directory Entries" + "Page Table Entries" structure.
-- OSEP §20.3 "the page directory is used to find the right page-of-pages" → walk PGD first, then walk PT. Our `TryTranslate` does this in two steps: `Decompose(vpn)` returns `(pgdIndex, ptIndex)`, then we look up PDE, then PTE.
+- OSEP §20.3 "the page directory is used to find the right page-of-pages" → walk PGD first, then walk PT. Our `TryLookup` does this in two steps: `Decompose(vpn)` returns `(pgdIndex, ptIndex)`, then we look up PDE, then PTE.
 - We don't store the PT pages in `PhysicalMemory` (would be more realistic — the PT itself takes physical frames — but complicates allocation). The simulator already has a frame table for user data; the PT structure is purely in-memory.
 
 ## Key OSEP quotes
@@ -37,14 +37,14 @@ Add a 2-level page table (Page Directory + Page Tables) alongside the linear one
 
 ## .NET mechanism
 
-- `IPageTableLookup` is a small interface (`TryTranslate`, `Map`, `MemoryBytes`, `PopulatedEntries`, `Capacity`). The Pager holds a `Dictionary<int, IPageTableLookup>` keyed by PID.
+- `IPageTableLookup` is a small interface (`TryLookup`, `Map`, `MemoryBytes`, `PopulatedEntries`, `Capacity`). The Pager holds a `Dictionary<int, IPageTableLookup>` keyed by PID.
 - `TwoLevelLookup._pts` is `Dictionary<int, InnerPageTable>` — only populated PGD entries get an inner PT. Allocated on first `Map()` call for a given PGD index.
 - `MemoryBytes` calculation uses `Marshal.SizeOf<T>()` to give the actual byte cost in a real C# process. The slice doc prints the savings at the end of the trace.
 
 ## Files
 
 - `src/MiniWebServer.Host/MiniPager/PageDirectory.cs` (new, ~90 lines) — `PageDirectoryEntry`, `PageDirectory`, `PageTableEntry`, `InnerPageTable`.
-- `src/MiniWebServer.Host/MiniPager/Pager.cs` — added `IPageTableLookup` + `LinearLookup` + `TwoLevelLookup`. `Pager.CreateProcess(pid, twoLevel)` chooses. `Pager.Translate()` dispatches through `IPageTableLookup.TryTranslate`.
+- `src/MiniWebServer.Host/MiniPager/Pager.cs` — added `IPageTableLookup` + `LinearLookup` + `TwoLevelLookup`. `Pager.CreateProcess(pid, twoLevel)` chooses. `Pager.Translate()` dispatches through `IPageTableLookup.TryLookup`.
 - `src/MiniWebServer.Host/MiniPager/Workloads.cs` — `PagerRunner` accepts `twoLevel` flag; emits the memory-savings line.
 - `src/MiniWebServer.Host/Program.cs` — `/pager/run?pt=linear|level2` query parameter.
 
@@ -53,7 +53,7 @@ Add a 2-level page table (Page Directory + Page Tables) alongside the linear one
 - 3-level or 4-level page tables (x86-64 uses 4-level; Linux uses 5-level on newer CPUs).
 - Storing the inner PT pages in `PhysicalMemory` (would consume real frames).
 - TLB shootdown on context switch (we use ASID + TLB lookup; slice 16).
-- Inverted page tables (OSEP Ch. 21 alternative).
+- Inverted page tables (OSEP §20.4, deferred).
 
 ## Where this leads
 

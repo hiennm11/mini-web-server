@@ -2215,6 +2215,293 @@ Run("baseline scheduler rejects a horizon it cannot represent (slice 35.1)", () 
     AssertClose(0.0, ok.AvgResponse);
 });
 
+// ---------------------------------------------------------------------------
+// M36 / OSTEP Ch. 17 §17.1-§17.4 — free-space management.
+//
+// The oracle is the chapter's own arithmetic: §17.2's 30-byte heap with its
+// literal free-list diagrams, the 4096-byte heap's 4088/3980/3764 sizes, §17.3's
+// worked example with a 10/30/20 free list, and §17.4's 64 KB buddy split for a
+// 7 KB request. The chapter prints those numbers; this simulator has to match
+// them or it is not implementing the chapter.
+// ---------------------------------------------------------------------------
+
+Run("the header is charged to the request and splits are exact (slice 36.1)", () =>
+{
+    // §17.2's worked heap: 4096 bytes with an 8-byte header. "initially, the list
+    // should have one entry, of size 4096 (minus the header size) ... the status
+    // of the list is that it has a single entry, of size 4088."
+    var heap = MiniWebServer.Host.MiniScheduler.HeapAllocator.Heap(
+        4096, MiniWebServer.Host.MiniScheduler.FitPolicy.First,
+        headerBytes: 8, nodeHeaderBytes: 8);
+    AssertEqual(1, heap.FreeChunks.Count);
+    AssertEqual(8, heap.FreeChunks[0].Start);       // the node lives at the head
+    AssertEqual(4088, heap.FreeChunks[0].Length);   // "a single entry, of size 4088"
+
+    // "upon the request for 100 bytes, the library allocated 108 bytes out of the
+    //  existing one free chunk ... and shrinks the one free node in the list to
+    //  3980 bytes (4088 minus 108)."
+    long got = heap.Malloc(100);
+    AssertEqual(8L, got);   // first byte after the node header
+    AssertEqual(108, heap.AllocatedBytes);          // 100 + the 8-byte header
+    AssertEqual(116, heap.FreeChunks[0].Start);      // 8 node header + 108 allocated
+    AssertEqual(3980, heap.FreeChunks[0].Length);   // "3980 bytes (4088 minus 108)"
+
+    // Two more 100-byte requests: "the first 324 bytes of the heap are now
+    //  allocated ... just a single node (pointed to by head), but now only 3764
+    //  bytes in size".
+    heap.Malloc(100);
+    heap.Malloc(100);
+    AssertEqual(324, heap.AllocatedBytes);          // 3 x 108
+    AssertEqual(1, heap.FreeChunks.Count);
+    AssertEqual(332, heap.FreeChunks[0].Start);      // 8 + 3*108
+    AssertEqual(3764, heap.FreeChunks[0].Length);   // "now only 3764 bytes in size"
+
+    // Freeing the middle chunk must NOT coalesce across the still-allocated
+    // neighbours on either side: two extents, 108 and the big tail. §17.2
+    // figures 17.6-17.7 - "the free space is fragmented, an unfortunate but
+    // common occurrence".
+    heap.Free(116);   // the second chunk: 8 node header + the first 108
+    AssertEqual(2, heap.FreeChunks.Count);
+    AssertEqual(116, heap.FreeChunks[0].Start);
+    AssertEqual(108, heap.FreeChunks[0].Length);
+    AssertEqual(332, heap.FreeChunks[1].Start);
+    AssertEqual(3764, heap.FreeChunks[1].Length);
+    AssertClose(3872.0, (double)heap.FreeBytes);     // 108 + 3764
+});
+
+Run("coalescing restores one extent where a naive free list makes three (slice 36.1)", () =>
+{
+    // §17.2's second example: a 30-byte heap "free 10 bytes, used 10 bytes, and
+    // another free 10 bytes". Freeing the middle with no coalescing gives
+    // "head addr:10 len:10  addr:0 len:10  addr:20 len:10" - "the entire heap is
+    // now free, it is seemingly divided into three chunks of 10 bytes each" -
+    // and "if a user requests 20 bytes, a simple list traversal will not find such
+    // a free chunk, and return failure."
+    var naive = MiniWebServer.Host.MiniScheduler.HeapAllocator.Heap(
+        30, MiniWebServer.Host.MiniScheduler.FitPolicy.First, coalesce: false);
+    long a = naive.Malloc(10);      // [0,10)
+    long b = naive.Malloc(10);      // [10,20)
+    AssertEqual(0L, a);
+    AssertEqual(10L, b);
+    naive.Free(b);
+    AssertEqual(2, naive.FreeChunks.Count);
+    // The chapter's trap: 20 bytes free in total, no contiguous 20.
+    AssertClose(20.0, (double)naive.FreeBytes);
+    AssertEqual(10, naive.LargestFreeChunk);
+    AssertEqual(-1L, naive.Malloc(20));
+
+    // "with coalescing, our final list should look like this: head addr:0 len:30"
+    // once the head is freed too, because the whole heap is free again.
+    naive.Free(a);
+    AssertEqual(3, naive.FreeChunks.Count);   // no coalescing: still fragmented
+    // All 30 bytes are free and the extents are adjacent, but the largest
+    // SINGLE extent is 10 - which is exactly the chapter's definition of external
+    // fragmentation: total free space overstates what is allocatable.
+    AssertClose(30.0, (double)naive.FreeBytes);
+    AssertEqual(10, naive.LargestFreeChunk);
+
+    var coalescing = MiniWebServer.Host.MiniScheduler.HeapAllocator.Heap(
+        30, MiniWebServer.Host.MiniScheduler.FitPolicy.First, coalesce: true);
+    long x = coalescing.Malloc(10);
+    long y = coalescing.Malloc(10);
+    coalescing.Free(y);
+    coalescing.Free(x);
+    AssertEqual(1, coalescing.FreeChunks.Count);
+    AssertEqual(0, coalescing.FreeChunks[0].Start);
+    AssertEqual(30, coalescing.FreeChunks[0].Length);
+    AssertEqual(30, coalescing.LargestFreeChunk);
+    AssertEqual(-1L, coalescing.Malloc(31));   // cannot exceed the heap
+});
+
+Run("best, worst and first fit each choose differently on the chapter's list (slice 36.1)", () =>
+{
+    // §17.3's example: "a free list with three elements on it, of sizes 10, 30,
+    // and 20 ... Assume an allocation request of size 15."
+    //
+    // The chapter prints the resulting list for each policy, so each is checked
+    // against those literals rather than against what the code happens to do.
+    int[] sizes = { 10, 30, 20 };   // laid out at offsets 0, 10, 40
+
+    // Best fit: "would search the entire list and find that 20 was the best fit,
+    // as it is the smallest free space that can accommodate the request. The
+    // resulting free list: head 10 30 5"
+    var best = MiniWebServer.Host.MiniScheduler.HeapAllocator.FixedExtentHeap(sizes);
+    AssertEqual(40L, best.Malloc(15));            // the 20-byte extent at offset 40
+    AssertEqual(3, best.FreeChunks.Count);
+    AssertEqual(10, best.FreeChunks[0].Length);
+    AssertEqual(30, best.FreeChunks[1].Length);
+    AssertEqual(5, best.FreeChunks[2].Length);    // the chapter's literal 5
+    AssertClose(45.0, (double)best.FreeBytes);
+
+    // Worst fit: "finds the largest chunk, in this example 30. The resulting
+    // list: head 10 15 20"
+    var worst = MiniWebServer.Host.MiniScheduler.HeapAllocator.FixedExtentHeap(
+        sizes, MiniWebServer.Host.MiniScheduler.FitPolicy.Worst);
+    AssertEqual(10L, worst.Malloc(15));           // the 30-byte extent at offset 10
+    AssertEqual(3, worst.FreeChunks.Count);
+    AssertEqual(10, worst.FreeChunks[0].Length);
+    AssertEqual(15, worst.FreeChunks[1].Length);  // the chapter's literal 15
+    AssertEqual(20, worst.FreeChunks[2].Length);
+    AssertClose(45.0, (double)worst.FreeBytes);
+
+    // First fit: "in this example, does the same thing as worst-fit, also finding
+    // the first free block that can satisfy the request" - the 10 is too small, so
+    // the 30 is chosen and the remainder is 15. Same outcome, different cost.
+    var first = MiniWebServer.Host.MiniScheduler.HeapAllocator.FixedExtentHeap(
+        sizes, MiniWebServer.Host.MiniScheduler.FitPolicy.First);
+    AssertEqual(10L, first.Malloc(15));
+    AssertEqual(3, first.FreeChunks.Count);
+    AssertEqual(15, first.FreeChunks[1].Length);  // the chapter's literal 15
+    AssertEqual(20, first.FreeChunks[2].Length);
+
+    // §17.3's cost claim, made concrete: "both best-fit and worst-fit look
+    // through the entire list; first-fit only examines free chunks until it finds
+    // one that fits". Here the head extent satisfies the request, so first fit
+    // leaves the 30-byte extent intact while best fit chops it to 25.
+    int[] headFits = { 40, 30, 20 };
+    var firstCheap = MiniWebServer.Host.MiniScheduler.HeapAllocator.FixedExtentHeap(
+        headFits, MiniWebServer.Host.MiniScheduler.FitPolicy.First);
+    var bestCostly = MiniWebServer.Host.MiniScheduler.HeapAllocator.FixedExtentHeap(
+        headFits, MiniWebServer.Host.MiniScheduler.FitPolicy.Best);
+    AssertEqual(0L, firstCheap.Malloc(15));            // first fit: the head
+    AssertEqual(70L, bestCostly.Malloc(15));           // best fit: the smallest that fits (20 at offset 70)
+    AssertEqual(25, firstCheap.FreeChunks[0].Length);  // 40 - 15
+    AssertEqual(5, bestCostly.FreeChunks[2].Length);   // 20 - 15, leaving a 5-byte splinter
+});
+
+Run("buddy allocation splits to a power of two and coalesces back up (slice 36.1)", () =>
+{
+    // §17.4: "Here is an example of a 64KB free space getting divided in the
+    // search for a 7KB block ... the leftmost 8KB block is allocated (as indicated
+    // by the darker shade of gray) and returned to the user".
+    //
+    // The chapter's figure 17.8 is a 64 / 32+32 / 16+16 / 8+8 split, so a 7 KB
+    // request lands in the leftmost 8 KB - the smallest power of two >= 7 KB.
+    var buddy = new MiniWebServer.Host.MiniScheduler.BuddyAllocator(64 * 1024);
+    long got = buddy.Allocate(7 * 1024);
+
+    AssertEqual(0L, got);                 // the leftmost block
+    AssertEqual(8 * 1024, buddy.BlockSizeOf(got));   // "the leftmost 8KB block"
+    // 7 KB requested, 8 KB granted: that is internal fragmentation by construction,
+    // which §17.4 names - "this scheme can suffer from internal fragmentation, as
+    // you are only allowed to give out power-of-two-sized blocks".
+    AssertClose(1024.0, (double)(8 * 1024 - 7 * 1024));
+    AssertEqual(56 * 1024, buddy.FreeBytes);
+
+    // The buddy relationship is the XOR trick: "the address of each buddy pair only
+    // differs by a single bit; which bit is determined by the level in the buddy
+    // tree". The buddy of the leftmost 8 KB block is the second 8 KB block.
+    AssertEqual(8L * 1024, MiniWebServer.Host.MiniScheduler.BuddyAllocator.BuddyAddress(0, 8 * 1024));
+    AssertEqual(0L, MiniWebServer.Host.MiniScheduler.BuddyAllocator.BuddyAddress(8 * 1024, 8 * 1024));   // symmetric
+
+    // A second 8 KB allocation takes the buddy, exhausting the level.
+    long second = buddy.Allocate(8 * 1024);
+    AssertEqual(8 * 1024, second);
+    AssertEqual(48 * 1024, buddy.FreeBytes);
+
+    // Freeing the leftmost block coalesces with its buddy and with the 16 KB
+    // level above, all the way back to 64 KB: "This recursive coalescing process
+    // continues up the tree, either restoring the entire free space or stopping
+    // when a buddy is found to be in use."
+    buddy.Free(got);
+    buddy.Free(second);
+    AssertEqual(64 * 1024, buddy.FreeBytes);
+    AssertEqual(1, buddy.FreeBlockCount);              // one 64 KB extent again
+    AssertEqual(0, buddy.AllocationBlockCount);
+    AssertEqual(65536, buddy.FreeBlocks().Single().Size);
+});
+
+Run("the heap rejects what the chapter's model cannot express (slice 36.1)", () =>
+{
+    // §17.4: "free memory is first conceptually thought of as one big space of
+    // size 2^N". A buddy tree over a non-power-of-two cannot represent the tail,
+    // so it is rejected rather than silently rounded.
+    AssertThrows<ArgumentException>(() =>
+        new MiniWebServer.Host.MiniScheduler.BuddyAllocator(1000));
+    AssertThrows<ArgumentOutOfRangeException>(() =>
+        new MiniWebServer.Host.MiniScheduler.BuddyAllocator(0));
+    AssertThrows<ArgumentOutOfRangeException>(() =>
+        new MiniWebServer.Host.MiniScheduler.BuddyAllocator(1024).Allocate(0));
+
+    var heap = MiniWebServer.Host.MiniScheduler.HeapAllocator.Heap(
+        100, MiniWebServer.Host.MiniScheduler.FitPolicy.First);
+    AssertThrows<ArgumentOutOfRangeException>(() => heap.Malloc(0));
+    AssertThrows<ArgumentException>(() => heap.Free(50));   // never returned by Malloc
+});
+
+Run("external fragmentation is the gap between free bytes and the largest extent (slice 36.1)", () =>
+{
+    // §17.1's opening example, made numeric: "the total free space available is
+    // 20 bytes; unfortunately, it is fragmented into two chunks of size 10 each.
+    // As a result, a request for 15 bytes will fail even though there are 20
+    // bytes free."
+    var heap = MiniWebServer.Host.MiniScheduler.HeapAllocator.FixedExtentHeap(
+        new[] { 10, 10 }, MiniWebServer.Host.MiniScheduler.FitPolicy.First);
+
+    AssertClose(20.0, (double)heap.FreeBytes);
+    AssertEqual(10, heap.LargestFreeChunk);
+    AssertEqual(-1L, heap.Malloc(15));      // fails despite 20 free
+    AssertEqual(true, heap.FreeBytes > heap.LargestFreeChunk);   // the definition
+
+    // Coalescing removes the condition rather than hiding it: adjacent extents
+    // become one, so the same 15-byte request now succeeds.
+    var coalescing = MiniWebServer.Host.MiniScheduler.HeapAllocator.Heap(
+        20, MiniWebServer.Host.MiniScheduler.FitPolicy.First, coalesce: true);
+    long a = coalescing.Malloc(5);
+    long b = coalescing.Malloc(5);
+    coalescing.Free(a);
+    coalescing.Free(b);
+    AssertEqual(1, coalescing.FreeChunks.Count);
+    AssertEqual(20, coalescing.LargestFreeChunk);
+    AssertEqual(0L, coalescing.Malloc(15));
+});
+
+Run("a buddy split accounts for every byte of the heap (slice 36.1)", () =>
+{
+    // §17.4's split is a recursive halving, so a small request walks the tree down
+    // many levels: "the search for free space recursively divides free space by two
+    // until a block that is big enough to accommodate the request is found".
+    //
+    // The point of this test is the accounting: a multi-level split must leave the
+    // heap fully accounted for, and freeing the block must restore it. Every figure
+    // below is the tree's own arithmetic - 65536 = 32768 + 16384 + ... + 128 - so a
+    // split that stops one level short, or records the wrong block size, cannot pass.
+    var buddy = new MiniWebServer.Host.MiniScheduler.BuddyAllocator(64 * 1024);
+    long got = buddy.Allocate(100);
+
+    AssertEqual(0L, got);
+    AssertEqual(128, buddy.BlockSizeOf(got));       // 2^7, not 100
+    AssertClose(65408.0, (double)buddy.FreeBytes);
+    AssertClose(65536.0, (double)(buddy.FreeBytes + buddy.BlockSizeOf(got)));
+    AssertClose(9, (double)buddy.FreeBlockCount);   // 32768 ... 128
+
+    // Freeing it must coalesce all the way back, which only works if the size was
+    // recorded as the block's, not the request's.
+    buddy.Free(got);
+    AssertClose(65536.0, (double)buddy.FreeBytes);
+    AssertEqual(1, buddy.FreeBlockCount);
+    AssertEqual(65536, buddy.FreeBlocks().Single().Size);
+});
+
+Run("a buddy heap refuses a request it cannot round up (slice 36.1)", () =>
+{
+    // A request larger than the whole heap cannot be split out of it, and the
+    // round-up loop must not walk off the end of int trying.
+    var buddy = new MiniWebServer.Host.MiniScheduler.BuddyAllocator(64 * 1024);
+    AssertEqual(-1L, buddy.Allocate(1 << 30));          // bigger than the heap
+    AssertEqual(-1L, buddy.Allocate(64 * 1024 + 1));     // one byte too big
+    AssertClose(65536.0, (double)buddy.FreeBytes);      // and it changed nothing
+
+    // Near int.MaxValue the round-up overflows; the loop is bounded and says so
+    // rather than wrapping to a negative size.
+    AssertThrows<ArgumentOutOfRangeException>(() => buddy.Allocate(int.MaxValue));
+
+    // An exact fit still works: the top-level block, no split needed.
+    var exact = new MiniWebServer.Host.MiniScheduler.BuddyAllocator(64 * 1024);
+    AssertEqual(0L, exact.Allocate(64 * 1024));
+    AssertEqual(0, exact.FreeBytes);
+});
+
 static void Run(string name, Action test)
 {
     try

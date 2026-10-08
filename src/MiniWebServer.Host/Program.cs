@@ -864,6 +864,11 @@ static void HandleClient(Socket clientSocket, string webRoot)
             }
             }
         }
+        else if (parsedRequest.Path.StartsWith("/heap/run"))
+        {
+            // M36 / OSEP Ch. 17. ?scenario=split|coalesce|strategies|buddy&policy=first|best|worst|next
+            response = BuildHeapResponse(parsedRequest.Path);
+        }
         else if (parsedRequest.Path.StartsWith("/multicpu/run"))
         {
             // Multi-CPU demo. ?mode=sqms|mqms|ws&workload=sqms|imbalance&cpus=N&ticks=M&peek=K
@@ -2341,6 +2346,241 @@ static string FormatBaselineSchedule(
     sb.AppendLine("§7.10: \"The first runs the shortest job remaining and thus optimizes turnaround");
     sb.AppendLine("time; the second alternates between all jobs and thus optimizes response time.");
     sb.AppendLine("Both are bad where the other is good, alas, an inherent trade-off.\"");
+    return sb.ToString();
+}
+
+/// <summary>
+/// The M36 scenarios behind <c>/heap/run</c> (OSEP §17.2-§17.4).
+/// </summary>
+static HttpResponse BuildHeapResponse(string path)
+{
+    string scenario = "strategies";
+    string policyName = "best";
+    int heapSize = 4096;
+    int requestSize = 15;
+    int headerBytes = 8;
+    bool coalesce = true;
+
+    int qIdx = path.IndexOf('?');
+    if (qIdx >= 0)
+    {
+        foreach (var kv in path.Substring(qIdx + 1).Split('&'))
+        {
+            int eq = kv.IndexOf('=');
+            if (eq <= 0) continue;
+            var k = kv.Substring(0, eq);
+            var v = kv.Substring(eq + 1);
+
+            // The two string parameters are taken first. Parsing every value as an
+            // integer before looking at the key rejects `scenario=strategies` with
+            // "must be an integer", which is both wrong and unactionable.
+            if (k == "scenario") { scenario = v; continue; }
+            if (k == "policy") { policyName = v; continue; }
+
+            if (!int.TryParse(v, out int n))
+            {
+                return HttpBad($"parameter '{k}' must be an integer, got '{v}'");
+            }
+            switch (k)
+            {
+                case "size": heapSize = n; break;
+                case "request": requestSize = n; break;
+                case "header": headerBytes = n; break;
+                case "coalesce":
+                    // "0" and "false" mean off; anything else is a client error
+                    // rather than a silent truthy value.
+                    if (v is not ("0" or "false" or "1" or "true"))
+                        return HttpBad($"coalesce must be 0/1/true/false, got '{v}'");
+                    coalesce = v is "1" or "true";
+                    break;
+                default:
+                    return HttpBad($"unknown parameter '{k}'");
+            }
+        }
+    }
+
+    MiniWebServer.Host.MiniScheduler.FitPolicy? policy = policyName switch
+    {
+        "first" => MiniWebServer.Host.MiniScheduler.FitPolicy.First,
+        "best" => MiniWebServer.Host.MiniScheduler.FitPolicy.Best,
+        "worst" => MiniWebServer.Host.MiniScheduler.FitPolicy.Worst,
+        "next" => MiniWebServer.Host.MiniScheduler.FitPolicy.Next,
+        _ => null,
+    };
+    if (policy is null)
+        return HttpBad($"unknown policy '{policyName}' (use first|best|worst|next)");
+
+    if (heapSize < 1) return HttpBad($"size must be positive, got {heapSize}");
+    if (requestSize < 1) return HttpBad($"request must be positive, got {requestSize}");
+
+    string body;
+    try
+    {
+        body = scenario switch
+        {
+            "split" => FormatHeapSplit(heapSize, requestSize, headerBytes, coalesce),
+            "coalesce" => FormatHeapCoalesce(heapSize),
+            "strategies" => FormatHeapStrategies(requestSize),
+            "buddy" => FormatBuddy(requestSize, heapSize),
+            _ => $"unknown scenario '{scenario}' (use split|coalesce|strategies|buddy)\n",
+        };
+    }
+    catch (Exception ex) when (ex is ArgumentException or ArgumentOutOfRangeException)
+    {
+        // A non-power-of-two buddy heap, a header larger than the heap, a request
+        // of zero: all client errors, not server errors.
+        return HttpBad(ex.Message);
+    }
+
+    bool unknown = body.StartsWith("unknown scenario");
+    return new HttpResponse(unknown ? 400 : 200, unknown ? "Bad Request" : "OK",
+        "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes(body));
+
+    HttpResponse HttpBad(string message) =>
+        new(400, "Bad Request", "text/plain; charset=UTF-8",
+            Encoding.UTF8.GetBytes(message + "\n"));
+}
+
+/// <summary>§17.2: splitting and the header, on one heap.</summary>
+static string FormatHeapSplit(int heapSize, int requestSize, int headerBytes, bool coalesce)
+{
+    // §17.2 embeds the free list inside the free space, so the node's own header is
+    // unavailable to the caller: a 4096-byte heap starts with 4088 free, and a
+    // 100-byte request shrinks that to 3980 ("4088 minus 108"). Without the node
+    // header the arithmetic would read 3988 and quietly disagree with the chapter.
+    var heap = MiniWebServer.Host.MiniScheduler.HeapAllocator.Heap(
+        heapSize, MiniWebServer.Host.MiniScheduler.FitPolicy.First,
+        headerBytes, coalesce, nodeHeaderBytes: headerBytes);
+    var sb = new StringBuilder();
+    sb.AppendLine($"=== Splitting a request (M36 / OSEP §17.2) ===");
+    sb.AppendLine($"heap {heapSize} bytes, allocation header {headerBytes} bytes, coalesce={coalesce}");
+    sb.AppendLine();
+    sb.AppendLine($"start: {heap.FreeChunks.Count} free extent(s), {heap.FreeBytes} bytes");
+    sb.AppendLine();
+
+    long got = heap.Malloc(requestSize);
+    sb.AppendLine($"malloc({requestSize}) -> {(got < 0 ? "NULL" : got.ToString())}");
+    if (got < 0)
+    {
+        sb.AppendLine("  §17.2: a request that no single extent can satisfy fails even");
+        sb.AppendLine("  when the total free space is larger than the request.");
+    }
+    else
+    {
+        int charged = requestSize + headerBytes;
+        sb.AppendLine($"  the library charged {charged} bytes ({requestSize} + a {headerBytes}-byte header)");
+        sb.AppendLine("  §17.2: \"the library does not search for a free chunk of size N; rather,");
+        sb.AppendLine("  it searches for a free chunk of size N plus the size of the header.\"");
+        sb.AppendLine();
+        sb.AppendLine("free list:");
+        foreach (var c in heap.FreeChunks)
+            sb.AppendLine($"  addr:{c.Start} len:{c.Length}");
+        sb.AppendLine();
+        sb.AppendLine($"layout (1 char = 1 byte, # = allocated): {heap.FormatLayout(1)}");
+        sb.AppendLine($"heap spans offsets 0..{heapSize - 1}");
+    }
+    return sb.ToString();
+}
+
+/// <summary>§17.2: the same heap with and without coalescing.</summary>
+static string FormatHeapCoalesce(int heapSize)
+{
+    var sb = new StringBuilder();
+    sb.AppendLine($"=== Coalescing (M36 / OSEP §17.2) ===");
+    sb.AppendLine($"heap {heapSize} bytes, three 10-byte allocations then all freed");
+    sb.AppendLine();
+
+    foreach (bool coalesce in new[] { false, true })
+    {
+        var heap = MiniWebServer.Host.MiniScheduler.HeapAllocator.Heap(
+            heapSize, MiniWebServer.Host.MiniScheduler.FitPolicy.First, coalesce: coalesce);
+        var held = new List<long>();
+        while (heap.CanSatisfy(10)) held.Add(heap.Malloc(10));
+        foreach (long p in held) heap.Free(p);
+
+        sb.AppendLine($"coalesce={coalesce}: {heap.FreeChunks.Count} extent(s), " +
+                      $"{heap.FreeBytes} free, largest {heap.LargestFreeChunk}");
+        foreach (var c in heap.FreeChunks) sb.AppendLine($"  addr:{c.Start} len:{c.Length}");
+    }
+
+    sb.AppendLine();
+    sb.AppendLine("§17.2: \"If we simply add this free space back into our list without too much");
+    sb.AppendLine("thinking, we might end up with a list that looks like this ... while the entire");
+    sb.AppendLine("heap is now free, it is seemingly divided into three chunks ... with coalescing,");
+    sb.AppendLine("our final list should look like this: head addr:0 len:30\"");
+    return sb.ToString();
+}
+
+/// <summary>§17.3's 10/30/20 worked example under every policy.</summary>
+static string FormatHeapStrategies(int requestSize)
+{
+    int[] sizes = { 10, 30, 20 };
+    var sb = new StringBuilder();
+    sb.AppendLine($"=== Fit policies on the chapter's list (M36 / OSEP §17.3) ===");
+    sb.AppendLine($"free list 10/30/20, request {requestSize}");
+    sb.AppendLine();
+    sb.AppendLine("policy | chose offset | resulting extents        | wasted in splinters");
+    sb.AppendLine("-------+--------------+--------------------------+--------------------");
+    foreach (var (p, name) in new[]
+    {
+        (MiniWebServer.Host.MiniScheduler.FitPolicy.Best, "best"),
+        (MiniWebServer.Host.MiniScheduler.FitPolicy.Worst, "worst"),
+        (MiniWebServer.Host.MiniScheduler.FitPolicy.First, "first"),
+        (MiniWebServer.Host.MiniScheduler.FitPolicy.Next, "next"),
+    })
+    {
+        var heap = MiniWebServer.Host.MiniScheduler.HeapAllocator.FixedExtentHeap(sizes, p);
+        long got = heap.Malloc(requestSize);
+        string extents = string.Join(" ", heap.FreeChunks.Select(c => c.Length.ToString()));
+        // A splinter is an extent too small to serve the next request of this size.
+        int wasted = heap.FreeChunks.Where(c => c.Length < requestSize).Sum(c => c.Length);
+        sb.AppendLine($"{name,-6} | {(got < 0 ? "NULL" : got.ToString()),12} | {extents,-24} | {wasted}");
+    }
+    sb.AppendLine();
+    sb.AppendLine("§17.3: \"By returning a block that is close to what the user asks, best fit tries to");
+    sb.AppendLine("reduce wasted space. However, there is a cost; naive implementations pay a heavy");
+    sb.AppendLine("performance penalty when performing an exhaustive search for the correct free block.\"");
+    sb.AppendLine();
+    sb.AppendLine("§17.3 also notes: \"First fit has the advantage of speed ... but sometimes pollutes");
+    sb.AppendLine("the beginning of the free list with small objects.\" The splinter column is that cost.");
+    return sb.ToString();
+}
+
+/// <summary>§17.4's buddy split and the recursive coalesce back up.</summary>
+static string FormatBuddy(int requestSize, int heapSize)
+{
+    // §17.4: "free memory is first conceptually thought of as one big space of
+    // size 2^N", so a non-power-of-two heap is rejected by the allocator. The
+    // default is the chapter's own 64 KB.
+    var buddy = new MiniWebServer.Host.MiniScheduler.BuddyAllocator(
+        heapSize == 4096 ? 64 * 1024 : heapSize);
+    var sb = new StringBuilder();
+    sb.AppendLine($"=== Buddy allocation (M36 / OSEP §17.4) ===");
+    sb.AppendLine($"{buddy.HeapSize} byte heap, request {requestSize} bytes");
+    sb.AppendLine();
+    sb.AppendLine("64 KB");
+    sb.AppendLine("  |-- 32 KB free");
+    sb.AppendLine("  +-- 32 KB  (split for the request)");
+
+    long got = buddy.Allocate(requestSize);
+    sb.AppendLine();
+    sb.AppendLine($"allocate({requestSize}) -> offset {got}, block {buddy.BlockSizeOf(got)} bytes");
+    sb.AppendLine($"  internal fragmentation: {buddy.BlockSizeOf(got) - requestSize} bytes wasted inside the block");
+    sb.AppendLine($"  §17.4: \"you are only allowed to give out power-of-two-sized blocks\"");
+    sb.AppendLine();
+    sb.AppendLine("free blocks after the split:");
+    foreach (var (start, size) in buddy.FreeBlocks())
+        sb.AppendLine($"  addr:{start} len:{size}");
+    sb.AppendLine($"free total: {buddy.FreeBytes} bytes");
+    sb.AppendLine();
+    sb.AppendLine("buddy address = address XOR block size (§17.4: the pair \"only differs by a single bit\")");
+    sb.AppendLine($"  buddy of addr:{got} len:{buddy.BlockSizeOf(got)} is addr:{MiniWebServer.Host.MiniScheduler.BuddyAllocator.BuddyAddress(got, buddy.BlockSizeOf(got))}");
+    sb.AppendLine();
+    sb.AppendLine("freeing both halves coalesces recursively back to one 64 KB extent:");
+    long second = buddy.Allocate(buddy.BlockSizeOf(got));
+    buddy.Free(got);
+    if (second >= 0) buddy.Free(second);
+    sb.AppendLine($"  free blocks: {buddy.FreeBlockCount}, free bytes: {buddy.FreeBytes}");
     return sb.ToString();
 }
 

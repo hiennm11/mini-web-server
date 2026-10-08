@@ -760,12 +760,14 @@ static void HandleClient(Socket clientSocket, string webRoot)
         }
         else if (parsedRequest.Path.StartsWith("/scheduler/run"))
         {
-            // MiniScheduler demo. ?algo=mlfq|stride|lottery&workload=two|cpu|mixed|proportional&ticks=N&q=N&boost=M
+            // MiniScheduler demo. ?algo=mlfq|stride|lottery|baseline&policy=fifo|sjf|stcf|rr&workload=two|cpu|mixed|proportional|convoy|latearrivals|equal|response&ticks=N&q=N&boost=M&quantum=K
             string algo = "mlfq";
+            string baselinePolicy = "fifo";
             string workload = "mixed";
             int totalTicks = 80;
             int numQueues = 4;
             int boostEvery = 50;
+            int quantum = 1;
             int qIdx = parsedRequest.Path.IndexOf('?');
             if (qIdx >= 0)
             {
@@ -776,13 +778,65 @@ static void HandleClient(Socket clientSocket, string webRoot)
                     var k = kv.Substring(0, eq);
                     var v = kv.Substring(eq + 1);
                     if (k == "algo") algo = v;
+                    else if (k == "policy") baselinePolicy = v;
                     else if (k == "workload") workload = v;
                     else if (k == "ticks" && int.TryParse(v, out var t)) totalTicks = t;
                     else if (k == "q" && int.TryParse(v, out var qn)) numQueues = qn;
                     else if (k == "boost" && int.TryParse(v, out var b)) boostEvery = b;
+                    else if (k == "quantum" && int.TryParse(v, out var qs)) quantum = qs;
                 }
             }
 
+// M35 / OSEP Ch. 7: the Ch. 7 baselines live on their own branch because
+            // they use a different job model (arrival time is what §7.6's
+            // response time is measured from) and run to completion rather than
+            // for a fixed tick budget. Building Ch. 7 workloads here would mean
+            // unifying two models the chapter never unifies.
+            if (algo == "baseline")
+            {
+                System.Collections.Generic.List<MiniWebServer.Host.MiniScheduler.BaselineJob> baseJobs =
+                    MiniWebServer.Host.MiniScheduler.BaselineWorkload.FromName(workload);
+                if (baseJobs.Count == 0)
+                {
+                    response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8",
+                        Encoding.UTF8.GetBytes(
+                            $"unknown workload (use {string.Join('|', MiniWebServer.Host.MiniScheduler.BaselineWorkload.Names)})\n"));
+                }
+                else if (baselinePolicy is not ("fifo" or "sjf" or "stcf" or "rr"))
+                {
+                    // An unknown policy would otherwise fall through to the
+                    // default and answer 200 with FIFO's numbers - a client
+                    // asking for a typo would get a plausible-looking result.
+                    response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8",
+                        Encoding.UTF8.GetBytes($"unknown baseline policy '{baselinePolicy}' (use fifo|sjf|stcf|rr)\n"));
+                }
+                else
+                {
+                    var policyEnum = baselinePolicy switch
+                    {
+                        "fifo" => MiniWebServer.Host.MiniScheduler.BaselinePolicy.Fifo,
+                        "sjf" => MiniWebServer.Host.MiniScheduler.BaselinePolicy.Sjf,
+                        "stcf" => MiniWebServer.Host.MiniScheduler.BaselinePolicy.Stcf,
+                        _ => MiniWebServer.Host.MiniScheduler.BaselinePolicy.RoundRobin,
+                    };
+                    try
+                    {
+                        var result = MiniWebServer.Host.MiniScheduler.BaselineScheduler.Run(
+                            policyEnum, baseJobs, quantum);
+                        response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
+                            Encoding.UTF8.GetBytes(FormatBaselineSchedule(policyEnum, result, workload, quantum)));
+                    }
+                    catch (Exception ex) when (ex is ArgumentException or ArgumentOutOfRangeException)
+                    {
+                        // quantum=0 on RR, or a quantum on a run-to-completion
+                        // policy: both are client mistakes, not server errors.
+                        response = new HttpResponse(400, "Bad Request", "text/plain; charset=UTF-8",
+                            Encoding.UTF8.GetBytes(ex.Message + "\n"));
+                    }
+                }
+            }
+            else
+            {
             System.Collections.Generic.List<MiniWebServer.Host.MiniScheduler.Job> jobs = workload switch
             {
                 "two" => MiniWebServer.Host.MiniScheduler.Workloads.TwoJobs(),
@@ -807,6 +861,7 @@ static void HandleClient(Socket clientSocket, string webRoot)
                 };
                 response = new HttpResponse(200, "OK", "text/plain; charset=UTF-8",
                     Encoding.UTF8.GetBytes(output));
+            }
             }
         }
         else if (parsedRequest.Path.StartsWith("/multicpu/run"))
@@ -2205,6 +2260,88 @@ static void HandleClient(Socket clientSocket, string webRoot)
         Console.WriteLine($"[thread {threadId}] Sent {responseBytes.Length} response bytes.");
         Console.WriteLine($"[thread {threadId}] Closed client socket.");
     }
+}
+
+/// <summary>
+/// Formats a Ch. 7 baseline run for <c>/scheduler/run?algo=baseline</c>.
+/// Reports all four policies on one workload when the caller asked for none
+/// in particular, because §7.10's point is the trade-off and a single policy's
+/// number says nothing on its own.
+/// </summary>
+static string FormatBaselineSchedule(
+    MiniWebServer.Host.MiniScheduler.BaselinePolicy policy,
+    MiniWebServer.Host.MiniScheduler.ScheduleResult r,
+    string workload,
+    int quantum)
+{
+    var sb = new StringBuilder();
+    sb.AppendLine($"=== {policy} on the '{workload}' workload (M35 / OSEP Ch. 7) ===");
+    sb.AppendLine();
+    sb.AppendLine("job |  len | arrival | first run | complete | turnaround | response");
+    sb.AppendLine("----+------+---------+-----------+----------+------------+---------");
+    // The per-job rows are rebuilt from the trace, which is the only place the
+    // individual timings survive. Job identity comes from the trace; the metric
+    // vectors come from `ScheduleResult`, which is ordered by *input* order.
+    // Taking names from the trace's execution order and indexing `Response` with
+    // that index silently pairs the wrong job's numbers whenever execution order
+    // differs from input order - SJF on the convoy workload runs B, C, A and
+    // printed B with A's response.
+    //
+    // `r.Arrivals` is keyed by name so the lookup cannot go wrong.
+    var names = r.Trace.Where(t => t.Job != "-").Select(t => t.Job).Distinct().ToList();
+    foreach (var name in names)
+    {
+        int firstRun = r.Trace.First(t => t.Job == name).Time;
+        int completion = r.Trace.Last(t => t.Job == name).Time + 1;
+        int length = r.Trace.Count(t => t.Job == name);
+        int arrival = r.Arrivals.TryGetValue(name, out int a) ? a : firstRun;
+        sb.AppendLine($"{name,3} | {length,4} | {arrival,7} | {firstRun,9} | {completion,8} | " +
+                      $"{completion - arrival,10} | {firstRun - arrival,8}");
+    }
+    sb.AppendLine();
+    sb.AppendLine($"avg turnaround: {r.AvgTurnaround:F2}   (eq 7.1, completion - arrival)");
+    sb.AppendLine($"avg response:   {r.AvgResponse:F2}   (eq 7.2, first run - arrival)");
+    sb.AppendLine($"avg wait:       {r.AvgWait:F2}");
+    sb.AppendLine($"completion order: {r.CompletionOrder}   over {r.Makespan} ticks");
+    sb.AppendLine();
+
+    // The comparison table is the reason the slice exists: §7.10 summarises the
+    // chapter as "The first runs the shortest job remaining and thus optimizes
+    // turnaround time; the second alternates between all jobs and thus optimizes
+    // response time. Both are bad where the other is good."
+    //
+    // RR's row uses the caller's quantum, not a hardcoded 1. Hardcoding it made
+    // the table silently contradict the requested run's own numbers whenever
+    // quantum != 1 - on the convoy workload, quantum 25 gives 66.67 turnaround
+    // and 20.00 response against the hardcoded row's 59.67 and 1.00, so the
+    // table would have shown the requested policy twice with different answers.
+    var all = new (MiniWebServer.Host.MiniScheduler.BaselinePolicy P, string Name)[]
+    {
+        (MiniWebServer.Host.MiniScheduler.BaselinePolicy.Fifo, "FIFO"),
+        (MiniWebServer.Host.MiniScheduler.BaselinePolicy.Sjf, "SJF"),
+        (MiniWebServer.Host.MiniScheduler.BaselinePolicy.Stcf, "STCF"),
+        (MiniWebServer.Host.MiniScheduler.BaselinePolicy.RoundRobin, "RR"),
+    };
+    sb.AppendLine($"all four policies on this workload (RR with quantum={quantum}):");
+    sb.AppendLine("policy | avg turnaround | avg response | order");
+    sb.AppendLine("-------+----------------+--------------+------");
+    var source = MiniWebServer.Host.MiniScheduler.BaselineWorkload.FromName(workload);
+    foreach (var (p, name) in all)
+    {
+        // Only RR has a time slice. Passing the caller's quantum to FIFO/SJF/STCF
+        // makes `Run` reject the combination, which threw out of the formatter and
+        // turned a valid `?policy=rr&quantum=25` request into a 400 - discarding a
+        // run that had already succeeded.
+        int rowQuantum = p == MiniWebServer.Host.MiniScheduler.BaselinePolicy.RoundRobin ? quantum : 1;
+        var run = MiniWebServer.Host.MiniScheduler.BaselineScheduler.Run(p, source, rowQuantum);
+        string mark = p == policy ? "  <- requested" : "";
+        sb.AppendLine($"{name,-6} | {run.AvgTurnaround,14:F2} | {run.AvgResponse,12:F2} | {run.CompletionOrder}{mark}");
+    }
+    sb.AppendLine();
+    sb.AppendLine("§7.10: \"The first runs the shortest job remaining and thus optimizes turnaround");
+    sb.AppendLine("time; the second alternates between all jobs and thus optimizes response time.");
+    sb.AppendLine("Both are bad where the other is good, alas, an inherent trade-off.\"");
+    return sb.ToString();
 }
 
 /// <summary>

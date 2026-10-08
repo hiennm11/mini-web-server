@@ -39,15 +39,15 @@ This covers Ch. 9, 10, 19, 20, 21, 22, 23, 29.1-§29.2 (lock-free CAS), 30 §30.
 
 **Done (M32-M34)**: M32 (block-level + hybrid FTL, Ch. 44 §44.9), M33 (scrubbing schedule, Ch. 45 §45.7 + §45.8), M34 (device drivers: canonical protocol + interrupts + DMA + PIO/MMIO, Ch. 36 §36.2-§36.6) — each with `overview.md` + slice doc + ADR 0022-0024.
 
-**Next**: three new milestones, recorded in ADR 0025. They close chapters that have no code at all, as distinct from the M31-M33 shape which extended an existing milestone by taking one uncovered §.
+**Next**: M36 (Ch. 17 free-space management), then M37 (Ch. 37 disk geometry). M35 landed as ADR 0026.
 
 | # | Milestone | OSEP chapter | Depends on | Effort | Status |
 |---|---|---|---|---|---|
-| 22 | **M35 Scheduling baselines** | Ch. 7 | M13 | Small | Planned |
+| 22 | **M35 Scheduling baselines** | Ch. 7 | M13 | Small | ✅ (ADR 0026) |
 | 23 | **M36 Free-space management** | Ch. 17 | M12, M21 | Small | Planned |
 | 24 | **M37 Disk geometry + scheduling** | Ch. 37 | M21, M31 | Medium | Planned |
 
-M35 is first because §8-§10 all present themselves as improvements over Ch. 7's baselines, and those baselines are currently absent — three schedulers whose advantages are asserted rather than measured. M36 also retires a false claim: `CONTEXT.md` and ADR 0007 say Ch. 17 is "implicitly covered by the journal (M12)", but M12's bitmap records what is free without choosing a block, which is §17's actual subject.
+M35 landed first because §8-§10 all present themselves as improvements over Ch. 7's baselines, and those baselines were absent — three schedulers whose advantages are asserted rather than measured. M36 also retires a false claim: `CONTEXT.md` and ADR 0007 say Ch. 17 is "implicitly covered by the journal (M12)", but M12's bitmap records what is free without choosing a block, which is §17's actual subject.
 
 Excluded (not addressing in this roadmap):
 - Ch. 5 Process API (`fork`/`exec`/`wait`) — out of scope for .NET. (Earlier revisions of this file called this "Ch. 7"; in OSTEP v1.10 Process API is Ch. 5 and Ch. 7 is Scheduling: Introduction.)

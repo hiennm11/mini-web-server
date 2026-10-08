@@ -1940,6 +1940,281 @@ static string CreateTempWebRoot()
     return path;
 }
 
+// ---------------------------------------------------------------------------
+// M35 / OSEP Ch. 7 §7.1-§7.7 — scheduling baselines.
+//
+// Every expected value here is a number printed in OSTEP itself, not one this
+// implementation produced: the chapter states each average explicitly. That is
+// the only oracle worth having for a simulator - a test that recomputes the
+// metric the way the code does would pass by construction.
+// ---------------------------------------------------------------------------
+
+Run("fifo reproduces the chapter's equal-length example (slice 35.1)", () =>
+{
+    // §7.3, figure 7.1: three jobs of 10s each, all arriving together.
+    // "A finished at 10, B at 20, and C at 30 ... the average turnaround time
+    //  for the three jobs is simply (10+20+30)/3 = 20."
+    //
+    // Response is the chapter's §7.6 metric and the chapter does not print a
+    // figure for this workload, so the value here is derived from figure 7.1's
+    // own bars rather than asserted independently: A first runs at t=0, B at
+    // t=10, C at t=20, so the average response is (0+10+20)/3 = 10. That is
+    // already the problem §7.6 is about - equal-length jobs, and a job still
+    // waits 20 ticks to start - which the SJF/RR comparison quantifies later.
+    var jobs = MiniWebServer.Host.MiniScheduler.BaselineWorkload.FromLengths(
+        new[] { 10, 10, 10 }, new[] { 0, 0, 0 }, names: new[] { "A", "B", "C" });
+
+    var r = MiniWebServer.Host.MiniScheduler.BaselineScheduler.Run(
+        MiniWebServer.Host.MiniScheduler.BaselinePolicy.Fifo, jobs);
+
+    AssertClose(20.0, r.AvgTurnaround);
+    AssertClose(10.0, r.AvgResponse);
+    AssertClose(10.0, r.AvgWait);      // wait = turnaround - burst = 20 - 10
+    AssertEqual("ABC", r.CompletionOrder);
+});
+
+Run("fifo reproduces the chapter's convoy example (slice 35.1)", () =>
+{
+    // §7.3, figure 7.2: A=100, B=10, C=10, all arriving at 0. The chapter
+    // prints "the average turnaround time for the system is high: a painful
+    //  110 seconds ((100+110+120)/3)".
+    var jobs = MiniWebServer.Host.MiniScheduler.BaselineWorkload.FromLengths(
+        new[] { 100, 10, 10 }, new[] { 0, 0, 0 }, names: new[] { "A", "B", "C" });
+
+    var r = MiniWebServer.Host.MiniScheduler.BaselineScheduler.Run(
+        MiniWebServer.Host.MiniScheduler.BaselinePolicy.Fifo, jobs);
+
+    AssertClose(110.0, r.AvgTurnaround);
+    AssertEqual("ABC", r.CompletionOrder);
+});
+
+Run("sjf halves the convoy and beats fifo on turnaround (slice 35.1)", () =>
+{
+    // §7.4, figure 7.3: same workload as above, SJF runs B and C first.
+    // "SJF reduces average turnaround from 110 seconds to 50 ((10+20+120)/3),
+    //  more than a factor of two improvement."
+    var lengths = new[] { 100, 10, 10 };
+    var arrivals = new[] { 0, 0, 0 };
+
+    var fifo = MiniWebServer.Host.MiniScheduler.BaselineScheduler.Run(
+        MiniWebServer.Host.MiniScheduler.BaselinePolicy.Fifo,
+        MiniWebServer.Host.MiniScheduler.BaselineWorkload.FromLengths(lengths, arrivals));
+    var sjf = MiniWebServer.Host.MiniScheduler.BaselineScheduler.Run(
+        MiniWebServer.Host.MiniScheduler.BaselinePolicy.Sjf,
+        MiniWebServer.Host.MiniScheduler.BaselineWorkload.FromLengths(lengths, arrivals));
+
+    AssertClose(110.0, fifo.AvgTurnaround);
+    AssertClose(50.0, sjf.AvgTurnaround);
+    AssertEqual("BCA", sjf.CompletionOrder);
+});
+
+Run("stcf preempts the long job for late arrivals (slice 35.1)", () =>
+{
+    // §7.4 figure 7.4 / §7.5 figure 7.5: A=100 arrives at t=0, B and C=10
+    // arrive at t=10. Non-preemptive SJF cannot react - "even though B and C
+    //  arrived shortly after A, they still are forced to wait until A has
+    //  completed ... Average turnaround time for these three jobs is 103.33".
+    var jobs = MiniWebServer.Host.MiniScheduler.BaselineWorkload.LateArrivals();
+
+    var sjf = MiniWebServer.Host.MiniScheduler.BaselineScheduler.Run(
+        MiniWebServer.Host.MiniScheduler.BaselinePolicy.Sjf, jobs);
+
+    // §7.5: "STCF would preempt A and run B and C to completion ... The
+    // result is a much-improved average turnaround time: 50 seconds
+    // ((120-0)+(20-10)+(30-10))/3".
+    var stcf = MiniWebServer.Host.MiniScheduler.BaselineScheduler.Run(
+        MiniWebServer.Host.MiniScheduler.BaselinePolicy.Stcf, jobs);
+
+    AssertClose(103.3333333333333, sjf.AvgTurnaround, 1e-9);
+    AssertClose(50.0, stcf.AvgTurnaround, 1e-9);
+    AssertEqual("BCA", stcf.CompletionOrder);
+});
+
+Run("round robin trades turnaround for response (slice 35.1)", () =>
+{
+    // §7.7: three jobs of 5s arriving together, 1s time slice.
+    // "The average response time of RR is: (0+1+2)/3 = 1; for SJF, average
+    //  response time is: (0+5+10)/3 = 5."
+    // Then the same workload by turnaround: "A finishes at 13, B at 14, and C
+    //  at 15, for an average of 14. Pretty awful!"
+    var jobs = MiniWebServer.Host.MiniScheduler.BaselineWorkload.ResponseTimeCase();
+
+    var sjf = MiniWebServer.Host.MiniScheduler.BaselineScheduler.Run(
+        MiniWebServer.Host.MiniScheduler.BaselinePolicy.Sjf, jobs);
+    var rr = MiniWebServer.Host.MiniScheduler.BaselineScheduler.Run(
+        MiniWebServer.Host.MiniScheduler.BaselinePolicy.RoundRobin, jobs, quantum: 1);
+
+    AssertClose(5.0, sjf.AvgResponse, 1e-9);
+    AssertClose(1.0, rr.AvgResponse, 1e-9);
+    AssertClose(14.0, rr.AvgTurnaround, 1e-9);
+
+    // §7.7: "Because turnaround time only cares about when jobs finish, RR is
+    // nearly pessimal, even worse than simple FIFO in many cases."
+    //
+    // "in many cases" is doing real work in that sentence. On *this* workload
+    // (three equal 5s jobs) it does hold: FIFO completes at 5/10/15 for an
+    // average of 10, RR at 13/14/15 for 14. It is not universal though - on
+    // the §7.3 workload FIFO's convoy makes it worse than RR - so the test
+    // pins this workload rather than asserting the general claim.
+    var fifo = MiniWebServer.Host.MiniScheduler.BaselineScheduler.Run(
+        MiniWebServer.Host.MiniScheduler.BaselinePolicy.Fifo, jobs);
+    AssertClose(10.0, fifo.AvgTurnaround, 1e-9);
+    AssertEqual(true, rr.AvgTurnaround > fifo.AvgTurnaround);
+
+    // The chapter's actual point in §7.7 is the trade-off, so both directions
+    // are asserted: RR wins response, loses turnaround.
+    AssertEqual(true, rr.AvgResponse < sjf.AvgResponse);
+    AssertEqual(true, rr.AvgTurnaround > sjf.AvgTurnaround);
+});
+
+Run("baseline scheduler rejects inputs the chapter's model cannot express (slice 35.1)", () =>
+{
+    // §7.7: "the length of a time slice must be a multiple of the timer
+    // interrupt period", so a quantum below one tick is not a slow quantum,
+    // it is an unrunnable scheduler.
+    var jobs = MiniWebServer.Host.MiniScheduler.BaselineWorkload.EqualLengths(3);
+    AssertThrows<ArgumentOutOfRangeException>(() =>
+        MiniWebServer.Host.MiniScheduler.BaselineScheduler.Run(
+            MiniWebServer.Host.MiniScheduler.BaselinePolicy.RoundRobin, jobs, quantum: 0));
+
+    // A time slice on a run-to-completion policy is meaningless rather than
+    // harmless: accepting it would silently measure RR while reporting FIFO.
+    AssertThrows<ArgumentException>(() =>
+        MiniWebServer.Host.MiniScheduler.BaselineScheduler.Run(
+            MiniWebServer.Host.MiniScheduler.BaselinePolicy.Fifo, jobs, quantum: 5));
+
+    AssertThrows<ArgumentException>(() =>
+        MiniWebServer.Host.MiniScheduler.BaselineScheduler.Run(
+            MiniWebServer.Host.MiniScheduler.BaselinePolicy.Fifo, new List<MiniWebServer.Host.MiniScheduler.BaselineJob>()));
+
+    // §7.1 assumes a job runs for a positive, known amount of time.
+    AssertThrows<ArgumentException>(() =>
+        MiniWebServer.Host.MiniScheduler.BaselineWorkload.FromLengths(
+            new[] { 10, 0 }, new[] { 0, 0 }));
+    AssertThrows<ArgumentException>(() =>
+        MiniWebServer.Host.MiniScheduler.BaselineWorkload.FromLengths(
+            new[] { 10 }, new[] { -1 }));
+});
+
+Run("baseline policies do not mutate the caller's workload (slice 35.1)", () =>
+{
+    // A caller comparing two policies on one workload is the obvious use, and
+    // the simulation decrements BurstRemaining as it runs. If the input list
+    // were used directly, the second run would see every job already spent.
+    var jobs = MiniWebServer.Host.MiniScheduler.BaselineWorkload.Convoy();
+
+    var first = MiniWebServer.Host.MiniScheduler.BaselineScheduler.Run(
+        MiniWebServer.Host.MiniScheduler.BaselinePolicy.Fifo, jobs);
+    var second = MiniWebServer.Host.MiniScheduler.BaselineScheduler.Run(
+        MiniWebServer.Host.MiniScheduler.BaselinePolicy.Fifo, jobs);
+
+    AssertClose(first.AvgTurnaround, second.AvgTurnaround);
+    AssertClose(110.0, second.AvgTurnaround);
+});
+
+Run("a longer quantum trades response for turnaround (slice 35.1)", () =>
+{
+    // §7.7: "The shorter it is, the better the performance of RR under the
+    // response-time metric. However, making the time slice too short is
+    // problematic: suddenly the cost of context switching will dominate."
+    //
+    // The quantum has to actually reach the simulator. A suite that only ever
+    // passed quantum=1 would not notice a route or a scheduler that ignored the
+    // parameter - which is exactly what happened: the comparison table hardcoded
+    // 1 and reported the requested policy twice with different numbers.
+    var jobs = MiniWebServer.Host.MiniScheduler.BaselineWorkload.Convoy();
+
+    double Response(int q) => MiniWebServer.Host.MiniScheduler.BaselineScheduler.Run(
+        MiniWebServer.Host.MiniScheduler.BaselinePolicy.RoundRobin, jobs, quantum: q).AvgResponse;
+
+    double Turnaround(int q) => MiniWebServer.Host.MiniScheduler.BaselineScheduler.Run(
+        MiniWebServer.Host.MiniScheduler.BaselinePolicy.RoundRobin, jobs, quantum: q).AvgTurnaround;
+
+    // Response rises monotonically with the slice: a job waits longer for its
+    // first turn.
+    AssertClose(1.0, Response(1));
+    AssertClose(5.0, Response(5));
+    AssertClose(20.0, Response(25));
+
+    // At quantum=100 the slice is exactly A's length, so A runs to completion
+    // before anyone else starts: B first runs at 100, C at 110. Turnaround is
+    // therefore FIFO's (110.00) and response is (0+100+110)/3 = 70.00 — the
+    // slice no longer helps response at all, which is §7.7's "making the time
+    // slice too long" limit taken to its conclusion.
+    AssertClose(110.0, Turnaround(100));
+    AssertClose(70.0, Response(100));
+    AssertEqual(true, Response(100) > Response(25));
+
+    // The pairing the chapter states, on one workload: a short slice is
+    // strictly better for response and strictly worse for turnaround than a
+    // long one. Both directions are asserted because either alone is satisfied
+    // by a scheduler that ignored the parameter in one direction only.
+    AssertEqual(true, Response(25) > Response(1));
+    AssertEqual(true, Turnaround(25) > Turnaround(1));
+});
+
+Run("baseline result carries arrivals by name, not by position (slice 35.1)", () =>
+{
+    // Regression: the route rendered one row per job by taking job names from the
+    // trace's execution order and indexing the result's positional Response list
+    // with that index. On the convoy workload SJF executes B, C, A, so B was
+    // rendered with A's response - a response of 70 for a job that started at 0.
+    // Turnaround and Response stay positional; Arrivals is the name-keyed view
+    // the renderer is meant to join on.
+    var jobs = MiniWebServer.Host.MiniScheduler.BaselineWorkload.Convoy();
+
+    var r = MiniWebServer.Host.MiniScheduler.BaselineScheduler.Run(
+        MiniWebServer.Host.MiniScheduler.BaselinePolicy.Sjf, jobs);
+
+    AssertEqual("BCA", r.CompletionOrder);              // execution order differs from input order
+    AssertEqual(3, r.Arrivals.Count);
+    AssertEqual(0, r.Arrivals["A"]);
+    AssertEqual(0, r.Arrivals["B"]);
+    AssertEqual(0, r.Arrivals["C"]);
+
+    // §7.6: response = first run - arrival. Index 1 is B *by input order*, and all
+    // three jobs arrive at 0, so B's response is its own first run. SJF runs B
+    // first, so that is 0 — while A, which runs last, is the job that waited the
+    // whole run. That inversion is exactly why the renderer must not index a
+    // positional list by a name-derived index.
+    AssertClose(0.0, r.Response[1]);      // B, by input order
+    AssertClose(0.0, r.Arrivals["B"]);
+    AssertClose(120.0, r.Turnaround[0]);  // A: completes at 120, arrived at 0
+});
+
+Run("baseline scheduler rejects a horizon it cannot represent (slice 35.1)", () =>
+{
+    // Regression: the iteration guard was computed in int, so one job of length
+    // int.MaxValue arriving at 0 made the bound wrap negative and the run failed
+    // with "simulation failed to terminate". The bound is now computed in long.
+    //
+    // The limit is not int.MaxValue either. `Trace` records one entry per tick,
+    // so a job of int.MaxValue ticks needs ~2 billion list entries and threw
+    // OutOfMemoryException before the guard could fire - the same class of bug
+    // one level up. The horizon is an explicit cap that names its own cause.
+    AssertThrows<ArgumentOutOfRangeException>(() =>
+        MiniWebServer.Host.MiniScheduler.BaselineScheduler.Run(
+            MiniWebServer.Host.MiniScheduler.BaselinePolicy.Fifo,
+            MiniWebServer.Host.MiniScheduler.BaselineWorkload.FromLengths(
+                new[] { int.MaxValue }, new[] { 0 })));
+
+    // Two large jobs overflow even int Sum, before the guard is consulted.
+    AssertThrows<ArgumentOutOfRangeException>(() =>
+        MiniWebServer.Host.MiniScheduler.BaselineScheduler.Run(
+            MiniWebServer.Host.MiniScheduler.BaselinePolicy.Fifo,
+            MiniWebServer.Host.MiniScheduler.BaselineWorkload.FromLengths(
+                new[] { int.MaxValue, 1 }, new[] { 0, 0 })));
+
+    // A workload that fits is accepted. A single 1000-tick job arriving at 0
+    // completes at 1000, so its turnaround is 1000 and its response is 0.
+    var ok = MiniWebServer.Host.MiniScheduler.BaselineScheduler.Run(
+        MiniWebServer.Host.MiniScheduler.BaselinePolicy.Fifo,
+        MiniWebServer.Host.MiniScheduler.BaselineWorkload.FromLengths(
+            new[] { 1000 }, new[] { 0 }));
+    AssertClose(1000.0, ok.AvgTurnaround);
+    AssertClose(0.0, ok.AvgResponse);
+});
+
 static void Run(string name, Action test)
 {
     try

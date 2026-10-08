@@ -13,7 +13,7 @@ This milestone covers OSEP Ch. 23 ("Complete VM Systems") which examines two rea
 1. **VAX/VMS** (1970s-80s) — early "modern" VM manager. Key innovations:
    - Segmented FIFO page replacement with **second-chance lists** (clean + dirty global lists).
    - **Resident Set Size (RSS)** per process — cap on how many pages each process can keep.
-   - **Demand zeroing** — pages added to address space start inaccessible; zero on first access.
+   - **Demand zeroing** — *declared, not implemented*. See the deviations section: a first-touch frame is mapped without being zeroed.
    - **Copy-on-write (COW)** — `fork()` shares pages as read-only; first write triggers copy.
    - Page-table placement in kernel VM (so PT pages themselves can be swapped).
 2. **Linux VM** (modern) — incremental, performance-driven evolution:
@@ -48,7 +48,7 @@ For the simulator, we focus on what's testable + distinctive: **copy-on-write** 
 
 We implement only **COW** (M19.1) in this slice. The other Ch. 23 features are documented as deferred:
 
-- **Demand zeroing** (OSEP §23.1): our simulator already does this — `Map(pid, vpn, frameNo=-1)` zeroes the frame on first-touch. We don't model the "marked inaccessible until accessed" optimization.
+- **Demand zeroing** (OSEP §23.1): **not implemented.** `Map(pid, vpn, frameNo=-1)` allocates a frame and maps it without zeroing it. `PhysicalMemory.ZeroFrame` is called only from `EvictFrame` (`Pager.cs:536`), so a recycled frame is scrubbed but a first-touch frame is not. Neither the eager-zeroing nor the "marked inaccessible until accessed" half exists.
 - **Resident Set Size per process** (OSEP §23.1 VMS): not implemented. Our replacement policy is global (OSEP §22.5 notes this is LRU's weakness — "memory hogs").
 - **2Q replacement** (OSEP §23.2 Linux): not implemented. Our eviction policies (FIFO, Random, LRU) are simple; 2Q adds active/inactive lists to handle cyclic-large-file access patterns.
 - **Huge pages** (OSEP §23.2): not implemented. Our page size is fixed at 4 KB.
@@ -84,7 +84,7 @@ We implement only **COW** (M19.1) in this slice. The other Ch. 23 features are d
 
 ## What this slice does NOT do
 
-- Demand zeroing as an explicit "marked inaccessible" optimization (we always zero on first-touch Map).
+- Demand zeroing — neither eager nor on-demand. `ZeroFrame` runs only in `EvictFrame`.
 - Per-process RSS limits.
 - 2Q replacement.
 - Huge pages.

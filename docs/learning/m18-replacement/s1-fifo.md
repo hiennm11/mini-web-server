@@ -32,7 +32,7 @@ The HTTP route `/pager/run?workload=exceed&policy=fifo|lru|random&frames=N` trig
 
 ## OSEP alignment
 
-Implements OSEP §21.1 (swap space), §21.4 (page-fault control flow), §22.3 (FIFO), §22.4 (Random), §22.5/§22.7 (LRU).
+Implements OSEP §21.1 (swap space), §21.5 (page-fault control flow), §22.3 (FIFO), §22.4 (Random), §22.5/§22.7 (LRU).
 
 ## Smoke evidence
 

@@ -33,7 +33,7 @@ Add (a) a swap device — an on-disk region where evicted pages live — and (b)
 
 ## OSEP §-specific deviations
 
-- OSEP §21.4 step 8 ("issue swap read"): we do this in `Pager.Translate` on `LookupResult.InSwap` (instead of via an explicit page-fault handler). The simulator handles the entire access in one call.
+- OSEP §21.5 step 8 ("issue swap read"): we do this in `Pager.Translate` on `LookupResult.InSwap` (instead of via an explicit page-fault handler). The simulator handles the entire access in one call.
 - OSEP §22.5 "implementation" — we use timestamps (`LastUsedTick`) instead of a doubly-linked list. Same semantics, simpler code.
 - We implement `LinearLookup` with the `SwappablePte` extension; `TwoLevelLookup` does NOT yet support `InSwap` (its PTEs are just `Valid` bool + frame). Workaround: use linear for swap demos. Adding `InSwap` to `PageTableEntry` is straightforward.
 - We don't model "write-back" of dirty pages (OSEP §22.9) — every eviction writes the frame to swap regardless of the `Dirty` bit.
@@ -61,7 +61,7 @@ Add (a) a swap device — an on-disk region where evicted pages live — and (b)
 - `src/MiniWebServer.Host/MiniPager/Pte.cs` — added `SwappablePte` struct (M18 only — used by `LinearLookup`).
 - `src/MiniWebServer.Host/MiniPager/PageDirectory.cs` — added `InnerPageTable` etc.
 - `src/MiniWebServer.Host/MiniPager/Pager.cs`:
-  - `IPageTableLookup.TryLookup` returns `LookupResult` enum (Hit / InSwap / Miss).
+  - `IPageTableLookup.TryLookup` returns `LookupResult` — **four** values: `Hit`, `HitReadOnly`, `InSwap`, `Miss`. (`HitReadOnly` arrived with M19 to carry COW's read-only copy state.)
   - `LookupResult.Miss` triggers `Map(pid, vpn, frameNo=-1)` — auto-allocates a frame (or evicts).
   - `LookupResult.InSwap` triggers `Swap.ReadIn` + `pt.RestoreFromSwap`.
   - `Map(vpn=-1)` checks if VPN is `InSwap` (from a previous eviction) and reads from swap; else allocates fresh.

@@ -58,7 +58,7 @@ The trace confirms the COW lifecycle: P1 + P2 both initially share frame 0; afte
 
 - Per-frame reference counting. Linux's actual COW maintains a refcount per physical frame and only frees when the last reference is dropped. Our simulator just splits 1:1 (source keeps original, dest gets private copy).
 - COW on `TwoLevelLookup` (throws `NotSupportedException`).
-- Demand zeroing optimization (we zero on first-touch Map, but don't model the "marked inaccessible" optimization).
+- Demand zeroing — neither form is implemented. A first-touch frame is mapped without zeroing; `ZeroFrame` is called only when `EvictFrame` recycles a victim.
 
 ## Deferred (other Ch. 23 features)
 

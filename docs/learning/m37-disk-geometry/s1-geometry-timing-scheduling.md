@@ -31,7 +31,7 @@ asserted and the rounding is named.
 | §37.4 | Cheetah sequential 100 MB | "about 800 ms" | 806 ms |
 | §37.4 | Barracuda sequential 100 MB | "about 950 ms" | 965.5 ms |
 | §37.4 | Sequential rates | "very nearly the peak transfer rates of 125 MB/s and 105 MB/s" | 124.07 / 103.57 |
-| §37.4 | random vs sequential | "almost a factor of 200 ... for the Cheetah and more than a factor 300 ... for the Barracuda" | 192× / 349× |
+| §37.4 | random vs sequential | "almost a factor of 200 ... for the Cheetah and more than a factor 300 ... for the Barracuda" | 192× / 350× |
 | §37.4 ASIDE | average seek distance | "one-third the full distance" | N/3 tracks, limit of (N²−1)/(3N) |
 
 ## Measured
@@ -63,8 +63,9 @@ tracks | N/3 (chapter) | exact      | difference
 
 ## Scheduling, measured
 
-`scenario=schedule&policy=scan&head=10&queue=50,105,1800,1100,5,15` on a 20-track disk
-(requests on tracks 0, 1, 18, 11, 0, 0):
+`scenario=schedule&policy=scan&head=10&queue=50,105,1800,1100,5,15`, which runs on the
+default drive (Cheetah 15K.5, 10,000 tracks per surface). With `SectorsPerTrack = 300`
+the six requests land on tracks 0, 0, 1, 11, 18 and 3:
 
 ```
 policy | total track travel
@@ -75,6 +76,10 @@ NBF    |                10
 SCAN   |                10  <- requested
 C-SCAN |                28
 ```
+
+The same queue on the Barracuda gives identical travel, because both datasheet drives use
+`SectorsPerTrack = 300` and the queue never reaches an inner track where their differing
+track counts would matter.
 
 SSTF, NBF and SCAN tie at 10 on this queue and C-SCAN is worse at 28 — which is exactly
 what §37.5 says: *"Unfortunately, SCAN and its cousins do not represent the best scheduling

@@ -1,4 +1,4 @@
-# Slice 31.2: Two-CR Alternating Writes (Ch. 43 §43.12)
+# Slice 31.2: Two-CR Alternating Writes (Ch. 43 §43.12 first half)
 
 > **What it does** — adds a second checkpoint region written alternately with the §43.12 header/body/trailer protocol, and a recovery rule that mounts the most recent CR whose header and trailer timestamps agree. Exposes `/lfs/run?scenario=dual-cr-recovery|cr-alternation|cr-crash-during-write`.
 
@@ -19,7 +19,7 @@ Two properties come out of that paragraph, and they are different:
 
 `DualCheckpointRegion` (new, `MiniScheduler/SegmentSizer.cs`):
 
-- `Write(bodyTimestamp?, trailerTimestamp?)` — stamps header, body, trailer into the active CR, then toggles. The two optional timestamp parameters exist so a test can represent a crash between body and trailer; that is the only reason the method takes arguments.
+- `Write(bodyTimestamp?, trailerTimestamp?)` — stamps header, body, trailer into the active CR, then toggles. The two optional timestamp parameters do double duty: they let a test represent a crash between body and trailer, **and** they drive a production guard (`SegmentSizer.cs:254-260`) that refuses a trailer matching the previous write's header, since that state is unreachable through the real write path and would let recovery mount a torn body behind a "consistent" pair.
 - `Recover()` — returns `(index, image, reason)`: the most recent CR whose header and trailer agree, plus why the other was rejected.
 - `ActiveIndex`, `Cr0`, `Cr1`, `WriteLog` — the four observability members the route reads.
 - `CrImage.IsConsistent` — `HeaderTimestamp == TrailerTimestamp`.
@@ -75,6 +75,7 @@ With a single CR this is unrecoverable — the one structure the file system use
 
 - `dual-cr recovery takes the newest consistent CR` — three writes leave CR0 (ts=3) newest and both consistent; two writes leave CR1 (ts=2) newest; a `DualCheckpointRegion` that was never written throws rather than mounting a filesystem with no anchor.
 - `dual-cr alternation leaves the other CR intact on a mid-write crash` — the crashed CR is visibly inconsistent (`Cr0.IsConsistent == false`) while the other is not; recovery returns the survivor's index and a reason naming the rejected one; seven writes produce exactly `CR0,CR1,CR0,CR1,CR0,CR1,CR0` and leave `ActiveIndex == 1`; when both CRs are torn, `Recover()` throws.
+- `dual-cr refuses a fresh header paired with the previous write's trailer` — asserts the production guard: the state is unreachable through the real write path, and admitting it would let recovery mount a torn body behind a "consistent" pair.
 
 ## Why this is not wired into M25's `Lfs`
 

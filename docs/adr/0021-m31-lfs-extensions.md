@@ -48,7 +48,7 @@ Two CR images, alternated on every write. Each write stamps a header, a body, an
 
 A CR that was never written, or both CRs inconsistent, raises rather than mounting a file system with no anchor — an unmountable filesystem should be an error, not an empty one.
 
-`Write(bodyTimestamp, trailerTimestamp)` takes the body and trailer timestamps as parameters purely so a test can represent a crash between them. That is the only reason the method has a signature rather than being a plain `Write()`.
+`Write(bodyTimestamp, trailerTimestamp)` takes the body and trailer timestamps as parameters for two reasons. A test uses them to represent a crash between the two. And a production guard (`SegmentSizer.cs:254-260`) refuses a trailer equal to the previous write's header: the real write path cannot produce it, and if it did, recovery would mount a torn body behind a "consistent" header/trailer pair. Refusing at the producer is preferred to adding a check in the recovery rule.
 
 ### Route
 

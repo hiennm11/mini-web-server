@@ -1,4 +1,4 @@
-# Milestone 31: LFS Extensions (Ch. 43 §43.3 + §43.12)
+# Milestone 31: LFS Extensions (Ch. 43 §43.3 + §43.12 first half)
 > **Overview** - what this milestone covers and where to start. The slices live in this folder.
 ## Question
 How much data should LFS buffer before flushing, given the disk's positioning overhead? And what happens to the file system if the machine crashes while the checkpoint region is being written?

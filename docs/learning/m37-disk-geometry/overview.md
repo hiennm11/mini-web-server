@@ -9,7 +9,7 @@ should the drive serve next?
 
 ## Scope
 
-OSEP Ch. 37 §37.2-§37.5, in two simulators exposed at `/disk/run`.
+OSEP Ch. 37 §37.1-§37.5, in two simulators exposed at `/disk/run`.
 
 - **Geometry** (§37.2-§37.3) — platters, surfaces, tracks, sectors, and how a block number
   decomposes into a track and a position within it.

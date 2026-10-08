@@ -44,6 +44,10 @@ Where a milestone implements part of a section, the claim says which part and sa
 
 **ADR 0015's "single CR slot" decision is marked superseded in part.** The single CR is still what `Lfs` uses, so the decision was not reversed — but a reader finding it had no way to know that the deferral it justified was later closed by a different milestone. ADRs are append-only in practice here: the correction lives beside the original claim.
 
+**A deferral list is retired, not left to rot.** This ADR's first draft applied the rule above to two claims and then missed the same defect class seven more times across the repo — deferral lists in `m14-pager`, `m16-tlb`, `m25-lfs/overview.md`, `m26-ssd` and `m27-integrity` still listing work that M16–M19, M28, M31, M32 and M33 had delivered. The reason the earlier passes missed them is worth recording: each was **true when written**, so no single reading contradicts itself. Only a change elsewhere in the repo invalidates them, and nothing connects a deferral list to the milestone that later closes it.
+
+**No claim is left standing because it records what someone once thought.** The second draft of this ADR left ADR 0025's `§37.1-§37.6` in place as "planning-time scope, not a completion claim", and left M37's own range wrong. Neither distinction survived contact with the reader: the first reads as a claim about what was built, and the second was simply an error in an ADR written minutes earlier. Append-only applies to *decisions*; a *scope claim* is either true of the code or it is corrected.
+
 ## Consequences
 
 ### Positive

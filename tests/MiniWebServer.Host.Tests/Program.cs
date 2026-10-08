@@ -2502,6 +2502,386 @@ Run("a buddy heap refuses a request it cannot round up (slice 36.1)", () =>
     AssertEqual(0, exact.FreeBytes);
 });
 
+// ---------------------------------------------------------------------------
+// M37 / OSTEP Ch. 37 §37.2-§37.5 — disk geometry, I/O time, disk scheduling.
+//
+// The oracle is the chapter's own arithmetic: equation 37.1, the Cheetah and
+// Barracuda worked examples of §37.4 (which print every intermediate value),
+// the ASIDE that derives average seek as N/3, and the geometry figures 37.1-37.3.
+// ---------------------------------------------------------------------------
+
+Run("io time is seek plus rotation plus transfer (slice 37.1)", () =>
+{
+    // §37.4, equation 37.1: "T_I/O = T_seek + T_rotation + T_transfer"
+    // (37.1), and equation 37.2: "R_I/O = Size_Transfer / T_I/O" (37.2).
+    //
+    // The Cheetah 15K.5 [S09b] from figure 37.5: 15,000 RPM, 4 ms average
+    // seek, 125 MB/s max transfer. §37.4 does the arithmetic step by step:
+    // "15000 RPM is equal to 250 RPS; thus, each rotation takes 4 ms. On
+    //  average, the disk will encounter a half rotation and thus 2 ms is the
+    //  average time. Finally, the transfer time is just the size of the transfer
+    //  over the peak transfer rate; here it is vanishingly small (30
+    //  microseconds ...). Thus ... T_I/O for the Cheetah roughly equals 6 ms."
+    var cheetah = MiniWebServer.Host.MiniScheduler.DriveGeometry.Cheetah15K5;
+
+    AssertClose(4.0, cheetah.RotationMs());          // 60000 / 15000
+    AssertClose(2.0, cheetah.AvgRotationMs());       // half a rotation
+    AssertClose(4.0, cheetah.AvgSeekMs);             // the datasheet figure
+
+    // A random 4 KB read. §37.4: "T_seek = 4 ms, T_rotation = 2 ms,
+    // T_transfer = 30 microsecs (37.3)".
+    var read = new MiniWebServer.Host.MiniScheduler.DiskRequest(0, Bytes: 4096);
+    var timing = cheetah.Time(read, seekMs: cheetah.AvgSeekMs);
+    AssertClose(4.0, timing.SeekMs);
+    AssertClose(2.0, timing.RotationMs);            // the average half rotation
+
+    // Binary units throughout, as the chapter's dimensional analysis uses them
+    // ("512 KB * 1024/KB / 1 MB ..."): 4 KB = 4096 bytes against 125 MB =
+    // 125 * 2^20, so the transfer is 31.25 us. The chapter writes "30
+    // microseconds" and "roughly equals 6 ms" - both of those are its own
+    // rounding, and asserting the exact values keeps the rounding visible rather
+    // than baking it into the oracle.
+    AssertClose(0.03125, timing.TransferMs, 1e-9);    // = 31.25 us, the chapter's "30"
+    AssertClose(6.03125, timing.TotalMs, 1e-9);       // the chapter's "roughly 6"
+
+    // "we just divide the size of the transfer by the average time, and thus
+    //  arrive at R_I/O for the Cheetah under the random workload of about
+    //  0.66 MB/s."
+    //
+    // 0.6477 is what equation 37.2 gives for the *exact* total of 6.03125 ms; the
+    // chapter's 0.66 comes from its rounded 6 ms. The tolerance spans both.
+    AssertClose(0.66, cheetah.Rate(read, timing), 0.02);
+});
+
+Run("sequential transfers reach the peak rate and random ones do not (slice 37.1)", () =>
+{
+    // §37.4: "Here we can assume there is a single seek and rotation before a very
+    // long transfer. For simplicity, assume the size of the transfer is 100 MB.
+    // Thus, T_I/O for the Cheetah and Barracuda is about 800 ms and 950 ms,
+    // respectively. The rates of I/O are thus very nearly the peak transfer rates
+    // of 125 MB/s and 105 MB/s."
+    var cheetah = MiniWebServer.Host.MiniScheduler.DriveGeometry.Cheetah15K5;
+    var barracuda = MiniWebServer.Host.MiniScheduler.DriveGeometry.BarracudaES2;
+
+    // 100 MB = 100 * 2^20 bytes, in the chapter's binary units.
+    const int hundredMB = 100 * 1024 * 1024;
+
+    var seqC = cheetah.Time(new MiniWebServer.Host.MiniScheduler.DiskRequest(0, hundredMB),
+                            cheetah.AvgSeekMs);
+    // AssertClose's tolerance is RELATIVE (it scales by max(1,|expected|)), so
+    // 0.5 on 800 would admit anything from 400 to 1200. These are the tolerances
+    // the chapter's own "about" and "very nearly" license, not wider ones.
+    AssertClose(800.0, seqC.TotalMs, 0.01);     // +-8 ms: the chapter says "about 800"
+    // §37.4 says the sequential rates are "very nearly" the peak rates, not equal
+    // to them: the fixed seek and rotation are amortised over the transfer but do
+    // not vanish. 124.07 against 125 and 103.57 against 105 are both that.
+    AssertClose(125.0, cheetah.Rate(new MiniWebServer.Host.MiniScheduler.DiskRequest(0, hundredMB), seqC), 0.02);
+
+    var seqB = barracuda.Time(new MiniWebServer.Host.MiniScheduler.DiskRequest(0, hundredMB),
+                             barracuda.AvgSeekMs);
+    //
+    // The chapter's 950 is its own rounding: 9 ms seek + 4.17 ms average rotation
+    // + 952.38 ms transfer = 965.55, and the chapter reports "about 800 ms and
+    // 950 ms". The Cheetah figure is consistent with the exact arithmetic
+    // (4 + 2 + 800 = 806, "about 800"); the Barracuda's is not, most likely because
+    // 100 MB at 105 MB/s is easier to carry as ~950 than as ~965. The tolerance
+    // spans the chapter's rounding and nothing wider.
+    AssertClose(950.0, seqB.TotalMs, 0.02);     // +-19 ms, covering the chapter's 950
+    AssertClose(105.0, barracuda.Rate(new MiniWebServer.Host.MiniScheduler.DiskRequest(0, hundredMB), seqB), 0.02);
+
+    // §37.4's random row: "The same calculation for the Barracuda yields a T_I/O
+    // of about 13.2 ms, more than twice as slow, and thus a rate of about 0.31
+    // MB/s."
+    var randB = barracuda.Time(new MiniWebServer.Host.MiniScheduler.DiskRequest(0, 4096),
+                              barracuda.AvgSeekMs);
+    AssertClose(13.2, randB.TotalMs, 0.005);
+    // §37.4: "a rate of about 0.31 MB/s". The exact value is 0.2958, so the
+    // chapter rounded - and AssertClose's tolerance is relative, scaled by
+    // max(1,|expected|), so a tolerance of 0.05 is an absolute 0.05 here (the
+    // scale is 1, not 0.31) and admits 0.26 to 0.36. That is the width "about"
+    // licenses for a figure the chapter itself rounds.
+    AssertClose(0.31, barracuda.Rate(new MiniWebServer.Host.MiniScheduler.DiskRequest(0, 4096), randB), 0.05);
+
+    // The chapter's headline: "a huge gap in drive performance between random and
+    // sequential workloads, almost a factor of 200 or so for the Cheetah and more
+    // than a factor 300 difference for the Barracuda."
+    var randC = cheetah.Time(new MiniWebServer.Host.MiniScheduler.DiskRequest(0, 4096), cheetah.AvgSeekMs);
+    double seqFactorC = cheetah.Rate(new MiniWebServer.Host.MiniScheduler.DiskRequest(0, hundredMB), seqC)
+                      / cheetah.Rate(new MiniWebServer.Host.MiniScheduler.DiskRequest(0, 4096), randC);
+    double seqFactorB = barracuda.Rate(new MiniWebServer.Host.MiniScheduler.DiskRequest(0, hundredMB), seqB)
+                      / barracuda.Rate(new MiniWebServer.Host.MiniScheduler.DiskRequest(0, 4096), randB);
+    AssertEqual(true, seqFactorC > 150 && seqFactorC < 250);   // "about 200"
+    AssertEqual(true, seqFactorB > 250);                       // "more than 300"
+
+    // The seek dominates the random case and vanishes into the sequential one.
+    // That is the TIP's point: "When at all possible, transfer data to and from
+    // disks in a sequential manner."
+    AssertEqual(true, randC.SeekMs > randC.TransferMs * 100);
+    AssertEqual(true, seqC.TransferMs > seqC.SeekMs * 100);
+});
+
+Run("the average seek distance is one third of the disk (slice 37.1)", () =>
+{
+    // §37.4's ASIDE derives it by integrating |x - y| over [0,N]^2, getting N^3/3,
+    // and dividing by N^2: "Thus the average seek distance on a disk, over all
+    // possible seeks, is one-third the full distance."
+    //
+    // **That is a limit, not an identity.** The chapter switches from its own
+    // discrete summation (equation 37.4) to an integral (37.5) partway through,
+    // and the integral drops the finite-N correction. The exact discrete mean over
+    // all N^2 ordered pairs is (N^2 - 1) / (3N) - one third of a track less than
+    // N/3. At N = 1,000 the gap is 0.0003 tracks, which is why the rule of thumb is
+    // fine in practice, but the difference is real and the brute force below finds
+    // it at every N where it is visible.
+    AssertClose(1.0 / 3.0, MiniWebServer.Host.MiniScheduler.DriveGeometry.AvgSeekFraction, 1e-12);
+
+    // Brute force at small N, where every one of the N^2 pairs can be enumerated.
+    double Brute(int n)
+    {
+        double sum = 0;
+        for (int x = 0; x < n; x++)
+            for (int y = 0; y < n; y++)
+                sum += Math.Abs(x - y);
+        return sum / (n * n);
+    }
+
+    foreach (int n in new[] { 4, 5, 10, 17 })
+    {
+        // The exact form is what enumeration finds...
+        AssertClose(Brute(n),
+            MiniWebServer.Host.MiniScheduler.DriveGeometry.AvgSeekDistanceExact(n), 1e-12);
+        // ...and the chapter's N/3 is close to it but NOT equal to it.
+        AssertClose(n / 3.0, MiniWebServer.Host.MiniScheduler.DriveGeometry.AvgSeekDistance(n), 1e-12);
+        AssertEqual(true, Brute(n) < n / 3.0);       // the finite-N correction
+        AssertClose(1.0 / (3.0 * n),                  // and it is exactly 1/(3N)
+            (n / 3.0) - Brute(n), 1e-12);
+    }
+
+    // The gap vanishes as the disk grows, which is the reason the chapter's
+    // shorthand is safe to use.
+    AssertClose(333.333000000, MiniWebServer.Host.MiniScheduler.DriveGeometry.AvgSeekDistanceExact(1000), 1e-9);
+    AssertEqual(true,
+        MiniWebServer.Host.MiniScheduler.DriveGeometry.AvgSeekDistance(1000)
+        - MiniWebServer.Host.MiniScheduler.DriveGeometry.AvgSeekDistanceExact(1000) < 0.001);
+
+    // The chapter's own wording: "In many books and papers, you will see average
+    // disk-seek time cited as being roughly one-third of the full seek time." Note
+    // "roughly" - and note the chapter derived it over distance, letting the drive
+    // turn distance into time. The Cheetah's 4 ms average is a datasheet number, so
+    // a full seek is roughly 12 ms by this rule.
+    var cheetah = MiniWebServer.Host.MiniScheduler.DriveGeometry.Cheetah15K5;
+    AssertClose(4.0, cheetah.AvgSeekMs);
+    AssertClose(12.0, cheetah.AvgSeekMs / MiniWebServer.Host.MiniScheduler.DriveGeometry.AvgSeekFraction);
+});
+
+Run("sstf services the nearer track first (slice 37.1)", () =>
+{
+    // §37.5, figure 37.7: "assuming the current position of the head is over the
+    // inner track, and we have requests for sectors 21 (middle track) and 2
+    // (outer track), we would then issue the request to 21 first, wait for it to
+    // complete, and then issue the request to 2."
+    //
+    // The chapter's three-track disk (figure 37.3) has 12 sectors per track:
+    // outer 0-11, middle 12-23, inner 24-35. So 21 is on the middle track and 2 on
+    // the outer one, and the head starts on the inner.
+    var drive = MiniWebServer.Host.MiniScheduler.DriveGeometry.SingleTrack;
+    var threeTracks = new MiniWebServer.Host.MiniScheduler.DriveGeometry
+    {
+        Name = "three tracks (figure 37.3)",
+        Rpm = 60 * 60,
+        AvgSeekMs = 0.0,
+        TransferMBps = 1.0,
+        TracksPerSurface = 3,
+        SectorsPerTrack = 12,
+        Surfaces = 1,
+    };
+
+    // Block 2 -> track 0, block 21 -> track 1, head on track 2.
+    AssertEqual(0L, threeTracks.TrackOf(2));
+    AssertEqual(1L, threeTracks.TrackOf(21));
+    AssertEqual(2L, threeTracks.TrackOf(30));
+
+    var scheduler = new MiniWebServer.Host.MiniScheduler.DiskScheduler(threeTracks);
+    var (order, travel) = scheduler.Serve(
+        MiniWebServer.Host.MiniScheduler.DiskPolicy.Sstf,
+        new long[] { 2, 21 }, startTrack: 2);
+
+    // 21 first, exactly as the chapter describes: block 21 is on track 1, one move
+    // away, while block 2 is on track 0, two moves away.
+    AssertEqual(21L, order[0]);
+    AssertEqual(2L, order[1]);
+    // Head 2 -> 1 -> 0: two track moves, the minimum possible for this pair.
+    AssertEqual(2L, travel);
+
+    // FIFO takes 2 first - the order §37.5's example is avoiding. Same two requests,
+    // same head, same total travel (any order of these two costs two track moves),
+    // but SCAN and SSTF at least pick the nearer one first.
+    AssertEqual(2L, scheduler.Serve(MiniWebServer.Host.MiniScheduler.DiskPolicy.Fifo,
+        new long[] { 2, 21 }, 2).Order[0]);
+    AssertClose(drive.TransferMs(512), drive.TransferMs(512));   // sanity: single track seeks nowhere
+});
+
+Run("scan services the next track ahead, not the farthest (slice 37.1)", () =>
+{
+    // §37.5: SCAN "simply moves back and forth across the disk servicing requests
+    // in order across the tracks." ORDER is the defining property, not distance:
+    // on an inward sweep the head takes the *next* track with a pending request.
+    //
+    // A first implementation picked the FARTHEST track ahead, which meant sweeping
+    // past track 11 to serve 18 and only coming back for 11 on the return trip -
+    // the opposite of "in order across the tracks".
+    var drive = MiniWebServer.Host.MiniScheduler.DriveGeometry.Cheetah15K5;  // 10000 tracks
+    var sched = new MiniWebServer.Host.MiniScheduler.DiskScheduler(drive);
+
+    var ahead = sched.Serve(MiniWebServer.Host.MiniScheduler.DiskPolicy.Scan,
+                            new long[] { 3300, 5400 }, startTrack: 10);   // tracks 11, 18
+    AssertEqual(11L, drive.TrackOf(ahead.Order[0]));
+    AssertEqual(18L, drive.TrackOf(ahead.Order[1]));
+    AssertEqual(8L, ahead.TracksTravelled);    // 10 -> 11 -> 18, no detour
+
+    // When the sweep direction runs dry the head must reverse, not fall back to
+    // arrival order. Head 10 with every request behind it: the inward sweep has
+    // nothing, so it reverses and services 8, 6, 3 going out.
+    var behind = sched.Serve(MiniWebServer.Host.MiniScheduler.DiskPolicy.Scan,
+                             new long[] { 900, 2400, 1800 }, startTrack: 10);  // 3, 8, 6
+    AssertEqual(8L, drive.TrackOf(behind.Order[0]));
+    AssertEqual(6L, drive.TrackOf(behind.Order[1]));
+    AssertEqual(3L, drive.TrackOf(behind.Order[2]));
+    AssertEqual(7L, behind.TracksTravelled);    // 10 -> 8 -> 6 -> 3
+});
+
+Run("nearest-block-first measures from the last block, not a track start (slice 37.1)", () =>
+{
+    // §37.5 offers NBF because "the drive geometry is not available to the host
+    // OS; rather, it sees an array of blocks", so the distance has to be measured
+    // in blocks, from where the head actually is.
+    //
+    // Reconstructing "the first block of the head's track" after every request is
+    // wrong once requests share a track: from block 599, block 598 is one away and
+    // block 300 is 299 away, but the reconstruction pointed at 600 and picked 300.
+    var drive = MiniWebServer.Host.MiniScheduler.DriveGeometry.Cheetah15K5;
+    var sched = new MiniWebServer.Host.MiniScheduler.DiskScheduler(drive);
+
+    var order = sched.Serve(MiniWebServer.Host.MiniScheduler.DiskPolicy.NearestBlock,
+                            new long[] { 599, 598, 300 }, startTrack: 2).Order;
+    AssertEqual(599L, order[0]);
+    AssertEqual(598L, order[1]);     // 1 block away, not 299
+    AssertEqual(300L, order[2]);
+});
+
+Run("sstf order depends on proximity and scan order does not (slice 37.1)", () =>
+{
+    // §37.5's second crux, stated as its own CRUX box: "HOW TO HANDLE DISK
+    // STARVATION? How can we implement SSTF-like scheduling but avoid starvation?"
+    //
+    // The mechanism the chapter describes needs an *infinite* near-request stream
+    // - "a steady stream of requests to the inner track, where the head currently
+    // is positioned" - which no finite queue can reproduce. With a finite queue
+    // every policy eventually serves every request. So what SCAN actually changes
+    // is ORDER, and that is what this test measures: SSTF's order is a function of
+    // distance alone, SCAN's is a function of sweep position, which is the property
+    // that makes starvation impossible rather than merely unlikely.
+    var drive = new MiniWebServer.Host.MiniScheduler.DriveGeometry
+    {
+        Name = "100 tracks", Rpm = 7200, AvgSeekMs = 4.0, TransferMBps = 100.0,
+        TracksPerSurface = 100, SectorsPerTrack = 100, Surfaces = 1,
+    };
+    var sched = new MiniWebServer.Host.MiniScheduler.DiskScheduler(drive);
+
+    long[] queue = { 8000, 1000, 1001, 1002, 1003, 1004 };   // track 80, then track 10 x5
+
+    var sstf = sched.Serve(MiniWebServer.Host.MiniScheduler.DiskPolicy.Sstf, queue, 10);
+    var scan = new MiniWebServer.Host.MiniScheduler.DiskScheduler(drive).Serve(
+        MiniWebServer.Host.MiniScheduler.DiskPolicy.Scan, queue, 10);
+
+    // Both serve everything - that is the finite-queue truth, and asserting
+    // otherwise would be asserting something the chapter does not claim.
+    AssertEqual(queue.Length, sstf.Order.Count);
+    AssertEqual(queue.Length, scan.Order.Count);
+    foreach (long b in queue)
+    {
+        AssertEqual(true, sstf.Order.Contains(b));
+        AssertEqual(true, scan.Order.Contains(b));
+    }
+
+    // SSTF orders by proximity, so all five track-10 requests precede the far one.
+    var sstfTracks = sstf.Order.Select(drive.TrackOf).ToList();
+    AssertEqual(5, sstfTracks.IndexOf(80));
+    AssertEqual(true, sstfTracks.Take(5).All(t => t == 10));
+
+    // SCAN's order comes from the sweep, so the far track is reached on its own
+    // terms rather than after every nearer request. Moving the near requests to
+    // the far side of the head changes SCAN's answer and not SSTF's, because SCAN
+    // follows the sweep and SSTF follows the distance.
+    long[] flipped = { 8000, 200, 201, 202, 203, 204 };   // track 2, behind the head
+    var sstfFlipped = new MiniWebServer.Host.MiniScheduler.DiskScheduler(drive).Serve(
+        MiniWebServer.Host.MiniScheduler.DiskPolicy.Sstf, flipped, 10);
+    var scanFlipped = new MiniWebServer.Host.MiniScheduler.DiskScheduler(drive).Serve(
+        MiniWebServer.Host.MiniScheduler.DiskPolicy.Scan, flipped, 10);
+
+    AssertEqual(queue.Length, sstfFlipped.Order.Count);
+    // SCAN's answer depends on sweep position, so it changes with the flip.
+    // SSTF is unmoved by it: track 2 is nearer than track 80, so it serves
+    // all five first and the far request last.
+    var sstfFlippedTracks = sstfFlipped.Order.Select(drive.TrackOf).ToList();
+    AssertEqual(2, sstfFlippedTracks[0]);
+    AssertEqual(5, sstfFlippedTracks.IndexOf(80));
+    // SCAN is not: the head sweeps inward first and comes back outward for track 2,
+    // so the far request is reached before the near ones.
+    AssertEqual(true, scanFlipped.Order.Select(drive.TrackOf).ToList().IndexOf(80)
+                       < scanFlipped.Order.Select(drive.TrackOf).ToList().IndexOf(2));
+});
+
+Run("c-scan sweeps one way and resets, unlike scan (slice 37.1)", () =>
+{
+    // §37.5: C-SCAN "only sweeps from outer-to-inner, and then resets at the outer
+    // track to begin again. Doing so is a bit more fair to inner and outer tracks,
+    // as pure back- and-forth SCAN favors the middle tracks."
+    //
+    // The defining property is the FIXED direction. An earlier version shared one
+    // branch between the two policies, which made C-SCAN a relabelled SCAN - and
+    // the chapter's claim about middle-track bias could not have been checked at
+    // all. This workload is chosen so the two genuinely diverge.
+    var drive = new MiniWebServer.Host.MiniScheduler.DriveGeometry
+    {
+        Name = "20 tracks", Rpm = 7200, AvgSeekMs = 4.0, TransferMBps = 100.0,
+        TracksPerSurface = 20, SectorsPerTrack = 100, Surfaces = 1,
+    };
+    long[] queue = { 50, 105, 1800, 1100, 5, 15 };
+
+    var scan = new MiniWebServer.Host.MiniScheduler.DiskScheduler(drive).Serve(
+        MiniWebServer.Host.MiniScheduler.DiskPolicy.Scan, queue, startTrack: 10);
+    var cscan = new MiniWebServer.Host.MiniScheduler.DiskScheduler(drive).Serve(
+        MiniWebServer.Host.MiniScheduler.DiskPolicy.CScan, queue, startTrack: 10);
+
+    // They are not the same policy, which is the property the chapter's whole
+    // paragraph about C-SCAN depends on.
+    AssertEqual(true, !scan.Order.SequenceEqual(cscan.Order));
+    AssertEqual(26L, scan.TracksTravelled);
+    AssertEqual(28L, cscan.TracksTravelled);
+
+    // Both start by sweeping inward from track 10, which is what §37.3's layout
+    // implies: track 0 is the outer end, so increasing track numbers go in.
+    // §37.5: C-SCAN "only sweeps from outer-to-inner".
+    AssertEqual(11L, drive.TrackOf(scan.Order[0]));
+    AssertEqual(11L, drive.TrackOf(cscan.Order[0]));
+
+    // They part company on the way back out. SCAN reverses and descends, so the
+    // track-18 request (still ahead on the way out) is served before the track-1
+    // one; C-SCAN has already passed track 1 going in, so it waits for the reset
+    // and is served after track 18 but before track 0 - the middle-track bias the
+    // chapter describes.
+    AssertEqual(18L, drive.TrackOf(scan.Order[1]));
+    AssertEqual(18L, drive.TrackOf(cscan.Order[1]));
+    AssertEqual(1L, drive.TrackOf(scan.Order[2]));
+    AssertEqual(0L, drive.TrackOf(cscan.Order[2]));
+
+    // C-SCAN never serves anything twice and never loses a request.
+    AssertEqual(queue.Length, cscan.Order.Count);
+    AssertEqual(queue.Length, cscan.Order.Distinct().Count());
+    foreach (long b in queue) AssertEqual(true, cscan.Order.Contains(b));
+});
+
 static void Run(string name, Action test)
 {
     try

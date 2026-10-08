@@ -864,6 +864,11 @@ static void HandleClient(Socket clientSocket, string webRoot)
             }
             }
         }
+        else if (parsedRequest.Path.StartsWith("/disk/run"))
+        {
+            // M37 / OSEP §37.2-§37.5. ?scenario=geometry|random-vs-seq|seek-fraction|schedule
+            response = BuildDiskResponse(parsedRequest.Path);
+        }
         else if (parsedRequest.Path.StartsWith("/heap/run"))
         {
             // M36 / OSEP Ch. 17. ?scenario=split|coalesce|strategies|buddy&policy=first|best|worst|next
@@ -2346,6 +2351,245 @@ static string FormatBaselineSchedule(
     sb.AppendLine("§7.10: \"The first runs the shortest job remaining and thus optimizes turnaround");
     sb.AppendLine("time; the second alternates between all jobs and thus optimizes response time.");
     sb.AppendLine("Both are bad where the other is good, alas, an inherent trade-off.\"");
+    return sb.ToString();
+}
+
+/// <summary>
+/// The M37 scenarios behind <c>/disk/run</c> (OSEP §37.2-§37.5).
+/// </summary>
+static HttpResponse BuildDiskResponse(string path)
+{
+    string scenario = "random-vs-seq";
+    string policy = "sstf";
+    string driveName = "cheetah";
+    int bytes = MiniWebServer.Host.MiniScheduler.DriveGeometry.TransferBytes;
+    long head = 0;
+
+    // Collected from this request's query only. A field would be shared across the
+    // eight concurrent workers, so one request's queue could leak into another's.
+    var queue = new List<long>();
+
+    int qIdx = path.IndexOf('?');
+    if (qIdx >= 0)
+    {
+        foreach (var kv in path.Substring(qIdx + 1).Split('&'))
+        {
+            int eq = kv.IndexOf('=');
+            if (eq <= 0) continue;
+            var k = kv.Substring(0, eq);
+            var v = kv.Substring(eq + 1);
+            // String parameters first: parsing every value as an integer before
+            // looking at the key rejects scenario=geometry with a type error.
+            if (k == "scenario") { scenario = v; continue; }
+            if (k == "policy") { policy = v; continue; }
+            if (k == "drive") { driveName = v; continue; }
+            if (k == "head" && long.TryParse(v, out long h)) head = h;
+            else if (k == "bytes" && int.TryParse(v, out int b)) bytes = b;
+            else if (k == "queue")
+            {
+                foreach (var part in v.Split(','))
+                {
+                    if (!long.TryParse(part, out long blk))
+                        return DiskBad($"queue entry '{part}' is not a block number");
+                    if (queue.Contains(blk))
+                        return DiskBad($"block {blk} appears twice in the queue");
+                    queue.Add(blk);
+                }
+            }
+            else return DiskBad($"unknown or malformed parameter '{k}'");
+        }
+    }
+
+    if (bytes < 1) return DiskBad($"bytes must be positive, got {bytes}");
+
+    var drive = driveName switch
+    {
+        "cheetah" => MiniWebServer.Host.MiniScheduler.DriveGeometry.Cheetah15K5,
+        "barracuda" => MiniWebServer.Host.MiniScheduler.DriveGeometry.BarracudaES2,
+        _ => (MiniWebServer.Host.MiniScheduler.DriveGeometry?)null,
+    };
+    if (drive is null) return DiskBad($"unknown drive '{driveName}' (use cheetah|barracuda)");
+
+    var pol = policy switch
+    {
+        "fifo" => MiniWebServer.Host.MiniScheduler.DiskPolicy.Fifo,
+        "sstf" => MiniWebServer.Host.MiniScheduler.DiskPolicy.Sstf,
+        "nbf" => MiniWebServer.Host.MiniScheduler.DiskPolicy.NearestBlock,
+        "scan" => MiniWebServer.Host.MiniScheduler.DiskPolicy.Scan,
+        "cscan" => MiniWebServer.Host.MiniScheduler.DiskPolicy.CScan,
+        _ => (MiniWebServer.Host.MiniScheduler.DiskPolicy?)null,
+    };
+    if (pol is null) return DiskBad($"unknown policy '{policy}' (use fifo|sstf|nbf|scan|cscan)");
+
+    try
+    {
+        string body = scenario switch
+        {
+            "geometry" => FormatDiskGeometry(drive),
+            "random-vs-seq" => FormatRandomVsSequential(drive, bytes),
+            "seek-fraction" => FormatSeekFraction(),
+            "schedule" => FormatDiskSchedule(drive, pol.Value, head, queue),
+            _ => $"unknown scenario '{scenario}' (use geometry|random-vs-seq|seek-fraction|schedule)\n",
+        };
+        bool unknown = body.StartsWith("unknown scenario");
+        return new HttpResponse(unknown ? 400 : 200, unknown ? "Bad Request" : "OK",
+            "text/plain; charset=UTF-8", Encoding.UTF8.GetBytes(body));
+    }
+    catch (Exception ex) when (ex is ArgumentException or ArgumentOutOfRangeException)
+    {
+        return DiskBad(ex.Message);
+    }
+
+    static HttpResponse DiskBad(string message) =>
+        new(400, "Bad Request", "text/plain; charset=UTF-8",
+            Encoding.UTF8.GetBytes(message + "\n"));
+}
+
+/// <summary>§37.2-§37.3: the parts and how a block number decomposes.</summary>
+static string FormatDiskGeometry(MiniWebServer.Host.MiniScheduler.DriveGeometry drive)
+{
+    var sb = new StringBuilder();
+    sb.AppendLine($"=== Drive geometry (M37 / OSEP §37.2) ===");
+    sb.AppendLine($"{drive.Name}");
+    sb.AppendLine($"  platters/surfaces   : {drive.Surfaces}   (§37.2: each platter has 2 sides)");
+    sb.AppendLine($"  tracks per surface  : {drive.TracksPerSurface}");
+    sb.AppendLine($"  sectors per track   : {drive.SectorsPerTrack} x {MiniWebServer.Host.MiniScheduler.DriveGeometry.SectorBytes} bytes");
+    sb.AppendLine($"  total sectors       : {drive.TotalSectors}");
+    sb.AppendLine($"  rotation            : {drive.Rpm} RPM = {drive.RotationMs():F3} ms per rotation");
+    sb.AppendLine($"  average seek        : {drive.AvgSeekMs:F1} ms (§37.2 notes a full seek is 2-3x this)");
+    sb.AppendLine($"  settling            : {drive.SettleMs:F1} ms (§37.2: \"0.5 to 2 ms\")");
+    sb.AppendLine($"  peak transfer       : {drive.TransferMBps:F0} MB/s");
+    sb.AppendLine();
+    sb.AppendLine("block -> track/sector (§37.3: the outermost track holds sectors 0-11):");
+    foreach (long b in new long[] { 0, 11, 12, 23, 24, drive.TotalSectors - 1 })
+    {
+        sb.AppendLine($"  block {b,-12} -> track {drive.TrackOf(b),-8} sector {drive.SectorOf(b),-4}" +
+                      $" (track starts at block {drive.TrackStart(drive.TrackOf(b))})");
+    }
+    return sb.ToString();
+}
+
+/// <summary>§37.4's random-vs-sequential comparison, and figure 37.6.</summary>
+static string FormatRandomVsSequential(MiniWebServer.Host.MiniScheduler.DriveGeometry drive, int bytes)
+{
+    var sb = new StringBuilder();
+    sb.AppendLine($"=== Random vs sequential (M37 / OSEP §37.4) ===");
+    sb.AppendLine($"{drive.Name}: {drive.Rpm} RPM, {drive.AvgSeekMs:F0} ms avg seek, {drive.TransferMBps:F0} MB/s");
+    sb.AppendLine();
+
+    var small = new MiniWebServer.Host.MiniScheduler.DiskRequest(0, bytes);
+    var seqBytes = 100 * 1024 * 1024;
+    var seq = new MiniWebServer.Host.MiniScheduler.DiskRequest(0, seqBytes);
+
+    var randTiming = drive.Time(small, drive.AvgSeekMs);
+    var seqTiming = drive.Time(seq, drive.AvgSeekMs);
+
+    sb.AppendLine("workload | T_seek | T_rotation | T_transfer | T_I/O  | R_I/O");
+    sb.AppendLine("---------+--------+------------+------------+-------+------");
+    sb.AppendLine($"random {bytes / 1024}KB | {randTiming.SeekMs,7:F2} | {randTiming.RotationMs,10:F2} | " +
+                  $"{randTiming.TransferMs,10:F3} | {randTiming.TotalMs,6:F2} | {drive.Rate(small, randTiming),6:F3} MB/s");
+    sb.AppendLine($"sequential 100MB  | {seqTiming.SeekMs,7:F2} | {seqTiming.RotationMs,10:F2} | " +
+                  $"{seqTiming.TransferMs,10:F2} | {seqTiming.TotalMs,6:F1} | {drive.Rate(seq, seqTiming),6:F1} MB/s");
+    sb.AppendLine();
+    sb.AppendLine($"random is {drive.Rate(seq, seqTiming) / drive.Rate(small, randTiming):F0}x slower than sequential");
+    sb.AppendLine();
+    sb.AppendLine("§37.4: equation 37.1, T_I/O = T_seek + T_rotation + T_transfer; equation 37.2,");
+    sb.AppendLine("R_I/O = Size_Transfer / T_I/O. The sequential case pays one seek and one rotation for");
+    sb.AppendLine("the whole 100 MB, which is why its rate approaches the peak transfer rate.");
+    sb.AppendLine();
+    sb.AppendLine("TIP, §37.4: \"When at all possible, transfer data to and from disks in a sequential");
+    sb.AppendLine("manner. If sequential is not possible, at least think about transferring data in");
+    sb.AppendLine("large chunks: the bigger, the better.\"");
+    return sb.ToString();
+}
+
+/// <summary>§37.4's ASIDE: the average-seek rule and its exact finite-N correction.</summary>
+static string FormatSeekFraction()
+{
+    var sb = new StringBuilder();
+    sb.AppendLine("=== Average seek distance (M37 / OSEP §37.4 ASIDE) ===");
+    sb.AppendLine("The chapter integrates |x-y| over [0,N]^2 and gets N^3/3, then divides by N^2:");
+    sb.AppendLine("  average seek DISTANCE = N/3 tracks");
+    sb.AppendLine();
+    sb.AppendLine("N/3 is a distance measured in tracks, not a fraction of the disk. §37.4: \"the");
+    sb.AppendLine("average seek distance on a disk, over all possible seeks, is one-third the full");
+    sb.AppendLine("distance\" - so on a 1000-track disk the average seek spans about 333 of the");
+    sb.AppendLine("999 tracks of total travel, rather than 333 times the disk.");
+    sb.AppendLine();
+    sb.AppendLine("That is a limit. The exact mean over all N^2 ordered track pairs is");
+    sb.AppendLine("  (N^2 - 1) / (3N) = N/3 - 1/(3N)");
+    sb.AppendLine();
+    sb.AppendLine("tracks | N/3 (chapter) | exact      | difference");
+    sb.AppendLine("-------+--------------+------------+-----------");
+    foreach (int n in new[] { 4, 10, 100, 1000, 10_000 })
+    {
+        double limit = MiniWebServer.Host.MiniScheduler.DriveGeometry.AvgSeekDistance(n);
+        double exact = MiniWebServer.Host.MiniScheduler.DriveGeometry.AvgSeekDistanceExact(n);
+        sb.AppendLine($"{n,6} | {limit,12:F4} | {exact,10:F4} | {limit - exact,10:F6}");
+    }
+    sb.AppendLine();
+    sb.AppendLine("§37.4: \"In many books and papers, you will see average disk-seek time cited as");
+    sb.AppendLine("being roughly one-third of the full seek time.\" Note \"roughly\", and note the");
+    sb.AppendLine("chapter derived it over distance, leaving the drive to turn distance into time.");
+    return sb.ToString();
+}
+
+/// <summary>§37.5: the scheduling policies on a queue, with the head travel each costs.</summary>
+static string FormatDiskSchedule(MiniWebServer.Host.MiniScheduler.DriveGeometry drive, MiniWebServer.Host.MiniScheduler.DiskPolicy policy, long headTrack,
+    List<long> requested)
+{
+    var queue = requested.Count > 0
+        ? requested
+        : new List<long> { 50, 105, 1800, 1100, 5, 15 };
+
+    var sched = new MiniWebServer.Host.MiniScheduler.DiskScheduler(drive);
+    var (order, travel) = sched.Serve(policy, queue, headTrack);
+
+    var sb = new StringBuilder();
+    sb.AppendLine($"=== Disk scheduling: {policy} (M37 / OSEP §37.5) ===");
+    sb.AppendLine($"head at track {headTrack}, {queue.Count} requests queued");
+    sb.AppendLine();
+    sb.AppendLine("serve order | block | track | seek from previous");
+    sb.AppendLine("------------+-------+-------+--------------------");
+    long at = headTrack;
+    long cost = 0;
+    int position = 0;
+    foreach (long block in order)
+    {
+        long track = drive.TrackOf(block);
+        long move = Math.Abs(track - at);
+        cost += move;
+        sb.AppendLine($"{position++,10} | {block,5} | {track,5} | {move,19}");
+        at = track;
+    }
+    sb.AppendLine();
+    sb.AppendLine($"total head travel: {travel} tracks (sum of the moves above: {cost})");
+    sb.AppendLine();
+    sb.AppendLine("Head travel is a DISTANCE, and is reported as one. §37.4's ASIDE derives the");
+    sb.AppendLine("average seek over distance and notes it \"arises from a simple calculation based on");
+    sb.AppendLine("average seek distance, not time\" - turning that distance into time needs a drive's");
+    sb.AppendLine("seek curve, and §37.2 warns a full seek \"would likely take two or three times\" the");
+    sb.AppendLine($"datasheet average of {drive.AvgSeekMs:F0} ms. Multiplying {travel} tracks by that number");
+    sb.AppendLine("would be a distance mistaken for a time, so it is not done here.");
+    sb.AppendLine();
+    sb.AppendLine("all four policies on this queue:");
+    sb.AppendLine("policy | total track travel");
+    sb.AppendLine("-------+-------------------");
+    foreach (var (p, name) in new[]
+    {
+        (MiniWebServer.Host.MiniScheduler.DiskPolicy.Fifo, "FIFO"), (MiniWebServer.Host.MiniScheduler.DiskPolicy.Sstf, "SSTF"),
+        (MiniWebServer.Host.MiniScheduler.DiskPolicy.NearestBlock, "NBF"), (MiniWebServer.Host.MiniScheduler.DiskPolicy.Scan, "SCAN"), (MiniWebServer.Host.MiniScheduler.DiskPolicy.CScan, "C-SCAN"),
+    })
+    {
+        long t = new MiniWebServer.Host.MiniScheduler.DiskScheduler(drive).Serve(p, queue, headTrack).TracksTravelled;
+        string mark = p == policy ? "  <- requested" : "";
+        sb.AppendLine($"{name,-6} | {t,17}{mark}");
+    }
+    sb.AppendLine();
+    sb.AppendLine("§37.5: \"SCAN and its cousins do not represent the best scheduling technology\" -");
+    sb.AppendLine("its value is that a far request is never ignored forever, which total distance");
+    sb.AppendLine("cannot show. §37.5 also notes SPTF would account for rotation as well, but that");
+    sb.AppendLine("\"is usually performed inside a drive\", which is where the geometry is known.");
     return sb.ToString();
 }
 

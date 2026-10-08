@@ -15,7 +15,7 @@ TCP: ordered bytes. HTTP: application-level message format built on those bytes.
 ## C#/.NET Mechanism
 
 - `Socket.Receive(byte[], int offset, int count, SocketFlags)` writes currently-available bytes into the buffer at the given offset.
-- `ReadOnlySpan<byte>` and `Span<byte>.IndexOf(ReadOnlySpan<byte>)` are used to search for the header terminator without copying the bytes into a string first.
+- `ReadOnlySpan<byte>` searches for the header terminator without copying the bytes into a string. The search is a **private hand-rolled `IndexOf`** (naive nested loop, O(N*M)), not the BCL `ReadOnlySpan<byte>.IndexOf`.
 - Pure helpers live in `HttpRequestReceiver`; the imperative loop lives in `Program.ReceiveRequest`. The split keeps the decision logic testable without sockets.
 
 ## Build
@@ -141,7 +141,7 @@ Receive() returned 32 byte(s) on call #2; total 94 byte(s); request complete.
 
 `Receive() returned N byte(s) on call #2` proves the loop ran twice per request: the first `Receive()` got only the prefix the client had already sent, the second `Receive()` got the suffix that arrived after the 1-second pause. The total byte count equals the full request size. The parser then sees the complete request and produces the correct method, path, and header count.
 
-If the loop had stopped after one `Receive()`, test 2 would have parsed `"GET / HTTP/1.1\r\nHost: localhost\r\n"` as the request line and returned 404 (parser rejects because `requestLineParts.Length != 3`). Test 3 would have parsed only the headers and dropped the body on the floor.
+If the loop had stopped after one `Receive()`, test 2 would have parsed `"GET / HTTP/1.1\r\nHost: localhost\r\n"` as a **valid** request line and returned **200 OK with the full index.html body** — the parser normalizes `\r\n` to `\n`, splits on `' '` with `RemoveEmptyEntries`, and gets the expected 3 parts, so it never rejects. The failure would be silent, not visible. Test 3 would have parsed only the headers and dropped the body on the floor.
 
 ## Three-Question Test
 
@@ -219,14 +219,14 @@ In both cases `Receive()` ran twice — once for the first TCP write (headers), 
 
 The server sits on a TCP byte stream. The OS wakes it when at least one byte has arrived; it does not promise a complete HTTP request. OSEP Ch. 36 §36.4 explains why: the OS interrupts on hardware-level "data available" events, not on application-level "message complete" events. Without a receive loop, the application is at the mercy of the OS's idea of "ready," which is one or more bytes, not one logical request.
 
-The two-fragment GET experiment is the textbook demonstration. With one `Receive()` call, the server sees only the first 33 bytes (`"GET / HTTP/1.1\r\nHost: localhost\r\n"`) — no terminator, no complete request line. The old `HttpRequestParser` would return `HttpRequest.Unknown` (because `requestLineParts.Length == 1` after splitting "GET" only), and the server would respond with `200 OK` and an empty body (the `else` branch returning `StaticFileResponder.CreateResponse` on an Unknown request path of `/`). That is the exact failure mode OSEP describes: the OS gave us bytes; we assumed they were a complete request.
+The two-fragment GET experiment is the textbook demonstration. With one `Receive()` call, the server sees only the first 33 bytes (`"GET / HTTP/1.1\r\nHost: localhost\r\n"`) — no terminator, no complete request line. The old `HttpRequestParser` would still have parsed it: `"GET / HTTP/1.1"` splits into exactly 3 parts on `' '` with `RemoveEmptyEntries`, so it returns a valid request, not `HttpRequest.Unknown`. The server would then respond `200 OK` with the **full index.html body** — `HttpRequest.Unknown.Path` is `"/"`, and `StaticFileResponder` maps `/` to `index.html`. That is the exact failure mode OSEP describes: the OS gave us bytes; we assumed they were a complete request.
 
 With the loop, the second `Receive()` call gets the remaining 2 bytes (`"\r\n"`), the helper finds the terminator, and the parser receives the full request. The cost is one extra blocking call per slow request — the handler thread sits in `Receive()` until the client sends more bytes, then returns. That is the same blocking-I/O pattern slice 4.1 used to demonstrate single-thread blocking; it works here because we are in phase 2 with one thread per client.
 
 ### .NET mechanism
 
 - `Socket.Receive(byte[], int offset, int count, SocketFlags)` writes up to `count` bytes starting at `offset`. We allocate the full `MaxRequestBytes` (1 MiB) once and write into it cumulatively, so the receive loop never copies data between buffers.
-- `ReadOnlySpan<byte>.IndexOf(ReadOnlySpan<byte>)` (since .NET Core 2.1) finds the 4-byte `\r\n\r\n` delimiter in O(N) without allocating a string or copying bytes.
+- A private `IndexOf(ReadOnlySpan<byte> haystack, ReadOnlySpan<byte> needle)` (`HttpRequestReceiver.cs:62`) finds the 4-byte `\r\n\r\n` delimiter without allocating a string or copying bytes. It is a naive O(N*M) nested loop, not the BCL's O(N) span search — worth naming because the allocation-avoidance argument still holds while the complexity argument does not.
 - `Encoding.UTF8.GetString(byte[])` decodes the assembled request exactly once, after the loop has confirmed the buffer is complete. Before the slice, the same call happened inside `ReceiveRequest` after one `Receive()`, so a partial request would have been decoded as garbage.
 - The pure helper / imperative-loop split mirrors what `HttpRequestParser` / `Program` already did for HTTP parsing. The pattern is now consistent across the host.
 

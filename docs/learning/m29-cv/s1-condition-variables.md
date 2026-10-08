@@ -75,7 +75,7 @@ broadcast released: 2 waiter(s)
 
 ## Tests
 
-`tests/MiniWebServer.Host.Tests/Program.cs` adds 7 tests:
+`tests/MiniWebServer.Host.Tests/Program.cs` adds 8 tests — 7 carry the `slice 29.1` marker, and the timed-wait test is marked `slice 29.1 follow-up` because M30 is its real consumer:
 
 - `cv wait without the lock is rejected` — `Wait` without the lock throws instead of hanging.
 - `cv signal releases exactly one waiter and broadcast releases all` — queue count falls 3 → 2 → 0; one signal, two broadcast releases.

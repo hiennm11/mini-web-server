@@ -33,7 +33,7 @@ This milestone covers the canonical Part III chapters end-to-end.
 ### vsfs layout simplifications
 
 OSEP §40.2 uses 4 KB blocks, 5 blocks of inode table = 80 inodes, 56 data blocks. Our layout follows the same structure but with different numbers:
-- 256 inodes (vs 80) — 1 inode block × 16 inodes/block × 16 blocks = 256.
+- 256 inodes (vs 80) — at `INODE_SIZE=64` and `BLOCK_SIZE=4096` one block holds 64 inodes, so 256 inodes take exactly 4 blocks (`INODE_BLOCKS = (256*64+4095)/4096`).
 - 185 data blocks (vs 56) — after reserving 8 blocks (slice 5) then 64 blocks (slice 6) for the journal.
 - We don't implement the multi-level index (OSEP §40.3 indirect / double-indirect pointers) — files are capped at 12 direct pointers = 48 KB.
 - We don't implement extent-based allocation (OSEP §40.3 TIP) — just fixed direct pointers.

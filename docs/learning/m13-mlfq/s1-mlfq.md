@@ -68,12 +68,12 @@ Our `Mlfq` class implements a simplified subset of the rules. The key simplifica
 
 ```
 t=  10  preempt     J1(cpu-bound) q=0 rem=90  slice used → demote q0→q1
-t=  11  dispatch    J2(interactive) q=0 rem=9  slice=10
+t=  11  dispatch    J2(interactive) q=0 rem=10  slice=10
 t=  20  finish      J2(interactive) q=0 rem=0  burst complete
 t=  21  dispatch    J1(cpu-bound) q=1 rem=89  slice=20
 ```
 
-Interactive J2 gets the CPU within 1 tick of arriving, finishes its 8-tick burst well before its 10-tick slice expires, never demoted. CPU-bound J1 stays at q1 running 20-tick slices.
+Interactive J2 gets the CPU within 1 tick of arriving, finishes its 10-tick burst (`Workloads.cs` sets `burstTotal: 10`) within its 10-tick slice, never demoted. CPU-bound J1 stays at q1 running 20-tick slices.
 
 ### Workload 2: TwoCpuBound (two equal CPU-bound jobs)
 
@@ -96,18 +96,18 @@ Two competing jobs each demote down the queues. At t=51 (after 50 ticks of work)
 boosts=4 demotes=9 finishes=6
 ```
 
-200 ticks, 4 boosts (at t=51, 101, 151, 201), 9 demotions, 5 jobs complete.
+200 ticks, 3 boosts (at t=51, 101, 151 — the run ends at t=200, so there is no t=201 boost), 9 demotions, 5 jobs complete. The original "4 boosts / t=201" came from a `Select-String` count over the whole trace file, which also matched the `boost every 50 ticks` header line.
 
 ## OSEP concept
 
-This slice implements §8.1-§8.3 (basic MLFQ with boost) and a simplification of §8.4 (anti-gaming accounting). The trace output is exactly the kind of step-by-step analysis OSEP §8.6 uses to illustrate MLFQ's behavior. The synthetic workloads mirror §8.6's "long-running job + interactive job" and "I/O-aware jobs" examples.
+This slice implements §8.1-§8.3 (basic MLFQ with boost) and a simplification of §8.4 (anti-gaming accounting). The trace output is exactly the kind of step-by-step analysis OSEP §8.6 uses to illustrate MLFQ's behavior. The synthetic workloads mirror §8.7's "long-running job + interactive job" and "I/O-aware jobs" examples. (§8.6 is the worked MLFQ trace; §8.7 is the problem set carrying those examples.)
 
 ## .NET mechanism
 
 - The scheduler is pure CPU simulation, no threads. Each call to `Tick()` advances by one tick.
 - Trace is `List<TraceEvent>` which is append-only. `RunMlfq` walks the list after each Tick to emit all events from that tick.
 - HTTP route uses simple string parsing for query params (consistent with the rest of the routes in `Program.cs`).
-- No allocations in the hot loop: `Queue<Job>.Dequeue`/`Enqueue` are O(1) and reuse the same `TraceEvent` records.
+- `Queue<Job>.Dequeue`/`Enqueue` are O(1), but the loop is **not** allocation-free: `Mlfq.cs` constructs a fresh `TraceEvent` at each of 6 sites. The queue operations are O(1); the trace recording is the allocation.
 
 ## Files added (slice 13.1)
 

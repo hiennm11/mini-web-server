@@ -73,7 +73,7 @@ Five scenarios on the existing `/lfs/run`, dispatched before the M25 simulator i
 ## Verification
 
 - Build clean (`dotnet build`).
-- 4 new tests: `OptimalBytes` reproduces 9 MB / 19 MB / 99 MB and round-trips through `EffectiveBandwidthFraction`; the optimum grows with slower disks and longer seeks, and rejects F outside (0,1); write amplification is monotonically decreasing in segment size, the cleaner's term is segment-size independent, and a fully-live segment costs exactly `1 + positioning`; recovery picks the newest consistent CR, rejects both when neither is consistent, and falls back to the intact CR after a simulated mid-write crash.
+- 7 new tests (4 for §43.3, 3 for §43.12): `OptimalBytes` reproduces 9 MB / 19 MB / 99 MB and round-trips through `EffectiveBandwidthFraction`; the optimum grows with slower disks and longer seeks, and rejects F outside (0,1); write amplification is monotonically decreasing in segment size, the cleaner's term is segment-size independent, and a fully-live segment costs exactly `1 + positioning`; recovery picks the newest consistent CR, rejects both when neither is consistent, and falls back to the intact CR after a simulated mid-write crash.
 - Smoke: all five scenarios return 200; unknown scenario returns 400.
 
 ## Source Documents

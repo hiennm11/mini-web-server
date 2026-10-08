@@ -76,7 +76,7 @@ Recorded because each one replaced something that looked right and was not:
 ## Verification
 
 - Build clean (`dotnet build`).
-- 5 new tests: timed wait returns false on timeout and true on signal; `naive` deadlocks *and* reports `completed=0/4` while all three prevention scenarios clear the same workload with `completed=4/4`, the batch overlap counter reads 1 and the trylock contended branch fires; Banker refuses a request that reaches the safety check and rolls back through every thread's `Need`, grants the safe one, and rejects a `Need` overrun, an availability overrun and a negative request; Banker recognises an unsafe *state* independently of any request; no scenario retains threads across runs.
+- 4 new tests: `naive` deadlocks and the prevention scenarios clear it; the Banker refuses the unsafe request and grants the safe one; it detects an unsafe state rather than only refusing; and no run retains threads across cases. `naive` deadlocks *and* reports `completed=0/4` while all three prevention scenarios clear the same workload with `completed=4/4`, the batch overlap counter reads 1 and the trylock contended branch fires; Banker refuses a request that reaches the safety check and rolls back through every thread's `Need`, grants the safe one, and rejects a `Need` overrun, an availability overrun and a negative request; Banker recognises an unsafe *state* independently of any request; no scenario retains threads across runs.
 - Mutation check on the thread-retention test: removing the teardown broadcast makes it fail with "threads grew from 13 to 17".
 - Smoke: all five scenarios run 3× with identical verdicts; 50 mixed requests leave the host's thread count flat (16 → 16); unknown scenario returns 400.
 

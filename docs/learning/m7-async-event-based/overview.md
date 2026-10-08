@@ -52,7 +52,7 @@ The whole chapter is the reference:
 | M6 worker pool | 1 worker thread per busy connection (capped at pool size) | Thread blocks on `Receive()` |
 | M7 async mode | 0 OS threads per connection (continuation parked) | Continuation resumed on `ThreadPool` when I/O completes |
 
-Both modes handle 150 parked clients; async mode uses dramatically less memory (M15 measures the actual delta).
+Both modes handle 150 parked clients, and async mode uses **more** total process memory, not less: M6's thread-per-connection mode measured ~21 MB, this mode ~172 MB (M15 measures the delta). The win is threads, not bytes — 20 instead of 150 — because every parked connection still holds its 1 MB receive buffer while the runtime grows `ThreadPool` workers on demand.
 
 ## Files
 

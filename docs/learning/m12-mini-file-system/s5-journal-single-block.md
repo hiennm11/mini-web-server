@@ -11,7 +11,7 @@ block 7   : journal superblock (magic, head, next-TID)
 blocks 8..14 : journal data (TxB + per-block data + TxE per transaction)
 ```
 
-User data lives in disk blocks 15..255 (241 data blocks). `Balloc` skips the journal region, and `Format()` marks the journal region's data bitmap bits as in-use.
+User data lives in disk blocks 71..255 (185 data blocks). Slice 12.5 added this region as blocks 15..255; slice 12.6 widened the journal from 8 to 64 blocks and moved the data start to 71. `Balloc` skips the journal region, and `Format()` marks the journal region's data bitmap bits as in-use.
 
 ### Single-block transaction format
 
@@ -62,7 +62,7 @@ OSEP §42.3 "Tricky Case: Block Reuse" introduces **revoke records** to handle t
 ## Files added/changed
 
 - `src/MiniWebServer.Host/MiniFs/Journal.cs` (new, ~140 lines): TxB/TxE encoding, Replay, single-block transactions.
-- `src/MiniWebServer.Host/MiniFs/Constants.cs`: added `JOURNAL_START=7`, `JOURNAL_BLOCKS=8`, `DATA_BLOCKS_START=15`, plus journal magic constants.
+- `src/MiniWebServer.Host/MiniFs/Constants.cs`: added `JOURNAL_START=7`, `JOURNAL_BLOCKS=8`, `DATA_BLOCKS_START=15`, plus journal magic constants. (Slice 12.6 later changed these to 64 and 71.)
 - `src/MiniWebServer.Host/MiniFs/MiniFs.cs`:
   - `Format()` now reserves the journal region in the data bitmap and calls `Journal.Format()`.
   - `WriteBlock(blockNo, src)` routes through `Journal.WriteBlockJournaled`.

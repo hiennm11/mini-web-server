@@ -212,7 +212,7 @@ OSEP §33.4 says "no locks needed" for a single-CPU event server. On a multi-cor
 
 What if we need to bound the runtime's total work? `ThreadPool` will grow up to `ThreadPool.GetMaxThreads()` (default hundreds), then start queueing continuations. Under sustained load we still need to decide what to do: queue, shed, or reject.
 
-Next slice (future, if you want it): add `ThreadPool.SetMinThreads` / `SetMaxThreads` to bound the pool and observe how the async server behaves when the queue fills.
+`ThreadPool.SetMinThreads` / `SetMaxThreads` to bound the pool. **Closed by M10** — `Program.cs` parses `--min-threads` / `--max-threads` at startup and `/stats` now reports `threadpool_min` / `threadpool_max` / `threadpool_active`.
 
 ## Status
 

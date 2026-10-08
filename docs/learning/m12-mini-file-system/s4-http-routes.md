@@ -35,10 +35,10 @@ The slice does not implement `open` / `close` / `seek`; everything is stateless.
 ```
 === /fs-stats (after mount + InitRoot: 2 inodes in use) ===
 magic = 0x1F5EF5E1   total_inodes = 256   total_blocks = 256
-free_inodes = 254    free_data_blocks = 248
-inodes_in_use = 2    data_blocks_in_use = 1
+free_inodes = 254    free_data_blocks = 184
+inodes_in_use = 2    data_blocks_in_use = 65
 inode_bitmap_block = 1   data_bitmap_block = 2
-inode_table_start = 3    data_blocks_start = 7
+inode_table_start = 3    data_blocks_start = 71
 disk_size_bytes = 1048576   block_size = 4096
 
 === /fs/list (should show . and ..) ===

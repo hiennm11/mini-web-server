@@ -108,7 +108,7 @@ T1's grant is safe for the opposite reason: T1's allocation then equals its `Max
 
 ## Tests
 
-`tests/MiniWebServer.Host.Tests/Program.cs` adds 5 tests:
+`tests/MiniWebServer.Host.Tests/Program.cs` adds 4 tests (the fifth is M29's timed-wait test, reused here):
 
 - `cv timed wait returns false on timeout and true when signaled` — the timed form hands the lock back on expiry, reports a signal when one arrives, and leaves nothing queued.
 - `deadlock naive scenario deadlocks and prevention scenarios do not` — `naive` deadlocks *and* reports `completed=0/4` (a DEADLOCK verdict must never be paired with everyone finishing); all three prevention scenarios clear the same workload with `completed=4/4`; the batch scenario's overlap counter equals 1 (it would exceed 1 if the prevention lock were removed); and the trylock scenario's contended branch actually fires, so it cannot silently degrade into a demo of nothing.

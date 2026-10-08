@@ -8,7 +8,8 @@ The disk is a `byte[]` of size `NUM_BLOCKS * BLOCK_SIZE` (1 MB). The first few b
 - Block 1: inode bitmap (1 bit per inode)
 - Block 2: data bitmap (1 bit per data block)
 - Blocks 3..6: inode table (256 inodes × 64 bytes)
-- Blocks 7..255: data blocks (249 blocks)
+- Blocks 7..70: the 64-block journal region
+- Blocks 71..255: data blocks (185 blocks)
 
 `Mount()` either loads an existing image or calls `Format()` (writes the superblock, zeros bitmaps). `Ialloc()`/`Ifree()`/`Balloc()`/`Bfree()` scan-and-set/clear bits in the bitmaps and update the free counts.
 
@@ -34,10 +35,10 @@ Inode + directory data structures come in slices 12.2 + 12.3.
 ```
 === /fs-stats (after mount + InitRoot: 2 inodes in use) ===
 magic = 0x1F5EF5E1   total_inodes = 256   total_blocks = 256
-free_inodes = 254    free_data_blocks = 248
-inodes_in_use = 2    data_blocks_in_use = 1
+free_inodes = 254    free_data_blocks = 184
+inodes_in_use = 2    data_blocks_in_use = 65
 inode_bitmap_block = 1   data_bitmap_block = 2
-inode_table_start = 3    data_blocks_start = 7
+inode_table_start = 3    data_blocks_start = 71
 disk_size_bytes = 1048576   block_size = 4096
 ```
 

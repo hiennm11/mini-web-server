@@ -45,9 +45,9 @@ What remains is exclusion, not backlog: Ch. 5 (fork/exec/wait have no meaning in
 
 | # | Milestone | OSEP chapter | Depends on | Effort | Status |
 |---|---|---|---|---|---|
-| 22 | **M35 Scheduling baselines** | Ch. 7 | M13 | Small | ✅ (ADR 0026) |
-| 23 | **M36 Free-space management** | Ch. 17 | M12, M21 | Small | ✅ (ADR 0027) |
-| 24 | **M37 Disk geometry + scheduling** | Ch. 37 | M21, M31 | Medium | ✅ (ADR 0028) |
+| 22 | **M35 Scheduling baselines** | Ch. 7 §7.3-§7.7 | M13 | Small | ✅ (ADR 0026) |
+| 23 | **M36 Free-space management** | Ch. 17 §17.1-§17.4 | M12, M21 | Small | ✅ (ADR 0027) |
+| 24 | **M37 Disk geometry + scheduling** | Ch. 37 §37.1-§37.5 | M21, M31 | Medium | ✅ (ADR 0028) |
 
 M35 landed first because §8-§10 all present themselves as improvements over Ch. 7's baselines, and those baselines were absent — three schedulers whose advantages are asserted rather than measured. M36 also retires a false claim: `CONTEXT.md` and ADR 0007 say Ch. 17 is "implicitly covered by the journal (M12)", but M12's bitmap records what is free without choosing a block, which is §17's actual subject.
 

@@ -21,7 +21,7 @@ asserted and the rounding is named.
 
 | § | What | Chapter says | Simulator |
 |---|---|---|---|
-| §37.2 | 15,000 RPM | "a single rotation takes about 6 milliseconds" | 4.000 ms |
+| §37.4 | 15,000 RPM | "15000 RPM is equal to 250 RPS; thus, each rotation takes 4 ms" | 4.000 ms |
 | §37.4 | Cheetah average rotation | "the disk will encounter a half rotation and thus 2 ms" | 2.000 ms |
 | §37.4 | Cheetah random 4 KB transfer | "vanishingly small (30 microseconds)" | 31.25 µs |
 | §37.4 | Cheetah random T_I/O | "roughly equals 6 ms" | 6.031 ms |
@@ -31,7 +31,7 @@ asserted and the rounding is named.
 | §37.4 | Cheetah sequential 100 MB | "about 800 ms" | 806 ms |
 | §37.4 | Barracuda sequential 100 MB | "about 950 ms" | 965.5 ms |
 | §37.4 | Sequential rates | "very nearly the peak transfer rates of 125 MB/s and 105 MB/s" | 124.07 / 103.57 |
-| §37.4 | random vs sequential | "almost a factor of 200 ... for the Cheetah and more than a factor 300 ... for the Barracuda" | 191× / 349× |
+| §37.4 | random vs sequential | "almost a factor of 200 ... for the Cheetah and more than a factor 300 ... for the Barracuda" | 192× / 349× |
 | §37.4 ASIDE | average seek distance | "one-third the full distance" | N/3 tracks, limit of (N²−1)/(3N) |
 
 ## Measured
@@ -56,7 +56,9 @@ same 6 ms once on 100 MB.
 tracks | N/3 (chapter) | exact      | difference
      4 |       1.3333 |     1.2500 |   0.083333
     10 |       3.3333 |     3.3000 |   0.033333
-  1000 |     333.3333 |    333.3330 |   0.000333
+   100 |      33.3333 |    33.3300 |   0.003333
+  1000 |     333.3333 |   333.3330 |   0.000333
+ 10000 |    3333.3333 | 3333.3333 |   0.000033
 ```
 
 ## Scheduling, measured
@@ -66,15 +68,19 @@ tracks | N/3 (chapter) | exact      | difference
 
 ```
 policy | total track travel
-FIFO   |                46
-SSTF   |                26
-SCAN   |                26
+-------+-------------------
+FIFO   |                22
+SSTF   |                10
+NBF    |                10
+SCAN   |                10  <- requested
 C-SCAN |                28
 ```
 
-SSTF wins on distance, SCAN ties it here, and C-SCAN is worse — which is exactly what §37.5
-says: *"Unfortunately, SCAN and its cousins do not represent the best scheduling
-technology."* Their value is fairness, and head travel cannot express it.
+SSTF, NBF and SCAN tie at 10 on this queue and C-SCAN is worse at 28 — which is exactly
+what §37.5 says: *"Unfortunately, SCAN and its cousins do not represent the best scheduling
+technology."* Their value is fairness, and head travel cannot express it. C-SCAN is worst
+here because the queue holds four requests on the far side of the head, which its fixed
+direction sends back to the outer end rather than serving on the way out.
 
 ## Tests
 

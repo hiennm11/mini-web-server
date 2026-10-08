@@ -27,7 +27,6 @@ Exposed via `/lfs/run?scenario=create|rewrite|clean&segments=N&blocks=M` HTTP ro
 ## OSEP coverage
 
 - **Ch. 43 Log-structured File Systems** (§43.1 writing sequentially; §43.2 segments; §43.3 how much to buffer; §43.4 finding inodes; §43.5 inode map; §43.6 checkpoint region; §43.7 reading a file; §43.8 directories; §43.9 garbage collection; §43.10 block liveness; §43.11 cleaning policy; §43.12 crash recovery).
-- §43.3 segment-size math (amortization of positioning cost) — modeled as a configurable segment size; no closed-form solver.
 - §43.11 hot/cold cleaning policy — implemented as "pick the segment with fewest live blocks first" (the simplest defensible policy). Hot/cold segregation is a future improvement.
 - §43.12 crash recovery — modeled as "roll forward from the last CR through segments referenced by the CR's head pointer" (the simplest valid recovery). The two-CR alternating-write protocol (§43.12) is implemented as one CR slot (we don't crash, so a single CR is enough).
 
@@ -92,10 +91,11 @@ OSEP §43.10:
 
 ## What this slice does NOT do
 
+> **Resolved since this slice** — M31 (ADR 0021) delivered **two-CR alternating writes** (§43.12: header + body + trailer, mount the newest consistent CR) and the **§43.3 closed-form segment-size solver** (equation 43.6). Neither is still open. The `Lfs` class itself still uses one CR and a configurable segment size; M31 models the protocol beside it, not inside it.
+
 - Real I/O latency — disk access is in-memory array indexing.
 - Hot/cold segregation (OSEP §43.11, [RO91]).
 - Multi-piece imap chunks — we use one imap piece per segment flush.
-- Two-CR alternating writes (§43.12) — single CR slot suffices for the simulator.
 - Snapshot + versioning (WAFL, ZFS, btrfs §43.13).
 - fsync() / write barriers — the simulator crashes only when told.
 
@@ -105,5 +105,8 @@ After M25 the roadmap continues with:
 
 - **M26 Flash-based SSDs** (Ch. 44)
 - **M27 Data integrity** (Ch. 45)
+- **M31 LFS extensions** (Ch. 43 §43.3 + §43.12 first half) — landed as ADR 0021; it closed the two items above.
+- **M32 SSD extensions** (Ch. 44 §44.9 block-level + hybrid FTL) — landed as ADR 0022; see `m26-ssd/overview.md` for what it closed.
+- **M33 Integrity extensions** (Ch. 45 §45.7-§45.8) — landed as ADR 0023.
 
-These round out Part III Persistence. Once M24–M27 are done, the persistence thread is closed.
+These round out Part III Persistence, which is now closed apart from the §-level deferrals each extension's own overview records.

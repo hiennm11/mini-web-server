@@ -24,7 +24,7 @@
 - Existing M16 tests still pass (`Tlb.cs` lookup call sites updated to pass `0` as the default ASID).
 
 ## Tests
-`tests/MiniWebServer.Host.Tests/Program.cs` adds 3 tests:
+`tests/MiniWebServer.Host.Tests/Program.cs` adds 4 tests:
 - `tlb asid isolates address spaces (slice 28.1)` — fill entries for ASID 1 and 2; flush ASID 1; assert ASID 2's entries survive; flush ASID 2; assert none survive.
 - `tlb global entries survive per-ASID flush but not full flush (slice 28.1)` — fill a global entry; flush ASID 1; assert it survives; flush with `null`; assert it is gone.
 - `tlb lookup with mismatched asid misses (slice 28.1)` — a non-global entry filled for one ASID must not answer another ASID's lookup, which is the property the flush scoping relies on.

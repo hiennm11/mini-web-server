@@ -45,6 +45,9 @@ docs/learning/
 ├── m32-ssd-extensions/              ← persistence (Ch. 44 §44.9)
 ├── m33-integrity-extensions/        ← persistence (Ch. 45 §45.7 + §45.8)
 ├── m34-device-drivers/              ← I/O (Ch. 36 §36.2-§36.6)
+├── m35-scheduling-baselines/       ← scheduling (Ch. 7 §7.3-§7.7)
+├── m36-free-space/                   ← memory (Ch. 17 §17.1-§17.4)
+├── m37-disk-geometry/               ← storage (Ch. 37 §37.1-§37.5)
 └── m15-arraypool/                   ← perf
 ```
 

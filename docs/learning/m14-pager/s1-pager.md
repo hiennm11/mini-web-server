@@ -133,9 +133,8 @@ This slice implements the simplest version of OSEP §18.5-§18.7. The translatio
 
 ## Deferred (per ADR 0007)
 
-- **M14.2 (TLB)**: small hardware cache with ASID; demonstrates the 99% hit-rate property.
-- **M14.3 (multi-level page tables)**: 2-level PD/PT split for sparse address spaces.
-- **M14.4 (replacement policy)**: LRU / Clock eviction when physical memory is full.
+> **All four resolved.** M14.2 → M16 (ADR 0014), M14.3 → M17 (ADR 0015-era), M14.4 → M18, M14.5 → M19. The ASID that M14.2 mentioned arrived separately in M28 (ADR 0018), on top of M16's TLB. Nothing on this list is still open.
+
 - **M14.5 (complete VM)**: backing store on MiniFs + swap in/out simulation.
 - **M14.6 (HTTP integration)**: JSON output, workload DSL.
 

@@ -30,7 +30,7 @@ Add a small hardware-cache-like structure (the TLB) that caches recent virtual-t
 - OSEP §19.5 ASID is implemented in `TlbEntry.Asid` (int). When `Pager.Translate()` does `Tlb.Lookup(pid, vpn, ...)`, we pass `pid` as the ASID. This prevents process A's cached translations from being used by process B after a context switch.
 - We don't implement explicit `Flush()` calls on context switch (OSEP §19.5 mentions flushing). Two reasons: (a) the simulator doesn't have a context switch concept, and (b) ASID-based matching makes flush unnecessary in this design.
 - OSEP §19.6 mentions LRU. Our default replacement is Random (simpler; matches MIPS). An `LruReplacement` variant is straightforward to add.
-- We don't model protection-bit enforcement (OSEP §19.1 line 4 checks `CanAccess(ProtectBits)`). Our PTE doesn't have protection bits yet.
+- We don't model protection-bit enforcement (OSEP §19.1 line 4 checks `CanAccess(ProtectBits)`). `TlbEntry` now carries a `Prot` field populated on insert, but `Lookup` does not consult it on a hit — enforcement is still absent; only the storage arrived.
 - We don't model the TLB control-flow that raises an exception on miss (OSEP §19.3 figure 19.3). Our simulator just inlines the miss handling.
 
 ## Key OSEP quotes
@@ -57,7 +57,7 @@ Add a small hardware-cache-like structure (the TLB) that caches recent virtual-t
 ## What this slice does NOT do
 
 - Doesn't add LRU replacement (only Random).
-- Doesn't add ASID-based TLB flush semantics on context switch.
+- Doesn't add ASID-based TLB flush semantics on context switch. **Closed in M28 / ADR 0018** (`Tlb.Flush(int? asid)`).
 - Doesn't add a separate TLB miss exception handler (OSEP §19.3 software-managed path).
 - Doesn't model hardware-associative lookup (parallel search).
 

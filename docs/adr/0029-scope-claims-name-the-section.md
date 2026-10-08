@@ -17,7 +17,7 @@ A domain-modeling pass over the M35–M37 vocabulary turned up a repeated shape 
 - `CONTEXT.md` had `### Scheduling baselines (Ch. 7 — planned, M35)` opening with *"Not yet implemented"* — `BaselineScheduler.cs` had shipped with ADR 0026.
 - `CONTEXT.md` had `**Free-space allocation** (OSEP Ch. 17, planned M36)` calling the allocation policy *"the gap"* — `HeapAllocator.cs` and `BuddyAllocator.cs` had shipped with ADR 0027.
 - The glossary defined **Disk scheduling** as *"Ch. 7 §7.8 and Ch. 37 §37.5"*. Ch. 7 §7.8 is *"Tips"* — `fork()` overhead and `xargs` — and has nothing to do with disk requests. ADR 0026 quotes §7.8 for a different point entirely.
-- `CONTEXT.md`'s coverage table listed **M36 | Free-space management | Ch. 17 | ✅** and **M37 | Disk geometry | Ch. 37 | ✅**, which reads as *"the chapter is done"*. M37 implements §37.2–§37.5; the chapter's §37.1 (the interface and the sector address space) and §37.6 (the summary) are not built as simulations.
+- `CONTEXT.md`'s coverage table listed **M36 | Free-space management | Ch. 17 | ✅** and **M37 | Disk geometry | Ch. 37 | ✅**, which reads as *"the chapter is done"*. M37 implements §37.1–§37.5; the chapter's §37.6 (the summary) is prose rather than content.
 
 And on §43.12, three documents implied M31 covered the whole section when it covers the first half:
 
@@ -37,7 +37,7 @@ Where a milestone implements part of a section, the claim says which part and sa
 
 - **M35** → `Ch. 7 §7.3-§7.7`, not "Ch. 7".
 - **M36** → `Ch. 17 §17.1-§17.4` — whole chapter, so the chapter number is fine and stays.
-- **M37** → `Ch. 37 §37.2-§37.5`, not "Ch. 37". The table row already reads `Ch. 37 (§36.2-§36.6)`-style elsewhere; this row was the odd one out.
+- **M37** → `Ch. 37 §37.1-§37.5`. The table row said bare `Ch. 37`, which reads as the whole chapter.
 - **M31** → `§43.3 + §43.12 first half`, with roll-forward named as still open.
 
 **Deferral lists are annotated when a later milestone closes an entry**, rather than left as written. A deferral list is a snapshot; if it is not marked, it becomes a false claim the moment the deferred work lands. M25's list now carries a header naming M31 and the two entries it closed.

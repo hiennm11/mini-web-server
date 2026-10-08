@@ -28,11 +28,11 @@ Non-positive `interval_hours`/`block_mtbf_hours`, a non-positive or oversized `b
 | schedule | interval | batch | sweep period | P(catch before masked) |
 |---|---|---|---|---|
 | whole disk | 24.0 h | 1000 | 24.0 h | **99.976%** |
-| whole disk, weekly | 168.0 h | 1000 | 168.0 h | **99.832%** |
+| 168h, whole disk | 168.0 h | 1000 | 168.0 h | **99.832%** |
 | quarter of the disk | 24.0 h | 250 | 96.0 h | **99.904%** |
 | 1% of the disk | 24.0 h | 10 | 2400.0 h | **97.629%** |
 
-The last row is the trade-off in one line. Bound how much work a pass does and each block waits proportionally longer between visits. The weekly row is worse than the nightly row, which is the direction §45.7's two cadences imply: scanning less often means a longer time before any given block is rechecked.
+The last row is the trade-off in one line. Bound how much work a pass does and each block waits proportionally longer between visits. The higher-interval row is worse than the lower-interval one, which is the direction §45.7's two cadences imply: scanning less often means a longer time before any given block is rechecked.
 
 `scenario=scrub-sweep&blocks=12&batch_size=4&faults=3`:
 

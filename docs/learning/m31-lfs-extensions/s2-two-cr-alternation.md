@@ -21,7 +21,7 @@ Two properties come out of that paragraph, and they are different:
 
 - `Write(bodyTimestamp?, trailerTimestamp?)` — stamps header, body, trailer into the active CR, then toggles. The two optional timestamp parameters exist so a test can represent a crash between body and trailer; that is the only reason the method takes arguments.
 - `Recover()` — returns `(index, image, reason)`: the most recent CR whose header and trailer agree, plus why the other was rejected.
-- `ActiveIndex`, `Cr0`, `Cr1`, `WriteLog`, `WaitingCount`-style observability for the route.
+- `ActiveIndex`, `Cr0`, `Cr1`, `WriteLog` — the four observability members the route reads.
 - `CrImage.IsConsistent` — `HeaderTimestamp == TrailerTimestamp`.
 
 Timestamps are a monotonic counter, not wall-clock, so the consistency property is testable without the tests depending on timing.

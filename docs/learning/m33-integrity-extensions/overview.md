@@ -24,7 +24,7 @@ A scheduling layer over M27's `IntegrityStore` (Ch. 45 §45.7). OSEP §45.7 says
 ## Implementation deviations from OSEP
 - **Throttling is a timed wait, not I/O priority.** Real systems use IO priority classes (ionice on Linux).
 - **No memory pressure awareness**: the scheduler runs at fixed intervals. Real scrubbers back off under memory pressure.
-- **Catch-probability is a model derived here, not quoted** — OSEP states no probability formula. The derivation is in the code and in ADR 0023. Real systems use hardware-level BER (bit error rate) data, and §45.1's LSE findings show real errors are clustered rather than uniform.
+- **Catch-probability is a model derived here, not quoted** — OSEP states no probability formula. The derivation is in the code and in ADR 0023. Real systems use hardware-level BER (bit error rate) data, and §45.1's LSE findings show real errors are clustered rather than uniform. Note the shipped model does **not** capture that: `CatchProbability` uses a single scalar MTTF across all blocks, so it understates what a scrubber finds when it hits a bad region.
 - **No ZFS-style end-to-end checksum tree** (M27 already deferred this; the slice doesn't add it back).
 
 ## What this slice does NOT do

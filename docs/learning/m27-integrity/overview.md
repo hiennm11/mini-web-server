@@ -30,8 +30,6 @@ Exposed via `/integrity/run?scenario=compute|corrupt|scrub&blocks=N&blockSize=M`
 - §45.2 RAID-DP recovery for combined disk failure + LSE deferred — that's a RAID extension.
 - §45.4 checksum layout (per-sector vs packed) — we model per-block (the simpler case).
 - §45.6 ZFS's full end-to-end checksum tree (checksum in every inode + indirect block) deferred — we model the simpler per-block sequence number.
-- §45.7 scrubbing schedule (nightly vs weekly) deferred — we expose a one-shot scrubber.
-- §45.8 space + time overheads documented but not measured.
 
 OSEP §45.0:
 > "How should systems ensure that the data written to storage is protected? What techniques are required? How can such techniques be made efficient, with both low space and time overheads?"
@@ -62,8 +60,8 @@ OSEP §45.7:
 | §45.4 layout | One checksum per block, stored in the block's metadata header. | 520-byte sectors / packed checksum blocks. |
 | §45.5 physical ID | Every block carries its (disk, block) ID in the metadata. Mismatch on read → detected. | None. |
 | §45.6 lost write detection | Each write bumps a per-block sequence number. A subsequent read that sees the old sequence → detected. | Full ZFS end-to-end checksum tree (checksum in every inode). |
-| §45.7 scrubber | One-shot: reads every block, runs all three checksums + physical ID + sequence, reports failures. | Periodic scheduling. |
-| §45.8 overheads | Tracked (bytes of checksum per block). | Wall-clock measurement. |
+| §45.7 scrubber | One-shot: reads every block, runs all three checksums + physical ID + sequence, reports failures. | Periodic scheduling. **Delivered in M33 / ADR 0023.** |
+| §45.8 overheads | Tracked (bytes of checksum per block). | Wall-clock measurement. **Space figure delivered in M33 / ADR 0023** (`Scrubber.SpacePercent`, asserted against the chapter's 0.19%); wall-clock still not measured. |
 
 ## Key OSEP quotes
 
@@ -93,7 +91,7 @@ OSEP §45.7:
 
 - Real CRC — we use Fletcher as the strongest of the three.
 - ZFS-style end-to-end checksum tree (checksum in every inode + indirect block).
-- Periodic scheduling — the scrubber is one-shot.
+- Periodic scheduling — the scrubber is one-shot. **Closed in M33 / ADR 0023.**
 - Real failure percentages from §45.1 figure 45.1.
 - 520-byte sector format / packed checksum layout — we model one-block-one-checksum.
 

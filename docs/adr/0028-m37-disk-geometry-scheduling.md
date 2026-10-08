@@ -22,7 +22,7 @@ Ch. 37 is where positioning time is defined. Without it, all three milestones st
 
 Two simulators, because the chapter splits into two questions that share only arithmetic.
 
-**`DriveGeometry`** — §37.2-§37.4. The parts, block-to-track decomposition, and the I/O-time arithmetic of equations 37.1 and 37.2, with both datasheet drives from figure 37.5.
+**`DriveGeometry`** — §37.1-§37.4. The sector address space (512-byte sectors, `TrackOf`, `SectorOf`, `TotalSectors`), the parts, block-to-track decomposition, and the I/O-time arithmetic of equations 37.1 and 37.2, with both datasheet drives from figure 37.5.
 
 **`DiskScheduler`** — §37.5. FIFO, SSTF, NBF, SCAN and C-SCAN over a queue at a known head position, reporting the order and the head travel.
 
@@ -42,7 +42,7 @@ Two simulators, because the chapter splits into two questions that share only ar
 
 ### Positive
 
-- **Ch. 37 §37.2-§37.5 is runnable**, and every figure the chapter prints is reproduced: the 4 ms / 2 ms / 6 ms Cheetah random case, its 0.66 MB/s, the Barracuda's 13.2 ms and 0.31 MB/s, the 800/950 ms sequential figures, the 125/105 MB/s peak rates, and the 200×/300× random-to-sequential gap.
+- **Ch. 37 §37.1-§37.5 is runnable**, and every figure the chapter prints is reproduced: the 4 ms / 2 ms / 6 ms Cheetah random case, its 0.66 MB/s, the Barracuda's 13.2 ms and 0.31 MB/s, the 800/950 ms sequential figures, the 125/105 MB/s peak rates, and the 200×/300× random-to-sequential gap.
 - **Three later milestones can now point at a chapter** for what `T_position` should depend on.
 - **The chapter's ASIDE is corrected rather than copied.** Its N/3 comes from integrating `|x-y|` continuously; the exact discrete mean over N² track pairs is (N²−1)/(3N). The difference is 1/(3N) tracks, which is why the rule of thumb survives, and the route prints both.
 - **SCAN and C-SCAN are distinguishable**, which the chapter's whole paragraph about them requires and which an earlier implementation — where the two shared a switch branch — made impossible to check.
@@ -74,7 +74,7 @@ Two simulators, because the chapter splits into two questions that share only ar
   parameter, a duplicate queue block, and a non-positive `bytes` return 400.
 - 124/124 tests pass (116 before M37 + 8).
 
-> **Scope claim corrected by ADR 0029.** This milestone implements §37.2-§37.5. The coverage table said "Ch. 37", which reads as the whole chapter; §37.1 (the interface and the sector address space) and §6.6 (the summary) are not built as simulations.
+> **Scope claim corrected by ADR 0029.** This milestone implements §37.1-§37.5. The coverage table said "Ch. 37", which reads as the whole chapter; §37.6 (the chapter's summary) is the only section not built, and it is prose rather than content. The range in this note was itself wrong on first write — it read §37.2-§37.5 and dropped §37.1, which `DriveGeometry` does implement (`SectorBytes`, `TrackOf`, `SectorOf`, `TotalSectors`, all surfaced by `/disk/run?scenario=geometry`).
 
 ## Source Documents
 

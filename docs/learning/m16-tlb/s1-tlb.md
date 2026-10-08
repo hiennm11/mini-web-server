@@ -60,7 +60,7 @@ Our `Pager.Translate()` implements lines 2-13 (no RETRY — the simulator handle
 
 - LRU replacement (only Random).
 - ASID-based TLB flush on context switch.
-- Protection-bit enforcement (PTE doesn't have Protection yet).
+- Protection-bit enforcement (`TlbEntry.Prot` is stored and populated, but `Lookup` never checks it).
 - Multi-level TLB (L1/L2).
 
 ## Deferred (next slice candidates)

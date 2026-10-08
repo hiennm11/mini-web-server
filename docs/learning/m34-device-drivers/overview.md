@@ -10,7 +10,7 @@ A standalone **device-simulator** in `src/MiniWebServer.Host/MiniScheduler/Devic
 - **§36.5 More Efficient Data Movement With DMA**: the CPU programs a DMA channel with source/dest/count, returns to other work, gets an interrupt when DMA completes. Burns fewer CPU cycles than PIO for large transfers.
 - **§36.6 Methods Of Device Interaction**: explicit I/O instructions (x86 `in`/`out`, PIO) vs. memory-mapped I/O (MMIO — device registers appear as memory locations). We expose MMIO because .NET can't issue PIO.
 
-The simulator compares PIO vs DMA via `/device/run?scenario=pio-vs-dma&transfer_bytes=N` and reports CPU cycles burned + interrupt count, and shows where DMA starts paying for itself.
+The simulator compares PIO vs DMA via `/device/run?scenario=pio-vs-dma&transfer_bytes=N`, alongside `canonical-protocol`, `interrupt-vs-poll` and `mmio` and reports CPU cycles burned + interrupt count, and shows where DMA starts paying for itself.
 
 ## Slice
 - **[s1-interrupt-dma.md](./s1-interrupt-dma.md)** — device simulator + PIO/DMA comparison route.

@@ -33,7 +33,8 @@ and which way it is moving, which is the caveat the two earlier milestones could
 ## OSTEP coverage
 
 - **§37.1 The Interface** — sectors as the address space, 512-byte blocks, the "unwritten
-  contract" that nearby blocks are faster.
+  contract" that nearby blocks are faster. Implemented: `SectorBytes`, `TrackOf`, `SectorOf`,
+  `TotalSectors`, surfaced by `/disk/run?scenario=geometry`.
 - **§37.2 Basic Geometry** — platter, surface, spindle, track, head, arm; rotation period
   from RPM; the seek phases and settling time; track skew, multi-zoned disks, and the
   write-back / write-through cache choice.

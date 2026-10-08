@@ -90,8 +90,8 @@ run-times differ, which is why §7.3 relaxes assumption 1 immediately after figu
 Two facts hold across all four workloads:
 
 - **RR always has the best response** (1.00 on every one of them).
-- **RR always loses on response.** Its response is worse than every other policy's on
-  every workload, by a wide margin.
+- **SJF and STCF both have the worst response**, and the gap is large: RR responds at 1.00
+  where SJF/STCF respond at 5.00 or worse on every workload here.
 
 What does *not* hold universally is any single ordering on turnaround. §7.10's summary —
 "The first runs the shortest job remaining and thus optimizes turnaround time; the

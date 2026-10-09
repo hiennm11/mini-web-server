@@ -88,7 +88,7 @@ The new tx-level read consistency is essential: without `Journal.GetPendingWrite
 
 This slice implements OSEP §42.3 "Batching Log Updates":
 
-> "Linux ext3 does not commit each update to disk one at a time ... rather, one can buffer all updates into a global transaction. ... By buffering updates, a file system can avoid excessive write traffic to disk in many cases."
+> "To remedy this problem, some file systems do not commit each update to disk one at a time (e.g., Linux ext3); rather, one can buffer all updates into a global transaction. ... Thus, by buffering updates, a file system can avoid excessive write traffic to disk in many cases."
 
 We extend the buffering to span a multi-block logical operation (CreateFile) into a single transaction. This is the same pattern ext3 / ext4 use for `fsync()`: group the metadata updates of a single high-level operation into one journal commit.
 

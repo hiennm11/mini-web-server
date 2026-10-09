@@ -76,7 +76,7 @@ OSEP §44.10:
 
 > "The log-based approach by its nature improves performance (erases only being required once in a while, and the costly read-modify-write of the direct-mapped approach avoided altogether), and greatly enhances reliability." (OSEP §44.7)
 
-> "Excessive garbage collection drives up write amplification and lowers performance." (OSEP §44.8)
+> "Excessive garbage collection drives up write amplification and lowers performance." (OSEP §44.7, last paragraph before the §44.8 heading)
 
 ## .NET mechanism
 

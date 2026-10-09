@@ -35,7 +35,7 @@ Add a `/race-safe` route that wraps the same 1M-iteration counter increment in `
 
 ## Key OSEP quotes
 
-> "A lock is just a variable, plus lock and unlock semantics." (OSEP §28.1)
+> "A lock is just a variable, and thus to use one, you must declare a lock variable of some kind." (OSEP §28.1) The next sentence carries the semantics separately: "The semantics of the lock() and unlock() routines are simple."
 
 > "Calling the routine lock() tries to acquire the lock; if no other thread holds the lock (i.e., it is free), the thread will acquire the lock and enter the critical section." (OSEP §28.1)
 

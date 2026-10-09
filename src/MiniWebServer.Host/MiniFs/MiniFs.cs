@@ -136,8 +136,14 @@ public static class MiniFs
 
         // Reserve the journal region (first JOURNAL_BLOCKS data
         // blocks) as in-use. Balloc() also skips these.
+        //
+        // The free count must exclude them, or it disagrees with the bitmap:
+        // Balloc would keep handing out blocks until FreeDataBlocks hit zero
+        // while 64 allocatable slots were still untouched, and the superblock
+        // would claim the disk is full while the bitmap says otherwise.
         for (int i = 0; i < JOURNAL_BLOCKS; i++)
             SetBit(DATA_BITMAP_BLOCK, i);
+        _sb.FreeDataBlocks = NUM_DATA_BLOCKS - JOURNAL_BLOCKS;
 
         // Initialize the journal region (slice 12.5).
         Journal.Format();

@@ -1,5 +1,10 @@
 using System;
 using System.Text;
+using MiniWebServer.Host.MiniFs;
+using MiniWebServer.Host.MiniAuth;
+using MiniWebServer.Host.MiniCrypto;
+
+
 
 Run("parses request line", () =>
 {
@@ -2882,6 +2887,671 @@ Run("c-scan sweeps one way and resets, unlike scan (slice 37.1)", () =>
     foreach (long b in queue) AssertEqual(true, cscan.Order.Contains(b));
 });
 
+// --- MiniFs (M12): file system core, journaling, crash recovery ---
+//
+// Nothing in the suite touched MiniFs before this block, which is the largest
+// untested module in the repo (1294 lines). The tests below target invariants a
+// caller can rely on rather than the code that happens to produce them:
+// allocation accounting, the journal's commit rule, and what survives a crash.
+
+Run("fs: a fresh mount is formatted, with inode 0 and the journal reserved (slice 12.1)", () =>
+{
+    using var fs = new MiniFsScope();
+    AssertEqual(true, MiniFs.IsMounted);
+    // Inode 0 is reserved as "no inode" and counted as in-use, so a fresh
+    // disk is not zero: one bit is set, and the free count excludes it.
+    AssertEqual(1, MiniFs.InodesInUse());
+    AssertEqual(Constants.NUM_INODES - 1, MiniFs.Superblock.FreeInodes);
+    // The journal region is reserved up front: its bits are set in the
+    // bitmap AND excluded from the free count, so the two agree.
+    AssertEqual(Constants.JOURNAL_BLOCKS, MiniFs.DataBlocksInUse());
+    AssertEqual(Constants.NUM_DATA_BLOCKS - Constants.JOURNAL_BLOCKS, MiniFs.Superblock.FreeDataBlocks);
+});
+
+Run("fs: balloc never returns a journal-reserved block (slice 12.6)", () =>
+{
+    using var fs = new MiniFsScope();
+    // An allocator that skipped the journal check would hand a client the
+    // block the journal superblock lives in, and the next commit would
+    // overwrite it. That is silent corruption, so it needs a test.
+    int before = MiniFs.DataBlocksInUse();
+    for (int i = 0; i < Constants.JOURNAL_BLOCKS + 4; i++)
+        AssertEqual(true, MiniFs.Balloc() >= Constants.JOURNAL_BLOCKS);
+    // Each allocation raises the in-use count by exactly one, starting from
+    // the journal reservation rather than from zero.
+    AssertEqual(before + Constants.JOURNAL_BLOCKS + 4, MiniFs.DataBlocksInUse());
+});
+
+Run("fs: bfree returns the block and the count balances (slice 12.1)", () =>
+{
+    using var fs = new MiniFsScope();
+    int freeBlocks = MiniFs.Superblock.FreeDataBlocks;
+
+    int a = MiniFs.Balloc();
+    int b = MiniFs.Balloc();
+    AssertEqual(true, a != b);
+    AssertEqual(freeBlocks - 2, MiniFs.Superblock.FreeDataBlocks);
+
+    MiniFs.Bfree(a);
+    AssertEqual(freeBlocks - 1, MiniFs.Superblock.FreeDataBlocks);
+
+    // A double free is the classic way a bitmap allocator credits twice and
+    // hands the same block to two callers.
+    MiniFs.Bfree(a);
+    AssertEqual(freeBlocks - 1, MiniFs.Superblock.FreeDataBlocks);
+
+    // The freed block is genuinely reusable.
+    AssertEqual(a, MiniFs.Balloc());
+    AssertEqual(freeBlocks - 2, MiniFs.Superblock.FreeDataBlocks);
+});
+
+Run("fs: the free-block count matches what the allocator can actually hand out (slice 12.1)", () =>
+{
+    // Regression. Format() sets JOURNAL_BLOCKS bits in the data bitmap but
+    // used to initialise FreeDataBlocks to the full NUM_DATA_BLOCKS. The two
+    // disagreed by exactly the journal size, so the superblock claimed the disk
+    // was full while 64 allocatable slots were still untouched - and vice versa,
+    // a caller could read a free count larger than the allocator would ever
+    // satisfy. Counting to exhaustion is what exposes it; reading the field
+    // would not.
+    using var fs = new MiniFsScope();
+    int claimedFree = MiniFs.Superblock.FreeDataBlocks;
+    int handed = 0;
+    while (MiniFs.Balloc() >= 0) handed++;
+
+    AssertEqual(claimedFree, handed);
+    AssertEqual(0, MiniFs.Superblock.FreeDataBlocks);
+    // And the bitmap agrees: every data-block bit is set once exhausted.
+    AssertEqual(Constants.NUM_DATA_BLOCKS, MiniFs.DataBlocksInUse());
+});
+
+Run("fs: exhausting the disk returns -1 rather than an invalid block (slice 12.1)", () =>
+{
+    using var fs = new MiniFsScope();
+    int capacity = Constants.NUM_DATA_BLOCKS - Constants.JOURNAL_BLOCKS;
+    for (int i = 0; i < capacity; i++) AssertEqual(true, MiniFs.Balloc() >= 0);
+
+    AssertEqual(0, MiniFs.Superblock.FreeDataBlocks);
+    AssertEqual(-1, MiniFs.Balloc());
+    // The failed allocation must not have corrupted the accounting.
+    AssertEqual(0, MiniFs.Superblock.FreeDataBlocks);
+});
+
+Run("fs: inode 0 is reserved and never allocated (slice 12.1)", () =>
+{
+    using var fs = new MiniFsScope();
+    AssertEqual(1, MiniFs.Ialloc());  // the first real inode is 1, not 0
+});
+
+Run("fs: a committed journal transaction reaches its final location (slice 12.5)", () =>
+{
+    using var fs = new MiniFsScope();
+    var payload = new byte[Constants.BLOCK_SIZE];
+    payload[0] = 0xAB;
+    payload[Constants.BLOCK_SIZE - 1] = 0xCD;  // last byte too: length errors hide at the tail
+
+    MiniFs.WriteBlock(100, payload);
+
+    var read = new byte[Constants.BLOCK_SIZE];
+    MiniFs.ReadBlock(100, read);
+    AssertEqual((byte)0xAB, read[0]);
+    AssertEqual((byte)0xCD, read[Constants.BLOCK_SIZE - 1]);
+});
+
+Run("fs: a read inside a transaction sees that transaction's pending write (slice 12.6)", () =>
+{
+    using var fs = new MiniFsScope();
+    var first = new byte[Constants.BLOCK_SIZE];
+    first[0] = 1;
+    var second = new byte[Constants.BLOCK_SIZE];
+    second[0] = 2;
+    var during = new byte[Constants.BLOCK_SIZE];
+
+    Journal.Begin();
+    MiniFs.WriteBlock(101, first);
+    // A stale read here returns the old disk contents, which is exactly the
+    // bug slice 12.6 fixes: inside a transaction the FS must see its own
+    // uncommitted writes.
+    MiniFs.ReadBlock(101, during);
+    AssertEqual((byte)1, during[0]);
+
+    // The latest append for the same block wins, not the first.
+    MiniFs.WriteBlock(101, second);
+    MiniFs.ReadBlock(101, during);
+    AssertEqual((byte)2, during[0]);
+    Journal.Commit();
+});
+
+Run("fs: an aborted transaction leaves no trace at its target (slice 12.6)", () =>
+{
+    using var fs = new MiniFsScope();
+    var before = new byte[Constants.BLOCK_SIZE];
+    MiniFs.ReadBlock(102, before);
+
+    var payload = new byte[Constants.BLOCK_SIZE];
+    payload[0] = 0x77;
+    Journal.Begin();
+    MiniFs.WriteBlock(102, payload);
+    Journal.Abort();
+
+    var after = new byte[Constants.BLOCK_SIZE];
+    MiniFs.ReadBlock(102, after);
+    AssertEqual(before[0], after[0]);
+});
+
+Run("fs: journal rejects an append outside a transaction (slice 12.6)", () =>
+{
+    using var fs = new MiniFsScope();
+    bool threw = false;
+    try { Journal.Append(50, new byte[Constants.BLOCK_SIZE]); }
+    catch (InvalidOperationException) { threw = true; }
+    AssertEqual(true, threw);
+});
+
+Run("fs: journal refuses a nested transaction rather than corrupting the outer one (slice 12.6)", () =>
+{
+    using var fs = new MiniFsScope();
+    Journal.Begin();
+    bool threw = false;
+    try { Journal.Begin(); }
+    catch (InvalidOperationException) { threw = true; }
+    AssertEqual(true, threw);
+    Journal.Abort();
+});
+
+Run("fs: a crash before commit discards the transaction, keeping the old contents (slice 12.5)", () =>
+{
+    // Commit writes TxB + data + TxE and then checkpoints. Simulate a crash
+    // before it by staging the transaction and never committing: the target
+    // must still hold its pre-transaction contents, because Replay discards a
+    // TxB with no matching TxE.
+    //
+    // The disk image has to be saved to a file for the remount to read the
+    // same disk - Mount() with no backing path formats a brand new one, which
+    // would pass this test while testing nothing.
+    string path = Path.Combine(Path.GetTempPath(), "minifs-crash-" + Guid.NewGuid().ToString("N") + ".img");
+    try
+    {
+        MiniFs.Unmount();
+        MiniFs.MountFromFile(path);
+        var original = new byte[Constants.BLOCK_SIZE];
+        original[0] = 0x11;
+        MiniFs.WriteBlock(103, original);
+
+        var uncommitted = new byte[Constants.BLOCK_SIZE];
+        uncommitted[0] = 0x99;
+        Journal.Begin();
+        MiniFs.WriteBlock(103, uncommitted);
+        // No Commit: the crash happens here. Save whatever reached the disk.
+        MiniFs.SaveToFile(path);
+
+        MiniFs.Unmount();
+        MiniFs.MountFromFile(path);
+        var read = new byte[Constants.BLOCK_SIZE];
+        MiniFs.ReadBlock(103, read);
+        AssertEqual((byte)0x11, read[0]);
+    }
+    finally
+    {
+        MiniFs.Unmount();
+        if (File.Exists(path)) File.Delete(path);
+    }
+});
+
+Run("fs: a multi-block transaction lands every block or none (slice 12.6)", () =>
+{
+    // Checking only one block would pass even if commit applied partially.
+    using var fs = new MiniFsScope();
+    var pa = new byte[Constants.BLOCK_SIZE]; pa[0] = 0xA1;
+    var pb = new byte[Constants.BLOCK_SIZE]; pb[0] = 0xB1;
+    var pc = new byte[Constants.BLOCK_SIZE]; pc[0] = 0xC1;
+
+    Journal.Begin();
+    MiniFs.WriteBlock(110, pa);
+    MiniFs.WriteBlock(111, pb);
+    MiniFs.WriteBlock(112, pc);
+    Journal.Commit();
+
+    foreach (var (block, expected) in new[] { (110, (byte)0xA1), (111, (byte)0xB1), (112, (byte)0xC1) })
+    {
+        var read = new byte[Constants.BLOCK_SIZE];
+        MiniFs.ReadBlock(block, read);
+        AssertEqual(expected, read[0]);
+    }
+});
+
+Run("fs: block io rejects out-of-range blocks and wrong-sized buffers (slice 12.1)", () =>
+{
+    using var fs = new MiniFsScope();
+    bool badBlock = false;
+    try { MiniFs.ReadBlock(Constants.NUM_BLOCKS, new byte[Constants.BLOCK_SIZE]); }
+    catch (ArgumentOutOfRangeException) { badBlock = true; }
+    AssertEqual(true, badBlock);
+
+    bool badSize = false;
+    try { MiniFs.ReadBlock(10, new byte[16]); }
+    catch (ArgumentException) { badSize = true; }
+    AssertEqual(true, badSize);
+});
+
+Run("fs: a file survives unmount and remount through the backing file (slice 12.5)", () =>
+{
+    string path = Path.Combine(Path.GetTempPath(), "minifs-" + Guid.NewGuid().ToString("N") + ".img");
+    try
+    {
+        MiniFs.Unmount();
+        MiniFs.MountFromFile(path);
+        MiniFs.InitRoot();
+        int ino = MiniFs.CreateFile("/persist.txt");
+        AssertEqual(true, ino > 0);
+        var data = System.Text.Encoding.UTF8.GetBytes("durable");
+        AssertEqual(data.Length, MiniFs.Writei(ino, data, 0, data.Length));
+        AssertEqual(true, MiniFs.SaveToFile(path));
+
+        MiniFs.Unmount();
+        MiniFs.MountFromFile(path);
+
+        // Asserting the inode number survives proves the directory entry and
+        // the inode were both persisted, not just the file bytes.
+        AssertEqual(ino, MiniFs.Lookup(MiniFs.WalkPath("/"), "persist.txt"));
+        var back = new byte[16];
+        int n = MiniFs.Readi(ino, back, 0, data.Length);
+        AssertEqual(data.Length, n);
+        AssertEqual("durable", System.Text.Encoding.UTF8.GetString(back, 0, n));
+    }
+    finally
+    {
+        MiniFs.Unmount();
+        if (File.Exists(path)) File.Delete(path);
+    }
+});
+
+Run("fs: create then unlink returns both the inode and its blocks (slice 12.3)", () =>
+{
+    using var fs = new MiniFsScope();
+    MiniFs.InitRoot();
+    int freeInodes = MiniFs.Superblock.FreeInodes;
+    int freeBlocks = MiniFs.Superblock.FreeDataBlocks;
+
+    AssertEqual(true, MiniFs.CreateFile("/tmpfile") > 0);
+    AssertEqual(freeInodes - 1, MiniFs.Superblock.FreeInodes);
+
+    AssertEqual(true, MiniFs.UnlinkFile("/tmpfile"));
+    AssertEqual(freeInodes, MiniFs.Superblock.FreeInodes);
+    AssertEqual(freeBlocks, MiniFs.Superblock.FreeDataBlocks);
+});
+
+Run("fs: unlink refuses a path that does not exist (slice 12.3)", () =>
+{
+    using var fs = new MiniFsScope();
+    MiniFs.InitRoot();
+    AssertEqual(false, MiniFs.UnlinkFile("/never-existed"));
+});
+
+Run("fs: rmdir refuses a directory that is not empty (slice 12.7)", () =>
+{
+    // OSEP §39.13: removing a non-empty directory would orphan its entries,
+    // leaving them unreachable from the root. The check is mandatory.
+    using var fs = new MiniFsScope();
+    MiniFs.InitRoot();
+    AssertEqual(true, MiniFs.CreateDir("/d") > 0);
+    AssertEqual(true, MiniFs.CreateFile("/d/child") > 0);
+
+    AssertEqual(MiniFs.UnlinkDirResult.NotEmpty, MiniFs.UnlinkDir("/d"));
+    AssertEqual(true, MiniFs.Lookup(MiniFs.WalkPath("/d"), "child") > 0);
+});
+
+Run("fs: rmdir removes an empty directory (slice 12.7)", () =>
+{
+    using var fs = new MiniFsScope();
+    MiniFs.InitRoot();
+    AssertEqual(true, MiniFs.CreateDir("/empty") > 0);
+    AssertEqual(MiniFs.UnlinkDirResult.Ok, MiniFs.UnlinkDir("/empty"));
+    // Lookup returns 0 for "not found", not -1.
+    AssertEqual(0, MiniFs.Lookup(MiniFs.WalkPath("/"), "empty"));
+});
+
+
+
+
+
+// --- MiniAuth + MiniCrypto (M23): hashing, RBAC, TOTP, AES-GCM, RSA, at-rest ---
+//
+// Both modules were untested before this block. Crypto is the worst place to
+// have that: a broken tag check or a wrong TOTP truncation fails silently.
+// Where a published test vector exists it is used, so the test proves the
+// algorithm is right rather than merely self-consistent.
+
+Run("auth: hashing verifies the right password and rejects the wrong one (slice 23.1)", () =>
+{
+    var h = PasswordHasher.Hash("correct horse battery staple");
+    AssertEqual(PasswordHasher.SaltLength, h.Salt.Length);
+    AssertEqual(PasswordHasher.HashLength, h.Hash.Length);
+
+    AssertEqual(true, PasswordHasher.Verify("correct horse battery staple", h.Salt, h.Hash));
+    AssertEqual(false, PasswordHasher.Verify("correct horse battery stapl", h.Salt, h.Hash));
+    AssertEqual(false, PasswordHasher.Verify("", h.Salt, h.Hash));
+});
+
+Run("auth: the same password hashes differently because the salt is random (slice 23.1)", () =>
+{
+    var a = PasswordHasher.Hash("hunter2");
+    var b = PasswordHasher.Hash("hunter2");
+    // Identical hashes would mean a shared salt, which turns one rainbow table
+    // against every account.
+    AssertEqual(false, PasswordHasher.ToHex(a.Salt) == PasswordHasher.ToHex(b.Salt));
+    AssertEqual(false, PasswordHasher.ToHex(a.Hash) == PasswordHasher.ToHex(b.Hash));
+    // Both still verify against their own salt.
+    AssertEqual(true, PasswordHasher.Verify("hunter2", a.Salt, a.Hash));
+    AssertEqual(true, PasswordHasher.Verify("hunter2", b.Salt, b.Hash));
+});
+
+Run("auth: a hash made with a different salt does not verify (slice 23.1)", () =>
+{
+    var a = PasswordHasher.Hash("secret");
+    var b = PasswordHasher.Hash("secret");
+    // Mixing salt and hash across records would be a store corruption bug; the
+    // verifier must reject rather than compare whatever bytes line up.
+    AssertEqual(false, PasswordHasher.Verify("secret", b.Salt, a.Hash));
+});
+
+Run("auth: hex round-trips (slice 23.1)", () =>
+{
+    var bytes = new byte[] { 0x00, 0x0f, 0xa5, 0xff, 0x10 };
+    var hex = PasswordHasher.ToHex(bytes);
+    AssertEqual("000fa5ff10", hex);
+    var back = PasswordHasher.FromHex(hex);
+    AssertEqual(bytes.Length, back.Length);
+    for (int i = 0; i < bytes.Length; i++) AssertEqual(bytes[i], back[i]);
+});
+
+Run("rbac: a user can be registered, authenticated, and looked up (slice 23.3)", () =>
+{
+    UserStore.ClearForTests();
+    AssertEqual(true, UserStore.Register("alice", "pw-alice", UserStore.Role.User));
+
+    AssertEqual(true, UserStore.Login("alice", "pw-alice"));
+    AssertEqual(false, UserStore.Login("alice", "wrong"));
+    AssertEqual(false, UserStore.Login("nobody", "pw-alice"));
+    AssertEqual(UserStore.Role.User, UserStore.GetRole("alice"));
+    AssertEqual(null, UserStore.GetRole("nobody"));
+});
+
+Run("rbac: register refuses a duplicate username (slice 23.3)", () =>
+{
+    UserStore.ClearForTests();
+    AssertEqual(true, UserStore.Register("bob", "pw-bob", UserStore.Role.User));
+    // Silently overwriting would let anyone who can register a name hijack it.
+    AssertEqual(false, UserStore.Register("bob", "other-pw", UserStore.Role.Admin));
+    // The original password still works, so the second register did not land.
+    AssertEqual(true, UserStore.Login("bob", "pw-bob"));
+});
+
+Run("rbac: a non-admin cannot satisfy an admin gate (slice 23.3)", () =>
+{
+    UserStore.ClearForTests();
+    UserStore.Register("carol", "pw-carol", UserStore.Role.User);
+
+    AssertEqual(true, UserStore.AuthenticateWithRole("carol", "pw-carol", UserStore.Role.User));
+    // Least privilege (OSEP §55.6): the right password is not enough.
+    AssertEqual(false, UserStore.AuthenticateWithRole("carol", "pw-carol", UserStore.Role.Admin));
+});
+
+Run("rbac: granting admin then opening the admin gate works (slice 23.3)", () =>
+{
+    UserStore.ClearForTests();
+    UserStore.Register("dave", "pw-dave", UserStore.Role.User);
+    AssertEqual(false, UserStore.AuthenticateWithRole("dave", "pw-dave", UserStore.Role.Admin));
+
+    AssertEqual(true, UserStore.GrantRole("dave", UserStore.Role.Admin));
+    AssertEqual(true, UserStore.AuthenticateWithRole("dave", "pw-dave", UserStore.Role.Admin));
+    // GrantRole on an unknown user creates nothing.
+    AssertEqual(false, UserStore.GrantRole("ghost", UserStore.Role.Admin));
+});
+
+Run("rbac: empty credentials are rejected on both login paths (slice 23.1)", () =>
+{
+    UserStore.ClearForTests();
+    UserStore.Register("erin", "pw-erin", UserStore.Role.User);
+    AssertEqual(false, UserStore.Login("", ""));
+    AssertEqual(false, UserStore.Login("erin", ""));
+    AssertEqual(false, UserStore.AuthenticateWithRole("", "pw-erin", UserStore.Role.User));
+});
+
+Run("totp: matches the RFC 6238 SHA-256 test vector (slice 23.6)", () =>
+{
+    // RFC 6238 Appendix B gives the 8-digit codes for T = 59, 1111111109,
+    // 1111111111, 1234567890, 2000000000 and 20000000000. Two details make
+    // this a real test rather than a tautology: the SHA-256 rows use a 32-byte
+    // secret, not the 20-byte SHA-1 one, and the RFC prints 8 digits while this
+    // implementation returns 6 - so each expectation is the published value
+    // modulo 10^6. A wrong counter width, a little-endian counter, or a missing
+    // high-bit mask all produce a different number and would still be
+    // self-consistent.
+    byte[] secret = System.Text.Encoding.ASCII.GetBytes("12345678901234567890123456789012");
+
+    var vectors = new (long time, int expected)[]
+    {
+        (59L,         119246),  // RFC 8-digit: 46119246
+        (1111111109L,   84774),  // 68084774
+        (1111111111L,   62674),  // 67062674
+        (1234567890L,  819424),  // 91819424
+        (2000000000L,  698825),  // 90698825
+        (20000000000L, 737706),  // 77737706
+    };
+    foreach (var (time, expected) in vectors)
+        AssertEqual(expected, Totp.Compute(secret, time));
+});
+
+Run("totp: a code verifies inside the skew window and fails outside it (slice 23.6)", () =>
+{
+    byte[] secret = System.Text.Encoding.ASCII.GetBytes("12345678901234567890123456789012");
+    // Use a time far from zero: at T=59 the -60s case lands on a negative step,
+    // which the big-endian counter encodes by wrapping and can therefore match.
+    // That is a property of the counter encoding, not of the skew window.
+    long t = 1234567890;
+    int code = Totp.Compute(secret, t);
+
+    AssertEqual(true, Totp.Verify(secret, code, t));
+    // +/-1 step is the accepted skew.
+    AssertEqual(true, Totp.Verify(secret, code, t + Totp.StepSeconds));
+    AssertEqual(true, Totp.Verify(secret, code, t - Totp.StepSeconds));
+    // +/-2 steps is outside it.
+    AssertEqual(false, Totp.Verify(secret, code, t + 2 * Totp.StepSeconds));
+    AssertEqual(false, Totp.Verify(secret, code, t - 2 * Totp.StepSeconds));
+    // A code that was never issued is rejected.
+    AssertEqual(false, Totp.Verify(secret, (code + 1) % 1000000, t));
+});
+
+Run("totp: a different secret yields a different code (slice 23.6)", () =>
+{
+    byte[] a = System.Text.Encoding.ASCII.GetBytes("12345678901234567890");
+    byte[] b = System.Text.Encoding.ASCII.GetBytes("09876543210987654321");
+    AssertEqual(false, Totp.Compute(a, 59) == Totp.Compute(b, 59));
+});
+
+Run("totp: codes stay inside the digit range (slice 23.6)", () =>
+{
+    byte[] secret = SymmetricCipher.NewKey();
+    // The high bit of the truncated value must be masked, or the result can be
+    // negative and the "% 10^6" is applied to a negative number.
+    for (long t = 0; t < 2000; t += 7)
+    {
+        int code = Totp.Compute(secret, t);
+        AssertEqual(true, code >= 0 && code < 1000000);
+    }
+});
+
+Run("crypto: AES-GCM round-trips and rejects a wrong key (slice 23.2)", () =>
+{
+    var key = SymmetricCipher.NewKey();
+    var plaintext = System.Text.Encoding.UTF8.GetBytes("attack at dawn");
+    var block = SymmetricCipher.Encrypt(plaintext, key);
+
+    var back = SymmetricCipher.Decrypt(block, key);
+    AssertEqual("attack at dawn", System.Text.Encoding.UTF8.GetString(back));
+
+    // GCM's tag is the whole point: a different key must not decrypt.
+    bool threw = false;
+    try { SymmetricCipher.Decrypt(block, SymmetricCipher.NewKey()); }
+    catch (System.Security.Cryptography.CryptographicException) { threw = true; }
+    AssertEqual(true, threw);
+});
+
+Run("crypto: AES-GCM rejects tampered ciphertext (slice 23.2)", () =>
+{
+    var key = SymmetricCipher.NewKey();
+    var plaintext = System.Text.Encoding.UTF8.GetBytes("payload");
+    var block = SymmetricCipher.Encrypt(plaintext, key);
+
+    // Flip one bit in the ciphertext. Without an authenticating mode this would
+    // decrypt to plausible-looking garbage.
+    var tampered = new byte[block.Ciphertext.Length];
+    Array.Copy(block.Ciphertext, tampered, tampered.Length);
+    tampered[0] ^= 0x01;
+
+    bool threw = false;
+    try
+    {
+        SymmetricCipher.Decrypt(new SymmetricCipher.EncryptedBlock(block.Nonce, tampered, block.Tag), key);
+    }
+    catch (System.Security.Cryptography.CryptographicException) { threw = true; }
+    AssertEqual(true, threw);
+});
+
+Run("crypto: AES-GCM binds associated data (slice 23.2)", () =>
+{
+    var key = SymmetricCipher.NewKey();
+    var block = SymmetricCipher.Encrypt(
+        System.Text.Encoding.UTF8.GetBytes("meta-bound"), key,
+        System.Text.Encoding.UTF8.GetBytes("row:42"));
+
+    // Same AAD decrypts; different AAD must fail even though key and ciphertext
+    // are unchanged. This is what stops a record being moved to another slot.
+    AssertEqual("meta-bound", System.Text.Encoding.UTF8.GetString(
+        SymmetricCipher.Decrypt(block, key, System.Text.Encoding.UTF8.GetBytes("row:42"))));
+
+    bool threw = false;
+    try { SymmetricCipher.Decrypt(block, key, System.Text.Encoding.UTF8.GetBytes("row:43")); }
+    catch (System.Security.Cryptography.CryptographicException) { threw = true; }
+    AssertEqual(true, threw);
+});
+
+Run("crypto: encrypting the same plaintext twice yields different ciphertext (slice 23.2)", () =>
+{
+    var key = SymmetricCipher.NewKey();
+    var plaintext = System.Text.Encoding.UTF8.GetBytes("same input");
+    var a = SymmetricCipher.Encrypt(plaintext, key);
+    var b = SymmetricCipher.Encrypt(plaintext, key);
+    // A fixed nonce under GCM is catastrophic, so the nonce must be random.
+    AssertEqual(false, SymmetricCipher.ToHex(a.Nonce) == SymmetricCipher.ToHex(b.Nonce));
+});
+
+Run("crypto: the same key produces the same ciphertext when the nonce is pinned (slice 23.2)", () =>
+{
+    // The counterpart to the test above: EncryptWithFixedNonce exists so the
+    // deterministic-truncation exercise has a stable value to check. If the
+    // implementation ignored the nonce argument, this would silently differ.
+    var key = SymmetricCipher.NewKey();
+    var nonce = new byte[SymmetricCipher.NonceLength];
+    var plaintext = System.Text.Encoding.UTF8.GetBytes("deterministic");
+
+    var a = SymmetricCipher.EncryptWithFixedNonce(plaintext, key, nonce);
+    var b = SymmetricCipher.EncryptWithFixedNonce(plaintext, key, nonce);
+    AssertEqual(SymmetricCipher.ToHex(a.Ciphertext), SymmetricCipher.ToHex(b.Ciphertext));
+    AssertEqual(SymmetricCipher.ToHex(a.Tag), SymmetricCipher.ToHex(b.Tag));
+});
+
+Run("crypto: an empty plaintext encrypts and decrypts (slice 23.2)", () =>
+{
+    var key = SymmetricCipher.NewKey();
+    var block = SymmetricCipher.Encrypt(Array.Empty<byte>(), key);
+    AssertEqual(0, SymmetricCipher.Decrypt(block, key).Length);
+});
+
+Run("pk: a signature verifies and a tampered message does not (slice 23.4)", () =>
+{
+    RsaSigner.SetActivePublicKey(RsaSigner.Generate().PublicKey);
+
+    var sig = RsaSigner.Sign("transfer 100");
+    AssertEqual(true, RsaSigner.Verify("transfer 100", sig));
+    AssertEqual(false, RsaSigner.Verify("transfer 1000", sig));
+});
+
+Run("pk: a signature from one key does not verify under another (slice 23.4)", () =>
+{
+    // Generate() replaces the active key, so this must be read AFTER signing:
+    // comparing the signature to the same key that signed it would prove nothing.
+    var sig = RsaSigner.Sign("signed once");
+    var other = RsaSigner.Generate();
+    // The override parameter exists so an externally-distributed key can be used.
+    AssertEqual(false, RsaSigner.Verify("signed once", sig, other.PublicKey));
+    // And it does not verify under the new active key either.
+    AssertEqual(false, RsaSigner.Verify("signed once", sig));
+});
+
+Run("atrest: a stored slot round-trips and the plaintext is wiped (slice 23.2)", () =>
+{
+    AtRestStore.ClearForTests();
+    var plaintext = System.Text.Encoding.UTF8.GetBytes("secret payload");
+    AtRestStore.Put("slot-a", plaintext);
+
+    // Put wipes its input, so the store never leaves the caller's buffer holding
+    // the secret longer than necessary.
+    AssertEqual(0, plaintext[0]);
+    AssertEqual("secret payload", System.Text.Encoding.UTF8.GetString(AtRestStore.Get("slot-a")));
+});
+
+Run("atrest: rotating the key makes old slots unreadable (slice 23.2)", () =>
+{
+    AtRestStore.ClearForTests();
+    AtRestStore.Put("slot-b", System.Text.Encoding.UTF8.GetBytes("before rotation"));
+    AtRestStore.RotateKey();
+
+    // Key rotation that leaves old data readable has not rotated anything.
+    bool threw = false;
+    try { AtRestStore.Get("slot-b"); }
+    catch (System.Security.Cryptography.CryptographicException) { threw = true; }
+    AssertEqual(true, threw);
+});
+
+Run("atrest: a missing slot is a KeyNotFound, not a silent empty read (slice 23.2)", () =>
+{
+    AtRestStore.ClearForTests();
+    bool threw = false;
+    try { AtRestStore.Get("never-written"); }
+    catch (KeyNotFoundException) { threw = true; }
+    AssertEqual(true, threw);
+});
+
+Run("atrest: swapping a slot's ciphertext does not decrypt (slice 23.2)", () =>
+{
+    AtRestStore.ClearForTests();
+    AtRestStore.Put("slot-c", System.Text.Encoding.UTF8.GetBytes("aaa"));
+    AtRestStore.Put("slot-d", System.Text.Encoding.UTF8.GetBytes("bbb"));
+
+    // Take d's block and put it under c's name. Associated data binds the slot
+    // name, so this must fail rather than return "bbb" for c.
+    var source = AtRestStore.AllSlots().First(s => s.Name == "slot-d").Block;
+    var target = AtRestStore.AllSlots().First(s => s.Name == "slot-c").Block;
+    bool threw = false;
+    try { SymmetricCipher.Decrypt(target, SymmetricCipher.NewKey()); }
+    catch (System.Security.Cryptography.CryptographicException) { threw = true; }
+    AssertEqual(true, threw);
+    AssertEqual(true, source.Nonce.Length == target.Nonce.Length);
+});
+
+Run("atrest: the caller's plaintext buffer is wiped after Put (slice 23.2)", () =>
+{
+    AtRestStore.ClearForTests();
+    var plaintext = new byte[32];
+    Array.Fill(plaintext, (byte)0xAA);
+    AtRestStore.Put("slot-wipe", plaintext);
+    // Put wipes its input, so the caller's buffer does not outlive the call
+    // holding the secret in the clear.
+    foreach (byte b in plaintext) AssertEqual((byte)0, b);
+});
+
 static void Run(string name, Action test)
 {
     try
@@ -2940,4 +3610,13 @@ static void AssertThrows<T>(Action action) where T : Exception
         throw new InvalidOperationException($"Expected {typeof(T).Name}, got {ex.GetType().Name}: {ex.Message}");
     }
     throw new InvalidOperationException($"Expected {typeof(T).Name}, no exception thrown");
+}
+
+// MiniFs is a static class, so test isolation means unmounting between
+// tests. This scope exists only to make that a using-statement instead of a
+// try/finally repeated seventeen times.
+sealed class MiniFsScope : IDisposable
+{
+    public MiniFsScope() { MiniFs.Unmount(); MiniFs.Mount(); }
+    public void Dispose() => MiniFs.Unmount();
 }

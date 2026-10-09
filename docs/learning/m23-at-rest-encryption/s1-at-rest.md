@@ -85,7 +85,7 @@ The decrypted plaintext is never produced. `AesGcm.Decrypt` throws the moment it
 
 ```
 GET /crypto/nonce-reuse-demo
--> 200 OSEP §56.5 / §56.6: nonce-reuse attack
+-> 200 (no OSTEP section covers this — the word "nonce" does not appear in Ch. 56)
        p1: "budget meeting 2026 income"
        p2: "budget meeting 2026 losses"
        ciphertext XOR  = 00000000000000000000000000000000000000000501101c0816

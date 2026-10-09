@@ -108,7 +108,7 @@ step=  2 pid=1 va=0x00003312 (vpn=3, off=786) -> pa=...         Hit         fram
 
 ## OSEP concept
 
-This slice implements the simplest version of OSEP §18.5-§18.7. The translation pipeline is exactly the one OSEP §18.7 walks through. The page-fault behavior is the prelude to §21's replacement policy and §22's swap mechanism.
+This slice implements the simplest version of OSEP §18.5-§18.6. The translation pipeline is exactly the one OSEP §18.6 walks through. The page-fault behavior is the prelude to §21's replacement policy and §22's swap mechanism.
 
 ## .NET mechanism
 

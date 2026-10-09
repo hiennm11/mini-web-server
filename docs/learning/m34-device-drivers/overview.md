@@ -37,7 +37,7 @@ Four scenarios rather than one: §36.4 argues that polling and interrupts each w
 - **Single device**: real systems have many devices on a shared bus with arbitration. The slice models one device.
 
 ## What this slice does NOT do
-- **Bus arbitration** (Ch. 36 §36.7-§36.9) — multiple devices contending for the bus.
+- **Bus architecture / arbitration** (Ch. 36 §36.1, Figure 36.1) — the memory / I/O / peripheral bus hierarchy and multiple devices contending for it. §36.7-§36.9 are the driver abstraction, the IDE case study and historical notes, none of which is about buses.
 - **Interrupt priorities** — flat priority for all interrupts.
 - **MSI/MSI-X** (message-signaled interrupts) — the modern PCI-e interrupt delivery.
 - **Real hardware drivers** — this is a simulator, not a driver that talks to real hardware.

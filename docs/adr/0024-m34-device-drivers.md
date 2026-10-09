@@ -74,7 +74,7 @@ The constants (`PerByteCycle`, `ProgramChannelCycles`, `DefaultInterruptCost`, `
 
 - **The constants are invented.** A different `ProgramChannelCycles` moves the crossover; nothing in OSEP pins it. The tests assert orderings and relationships, not the literal crossover, so a consistent re-tuning passes.
 - **No real MMIO, interrupts, or DMA.** .NET in user mode cannot map device registers or take an interrupt; this models the structure, which is what the chapter is about.
-- **Single device, single queue, flat interrupt priority.** §36.7-§36.9 (the driver abstraction, bus arbitration) are out of scope.
+- **Single device, single queue, flat interrupt priority.** §36.7 (the driver abstraction) and §36.8 (the IDE case study) are out of scope. Bus architecture is §36.1, which we also do not model.
 - **No write path through the canonical protocol.** `CanonicalRead` implements the read; §36.3's step 2 — writing data to the DATA register — is a no-op in a read and is labelled as such rather than faked.
 
 ## Verification

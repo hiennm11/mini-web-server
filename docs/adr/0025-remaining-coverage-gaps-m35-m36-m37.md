@@ -18,7 +18,7 @@ Every milestone through M34 is implemented and the roadmap table is closed. A co
 
 **Ch. 17 free-space management was recorded as covered.** `CONTEXT.md` and ADR 0007 both say it is "implicitly covered by the journal (M12)". M12 has bitmaps (`TestBit`/`SetBit`/`ClearBit`) and FFS has `HasFreeBlock()` — both record *what is free*. Neither chooses a block: both scan for the first clear bit. §17.3's strategies (stack, linked list, bitmap-based) and §17.4's buddy system are about the choice, and the choice is what is missing.
 
-**Ch. 37 was also misrecorded.** `ROADMAP.md` excluded "Ch. 37 buses". Ch. 37 is *Hard Disk Drives* — geometry and disk scheduling (§37.1-§37.5 plus a §37.6 summary). Buses are Ch. 36 §36.7-§36.9, already listed as deferred under Ch. 36.
+**Ch. 37 was also misrecorded.** `ROADMAP.md` excluded "Ch. 37 buses". Ch. 37 is *Hard Disk Drives* — geometry and disk scheduling (§37.1-§37.5 plus a §37.6 summary). Buses are §36.1 "System Architecture", already listed as deferred under Ch. 36.
 
 ### New milestone or extend an existing one?
 

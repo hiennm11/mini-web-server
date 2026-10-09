@@ -90,7 +90,7 @@ The cost-model, DMA-truncation and duplicate-interrupt assertions were mutation-
 
 ## What this slice does NOT do
 
-- **Bus arbitration** (§36.7-§36.9) — many devices contending for the bus.
+- **Bus architecture / arbitration** (§36.1) — the memory / I/O / peripheral bus hierarchy.
 - **Device drivers proper** (§36.7) — the OS abstraction layer above a device. This slice is the device side; M11 was the syscall side.
 - **Interrupt priorities, MSI/MSI-X, multi-queue DMA** — all flat, single-queue, single-priority here.
 - **Real hardware.** .NET cannot map device registers, so MMIO is modelled by an access spelling, not by a memory mapping.

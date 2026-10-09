@@ -58,6 +58,6 @@ Excluded (not addressing in this roadmap):
 - Ch. 16 segmentation — superseded by paging
 - Ch. 48-50 (distributed systems / NFS / AFS) — a different book-length topic
 
-Note on Ch. 36/37: buses are Ch. 36 §36.7-§36.9 and remain deferred with the rest of §36.7-§36.10. Ch. 37 is Hard Disk Drives, not buses — it was misrecorded as "Ch. 37 buses" in earlier revisions and is now M37 (ADR 0028).
+Note on Ch. 36/37: buses are **§36.1 "System Architecture"** (the memory / I/O / peripheral bus hierarchy in Figure 36.1), which remains deferred. §36.7–§36.10 are the device-driver abstraction, the IDE case study, historical notes and the summary — none of them about buses. Ch. 37 is Hard Disk Drives, not buses; it was misrecorded as "Ch. 37 buses" in earlier revisions and is now M37 (ADR 0028).
 
 Each milestone will follow the established pattern: folder under `docs/learning/m{N}-{name}/` with `overview.md` + `s{N}.{S}-*.md` slices + a new ADR if needed.

@@ -20,7 +20,7 @@ OSEP Ch. 37 §37.1-§37.5, in two simulators exposed at `/disk/run`.
 ## Why this is a milestone
 
 ADR 0025 named Ch. 37 as M37 and recorded that `ROADMAP.md` had excluded it as *"Ch. 37
-buses"*. Buses are Ch. 36 §36.7-§36.9; Ch. 37 is *Hard Disk Drives*. The exclusion was a
+buses"*. Buses are §36.1 "System Architecture" (memory bus / I/O bus / peripheral bus in Figure 36.1); Ch. 37 is *Hard Disk Drives*. The exclusion was a
 number mistake, and it hid a real dependency.
 
 M21 (FFS) and M31 (LFS segment sizing) both treat positioning time as a constant. M31's

@@ -12,7 +12,7 @@ The second slice of M23 (Part IV Security), built directly on `M23.1` (password 
 
 - **Symmetric cipher** (OSEP §56.2): AES-256-GCM, `C = E(P, K)` and `P = D(C, K)` with the same 256-bit secret key. We use the BCL's `System.Security.Cryptography.AesGcm` rather than writing our own (OSEP §56.2: "Don't develop your own cipher").
 - **Authenticated encryption** (OSEP §56.4 + §56.5): every ciphertext is paired with a 128-bit authentication tag that fails *closed* on tampering. Flipping a single bit of the ciphertext breaks the tag.
-- **Fresh random nonce per call** (OSEP §56.5 / §56.6): we never reuse a `(key, nonce)` pair. The `nonce-reuse-demo` route proves that reusing it leaks `c1 ⊕ c2 == p1 ⊕ p2`.
+- **Fresh random nonce per call** (not covered by OSTEP — see below): we never reuse a `(key, nonce)` pair. The `nonce-reuse-demo` route proves that reusing it leaks `c1 ⊕ c2 == p1 ⊕ p2`.
 - **At-rest storage** (OSEP §56.7): an in-memory store that persists only `{nonce, ciphertext, tag}` — never the plaintext. A real BitLocker / FileVault does the same thing at the block layer; we do it at the application layer for the slice.
 
 Exposed via HTTP routes:
@@ -41,7 +41,7 @@ Exposed via HTTP routes:
 - **Key rotation is manual** (OSEP §56.6 talks about long-term secrets). We keep one in-memory key per process; `/crypto/keygen` rotates it. A real OS derives the key from a passphrase via PBKDF2 (M23.1's primitives) at login time, then keeps it only in RAM until logout — matching OSEP §56.7's "compromise between usability and security ... remembering the key after first entry for a significant period of time, but only keeping it in RAM".
 - **No hardware security module / TPM** (OSEP §53 security enclaves aside). The key is in the process address space; if the OS is compromised, so is the key.
 - **No file-attribute decisions** (OSEP §56.7 talks about "records, data blocks, individual files, entire file systems, by different system components" — application vs library vs device driver vs file system). This slice is application-level.
-- **Nonce reuse demo is intentionally bad** (OSEP §56.5). The slice exposes the bad behavior so the lesson is visible — the *real* `Encrypt` always picks a fresh nonce.
+- **Nonce reuse demo is intentionally bad** . The slice exposes the bad behavior so the lesson is visible — the *real* `Encrypt` always picks a fresh nonce.
 - **GCM is one of many AEAD modes** (OSEP §56.4 lists several primitives; GCM is the "good default" today). ChaCha20-Poly1305, AES-CCM, etc. would be defensible alternatives; .NET's BCL ships AesGcm so we use it.
 
 ## .NET mechanism

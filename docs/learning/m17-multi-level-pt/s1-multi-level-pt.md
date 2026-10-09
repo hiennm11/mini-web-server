@@ -25,7 +25,7 @@ The HTTP route `/pager/run?pt=level2` enables the 2-level structure. The trace s
 
 ## OSEP alignment
 
-Implements OSEP §20.1 (two-level page table), §20.3 (translation algorithm), §20.4 (memory savings motivation).
+Implements OSEP §20.3 (multi-level page tables, two levels), §20.3 (translation algorithm), §20.4 (memory savings motivation).
 
 ## Smoke evidence
 

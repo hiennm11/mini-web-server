@@ -10,7 +10,7 @@ Accepted
 
 ## Context
 
-ADR 0025 named Ch. 37 as M37, the last item in the roadmap table, and recorded that `ROADMAP.md` had excluded it as *"Ch. 37 buses"*. Buses are Ch. 36 §36.7-§36.9; Ch. 37 is *Hard Disk Drives*. The exclusion was a chapter-number mistake that hid a real dependency.
+ADR 0025 named Ch. 37 as M37, the last item in the roadmap table, and recorded that `ROADMAP.md` had excluded it as *"Ch. 37 buses"*. Buses are §36.1 "System Architecture" (memory bus / I/O bus / peripheral bus in Figure 36.1); Ch. 37 is *Hard Disk Drives*. The exclusion was a chapter-number mistake that hid a real dependency.
 
 ### The dependency
 

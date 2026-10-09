@@ -17,8 +17,8 @@ ADR 0025 named Ch. 7 as M35 and decided it would be a new milestone rather than 
 M13.1, M13.2 and M13.3 implement MLFQ (§8), lottery/stride (§9) and multi-CPU scheduling (§10). Every one of them is presented by OSTEP as an *improvement*, and each improvement is defined against something in Ch. 7:
 
 - §8's priority boost exists because STCF starves long jobs. Nothing in this repo could starve.
-- §8.4's I/O-awareness exists because §7.8's CPU-only assumption is wrong. Nothing here assumed anything about I/O.
-- §8.5's anti-gaming rules exist because §7.1's "run-time is known" assumption makes the scheduler omniscient. The M13 simulator grants that oracle unconditionally and never says so.
+- §8.2's Rule 4b I/O-awareness exists because §7.8's CPU-only assumption is wrong. (§8.4 is the anti-gaming accounting rule, a different attempt.) Nothing here assumed anything about I/O.
+- §8.4's anti-gaming rules exist because §7.1's "run-time is known" assumption makes the scheduler omniscient. (§8.5 is tuning and other issues — parameterization, Solaris tables, nice.) The M13 simulator grants that oracle unconditionally and never says so.
 
 So the three scheduling milestones state advantages that nothing in the repo can reproduce. The gap is not cosmetic: a reader who wants to know *why* MLFQ helps cannot run the alternative.
 

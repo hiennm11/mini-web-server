@@ -17,10 +17,11 @@ Add a 2-level page table (Page Directory + Page Tables) alongside the linear one
 ## OSTEP coverage
 
 - **Ch. 20 Advanced Page Tables**
-  - §20.1 "A Two-Level Page Table" — Figure 20.3: PGD + PT structure.
-  - §20.2 "A Two-Level Page Table Entry" — PDE = (Valid, PT Frame No).
-  - §20.3 "Translating with a Two-Level Page Table" — VPN decomposition: PGD index (top bits) + PT index (middle bits) + offset (bottom bits).
-  - §20.4 "A Memory Trace" — the array.c trace that motivates multi-level. With 32-bit VA + 4 KB pages, a process with 4 used pages allocates 1 PGD entry + 1 PT page = 8 KB instead of 4 MB linear.
+  - §20.1 "Simple Solution: Bigger Pages" — 16 KB pages cut the table from 4 MB to 1 MB, at the cost of internal fragmentation. Not implemented.
+  - §20.2 "Hybrid Approach: Paging and Segments" — one page table per segment, selected by segment bits, with a bounds register per segment. Not implemented.
+  - §20.3 "Multi-level Page Tables" — the implemented one. A page directory of PDEs points to pages of the page table; a fully-invalid page of the table is never allocated. Figure 20.3 contrasts linear (left) with multi-level (right): the linear table must hold space for the invalid middle, the multi-level one makes it disappear. The chapter's "More Than Two Levels" worked example (a 30-bit VA with 512-byte pages, where the page directory itself overflows one page and needs a third level) is inside this same §20.3 and is **not** implemented — `Pager` builds exactly two levels.
+  - §20.4 "Inverted Page Tables" — one table for the whole system, indexed by physical page. Deferred; the chapter's closing point is that "page tables are just data structures", which is the argument for both this and §20.3.
+  - §20.5 "Swapping the Page Tables to Disk" — deferred; the chapter defers the detail to the VMS case study.
 
 ## OSEP §-specific deviations
 

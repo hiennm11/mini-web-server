@@ -19,8 +19,8 @@ Add (a) a swap device — an on-disk region where evicted pages live — and (b)
 - **Ch. 21 Swapping: Mechanisms**
   - §21.1 Swap Space — fixed-size disk region for evicted pages.
   - §21.2 The Present Bit — PTE Valid / InSwap / Miss distinction.
-  - §21.4 Page-Fault Control Flow — Figure 21.2: software OS handler steps 1-9.
-  - §21.6 Behind the Scenes: Full VMM — overall flow.
+  - §21.5 Page Fault Control Flow — Figure 21.2: the software OS handler's steps, ending in the swap-in.
+  - §21.6 When Replacements Really Occur — the chapter's note that replacement happens during the swap-ins triggered by faults, not on some independent schedule.
 - **Ch. 22 Swapping: Policies**
   - §22.1 Cache Management — frame allocation as a cache-management problem.
   - §22.2 Optimal (Belady's MIN) — theoretical lower bound.

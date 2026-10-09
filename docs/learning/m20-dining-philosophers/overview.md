@@ -73,7 +73,7 @@ OSEP §31.6 "A Solution: Breaking The Dependency":
 
 - Resource hierarchy solution (always grab the lower-numbered fork first) — alternative to OSEP §31.6's "break one philosopher's order".
 - Wait-for-graph deadlock detection (we use a heuristic: didn't eat at all → deadlocked).
-- Starvation analysis (OSEP §31.6 only requires no deadlock, not no starvation).
+- Starvation analysis is explicitly part of the challenge, not an extra: §31.6 asks for a solution "such that there is **no deadlock, no philosopher starves and never gets to eat**, and concurrency is high". We check deadlock by construction and report whether every philosopher ate at least once, but the shipped `Fixed` mode does not measure how often any philosopher eats — so liveness under contention is asserted, not proven.
 - Cigarette smoker's problem / sleeping barber problem (other OSEP "famous" concurrency problems).
 
 ## Where this leads

@@ -16,7 +16,7 @@ A domain-modeling pass over the M35–M37 vocabulary turned up a repeated shape 
 
 - `CONTEXT.md` had `### Scheduling baselines (Ch. 7 — planned, M35)` opening with *"Not yet implemented"* — `BaselineScheduler.cs` had shipped with ADR 0026.
 - `CONTEXT.md` had `**Free-space allocation** (OSEP Ch. 17, planned M36)` calling the allocation policy *"the gap"* — `HeapAllocator.cs` and `BuddyAllocator.cs` had shipped with ADR 0027.
-- The glossary defined **Disk scheduling** as *"Ch. 7 §7.8 and Ch. 37 §37.5"*. Ch. 7 §7.8 is *"Tips"* — `fork()` overhead and `xargs` — and has nothing to do with disk requests. ADR 0026 quotes §7.8 for a different point entirely.
+- The glossary defined **Disk scheduling** as *"Ch. 7 §7.8 and Ch. 37 §37.5"*. Ch. 7 §7.8 is *"Incorporating I/O"* and Ch. 7 never names disk scheduling at all — Ch. 37 §37.5 does, alone. The phrase pointed at two chapters where only one has the concept. Dropped rather than renumbered, because the Ch. 37 section already owns the vocabulary and a cross-reference would have been a second site for the same drift.
 - `CONTEXT.md`'s coverage table listed **M36 | Free-space management | Ch. 17 | ✅** and **M37 | Disk geometry | Ch. 37 | ✅**, which reads as *"the chapter is done"*. M37 implements §37.1–§37.5; the chapter's §37.6 (the summary) is prose rather than content.
 
 And on §43.12, three documents implied M31 covered the whole section when it covers the first half:

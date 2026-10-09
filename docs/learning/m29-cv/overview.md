@@ -36,14 +36,14 @@ The driver route `/cv/run?scenario=lost-wakeup|single-cv|two-cv|covering-conditi
 - **`WaitWhile` takes the "still blocked" predicate**, so the mandatory `while` stays visible in call sites rather than hidden inside an API.
 - **`Wait` requires single (non-recursive) ownership**: the BCL exposes no recursion depth, so a re-entrant `lock` around `Wait` is documented as invalid rather than detected. One `Monitor.Exit` is issued.
 - **Interruption restores both invariants**: node removal and lock reacquisition are retried to completion, then the original exception is rethrown.
-- **No timed wait**: POSIX has `pthread_cond_timedwait`; deferred to M30.
+- **Timed wait**: `Wait(object, TimeSpan)` returns a bool for timeout, as POSIX `pthread_cond_timedwait` does.
 
 ## What this slice does NOT do
 - **Semaphores as a CV alternative** (OSEP §31.5): semaphores can solve the same problem; the slice uses CVs directly because the OSTEP coverage is on CVs.
 - **CV across processes**: out of scope for a single-process lab.
 - **Priority donation / wait queue reordering**: our FIFO is a simulation convenience, not a scheduler promise.
 - **Hoare semantics** — see deviations.
-- **Timed wait** (`pthread_cond_timedwait`) — deferred to M30.
+- **Timed wait** (`pthread_cond_timedwait`) — **not deferred.** This slice ships `Wait(object, TimeSpan)`; M30 (ADR 0020) uses it for hold-and-wait avoidance rather than adding it.
 
 ## Where this leads
-- M30 deadlock prevention (Ch. 32 §32.3) builds on this primitive to demonstrate hold-and-wait avoidance via a timed `Wait` + lock ordering. That slice adds the timed-wait overload.
+- M30 deadlock prevention (Ch. 32 §32.3) builds on this primitive to demonstrate hold-and-wait avoidance via a timed `Wait` + lock ordering. That slice consumes the timed-wait overload this milestone already ships; it does not add it.

@@ -29,9 +29,12 @@ namespace MiniWebServer.Host.MiniPager;
 ///    solves this problem by keeping two lists, and dividing memory
 ///    between them."
 ///
-/// Our SwappablePte gains a SharedRefCount and OriginalFrameNo for COW.
-/// The Pager tracks per-page ref-counts so COW can detect the last
-/// reference and free the frame when no one else shares it.
+/// A refcounted design would give SwappablePte a SharedRefCount and
+/// OriginalFrameNo, letting the Pager detect the last reference and free
+/// the frame. We do not do that: there is no such field on this struct,
+/// and Pager.Write allocates and copies without consulting one. Splitting
+/// a frame is 1:1 here, so the source keeps the original until the
+/// process exits rather than tracking a last-reference event.
 /// </summary>
 public struct CowPte
 {

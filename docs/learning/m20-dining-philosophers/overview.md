@@ -43,7 +43,7 @@ OSEP §31.6 "A Solution: Breaking The Dependency":
 | §31.6 `while(1) { think; get_forks; eat; put_forks; }` | Real `Thread` per philosopher, `SemaphoreSlim(1,1)` per fork. | Pure spin-wait. |
 | §31.6 solutions | **Broken**: everyone `left→right` (`GetForks`, `DiningMode.Broken` branch). **Fixed**: `if (p == N-1) right→left else left→right` — the reverse-order branch exists only in `DiningMode.Fixed`, breaking the circular wait. | Test-and-set based "test if neighbor is eating". |
 | §31.6 breaking-the-dependency | Last philosopher in reverse order. | Resource hierarchy (number all forks, always grab lower number first). |
-| §31.6 thinker not specified | 50-100ms random `Thread.Sleep` between cycles (default). | Configurable via `?think=` & `?eat=` params. |
+| §31.6 thinker not specified | 50-100ms random `Thread.Sleep` between cycles (default), tunable with `?think=` & `?eat=`. | — |
 | §31.6 no deadlock detection | After timeout, mark any non-eating philosopher as "DEADLOCK". | Wait-for-graph cycle detector. |
 
 ## Key OSEP quotes

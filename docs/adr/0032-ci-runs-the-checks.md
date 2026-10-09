@@ -62,6 +62,28 @@ Fixed to `TrimStart([char[]]'\/')`, verified by running that normalisation again
 
 The mode bit was also `100644`. On a Linux runner, `./tools/check-ostep-citations.ps1` needs `100755`, so the file mode is set in the index.
 
+## What the deferral audit changed
+
+The 89 `defer` mentions across `docs/learning` were audited entry by entry against what the repo actually ships, because ADR 0029's rule is that a deferral list is a snapshot and silently becomes a false claim the moment a later milestone lands the work.
+
+Nine sites were stale. Four were false claims rather than merely out of date:
+
+- `m26-ssd/s1-ssd-ftl-gc.md` listed **block-level** and **hybrid** mapping as deferred while its parent `overview.md` already carried the closing annotation. The two files carry the same list, so the annotation existed and still did not reach the reader.
+- `m26-ssd/overview.md` still said "we use page-level" in its `NOT do` list, contradicting the `Resolved since` header above it in the same file.
+- `m29-cv/overview.md` said timed wait was "deferred to M30" twice, and its `Where this leads` section said M30 "adds the timed-wait overload". Three claims wrong together, because `ConditionVariable.cs:120` has shipped `Wait(object, TimeSpan)` since M29.
+- `m14-pager/overview.md` deferred the TLB. `MiniPager/Tlb.cs` has existed since M16 — this is the file ADR 0029 names as a missed-by-naive-audit case, still stale.
+
+The rest were genuinely open, and now carry evidence instead of assumption. `m24-raid` defers I/O scheduling and background scrubbing; M33 and M37 shipped both capabilities, but `Raid.cs` references neither, so annotating it would have manufactured a new false claim. `m21-ffs` defers disk geometry; M37 shipped `DriveGeometry` and `FFS.cs` never mentions it. **A capability existing is not a deferral closing.**
+
+Four further defects were not deferrals at all:
+
+- `CowPte.cs`'s doc comment described a `SharedRefCount` and `OriginalFrameNo` that the struct does not have, and `Pager.Write` allocates without consulting a refcount. The learning doc was right that the refcount is absent; the code comment asserted it existed.
+- `m20-dining-philosophers/overview.md` listed `?think=` / `?eat=` under a column headed **"We defer"**. Both ship, at `Program.cs:948`.
+- `CONTEXT.md`'s M35 coverage row read bare `Ch. 7`. ADR 0026 had already recorded the correction in a footnote; the table the footnote corrects was never updated.
+- ADR 0029's own consequences line said "ten sites across five files" and then named six files summing to eleven.
+
+The audit also corrected two numbers this ADR had stated about itself — "73 `DEFER` notes" and "five files" — because both were written before anything measured them. `grep -rio defer --include=*.md docs/ | wc -l` is the command; the figure it produces today is 119 across 67 files, 89 of them under `docs/learning`.
+
 ## The gap: a workflow that reports is not a rule that holds
 
 The first run of this workflow on GitHub failed in 0 seconds with no log — the signature of a file that does not parse, not a step that fails.
@@ -120,7 +142,7 @@ A test that passes for the wrong reason is worse than no test, because it report
 
 ## What CI deliberately does not do
 
-- **It does not lint the prose.** The 73 `DEFER` notes across `docs/learning` are recorded decisions, not debt; a check that flagged them would be flagging intent.
+- **It does not lint the prose.** The 89 `defer` mentions across `docs/learning` (119 counting the ADRs) are recorded decisions, not debt; a check that flagged them would be flagging intent.
 - **It does not verify quoted wording.** The citation check proves a section exists and a quoted title belongs to it. It cannot tell whether the section holds the specific claim, and it ignores prose quotations entirely. Both limits are stated in the script's PASS output and in ADR 0031. That gap needs the chapter PDF and a reader.
 - **It does not use a second test runner.** The suite is a console application and stays one. A migration to xunit would be a different ADR.
 

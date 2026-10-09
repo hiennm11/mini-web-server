@@ -65,7 +65,7 @@ Where a milestone implements part of a section, the claim says which part and sa
 ### Neutral
 
 - No code changed. 124/124 tests unaffected.
-- Ten sites edited across five files: `CONTEXT.md` (six), `docs/learning/README.md`, `docs/learning/ROADMAP.md`, `docs/learning/m25-lfs/s1-lfs-segments.md`, `docs/adr/0015-m25-lfs.md`, `docs/adr/0021-m31-lfs-extensions.md`.
+- Eleven sites edited across six files: `CONTEXT.md` (six — the four table rows plus the glossary entry and its `Ch. 37` cross-reference), `docs/learning/README.md`, `docs/learning/ROADMAP.md`, `docs/learning/m25-lfs/s1-lfs-segments.md`, `docs/adr/0015-m25-lfs.md`, `docs/adr/0021-m31-lfs-extensions.md`. An earlier draft of this line said "ten sites across five files" and then named six; both numbers are now reconciled against the enumeration above.
 - Vocabulary added for terms the chapters use and the glossary lacked: Round Robin, time slice / quantum, convoy effect, baseline job, splitting, coalescing, allocation header, embedded free list, and the four fit strategies.
 - M36's terms moved out of `Storage / Mini FS (M11, M12, M21)` into their own `Heap / free-space management (M36)` section. The old section is about on-disk filesystem structures; these are about a linear address space, and Ch. 17 splits on exactly that line.
 

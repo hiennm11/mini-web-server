@@ -72,7 +72,7 @@ OSEP §40.4 doesn't explicitly cover `rmdir`, but OSEP §39.13 does: "rmdir() ha
 
 ## Key OSEP quotes
 
-> "We thus have arrived at a basic protocol for updating file-system on-disk structures... first carefully writes out the details of the transaction to the journal... after the transaction is complete, the file system checkpoints those blocks to their final locations." (OSEP §42.3 "Making the Log Finite")
+> "We thus have arrived at a basic protocol for updating file-system on-disk structures. The file system buffers updates in memory for some time; when it is finally time to write to disk, the file system first carefully writes out the details of the transaction to the journal (a.k.a. write-ahead log); after the transaction is complete, the file system checkpoints those blocks to their final locations on disk." (OSEP §42.3 "Making the Log Finite")
 
 ## .NET mechanism
 

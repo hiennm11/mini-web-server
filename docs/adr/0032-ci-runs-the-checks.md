@@ -143,7 +143,7 @@ A test that passes for the wrong reason is worse than no test, because it report
 ## What CI deliberately does not do
 
 - **It does not lint the prose.** The 89 `defer` mentions across `docs/learning` (119 counting the ADRs) are recorded decisions, not debt; a check that flagged them would be flagging intent.
-- **It does not verify quoted wording.** The citation check proves a section exists and a quoted title belongs to it. It cannot tell whether the section holds the specific claim, and it ignores prose quotations entirely. Both limits are stated in the script's PASS output and in ADR 0031. That gap needs the chapter PDF and a reader.
+- **It does not verify quoted wording in CI.** The citation check proves a section exists and a quoted title belongs to it. It cannot tell whether the section holds the specific claim, and it ignores prose quotations entirely. **The prose half of this gap was closed by ADR 0033** — 108 quoted passages were compared against the chapter PDFs and eight were corrected. What remains is content claims *about* a section rather than quotations *from* it, and that still needs a reader. The PDF pass cannot run in CI at all: it needs network access and a text extractor, and a red build caused by the upstream site being unreachable is worse than no check.
 - **It does not use a second test runner.** The suite is a console application and stays one. A migration to xunit would be a different ADR.
 
 ## Consequences

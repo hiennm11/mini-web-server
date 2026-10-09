@@ -30,7 +30,7 @@ Exposed via `/lfs/run?scenario=create|rewrite|clean&segments=N&blocks=M` HTTP ro
 - §43.11 hot/cold cleaning policy — implemented as "pick the segment with fewest live blocks first" (the simplest defensible policy). Hot/cold segregation is a future improvement.
 - §43.12 crash recovery — modeled as "roll forward from the last CR through segments referenced by the CR's head pointer" (the simplest valid recovery). The two-CR alternating-write protocol (§43.12) is implemented as one CR slot (we don't crash, so a single CR is enough).
 
-OSEP §43.1:
+OSEP Ch. 43 lead-in, immediately before §43.1:
 > "An ideal file system would thus focus on write performance, and try to make use of the sequential bandwidth of the disk."
 
 OSEP §43.5:

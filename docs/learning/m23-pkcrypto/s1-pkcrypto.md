@@ -38,8 +38,8 @@ Same signature, different message: `OK` → `FAIL`. The integrity property of PK
 
 ## OSEP points worth keeping
 
-§56.3's most-quotable line:
-> "If someone hands you a piece of data that has been encrypted with a key K that is known only to you and your buddy Remzi? You know you didn't create it, so if it decrypts properly using key K, you know that Remzi must have created it."
+§56.2's TIP is the motivating thought experiment, and it is not a cryptography section at all — it is the intuition §56.3 then formalises:
+> "What if someone hands you a piece of data that has been encrypted with a key K that is known only to you and your buddy Remzi? You know you didn't create it, so if it decrypts properly using key K, you know that Remzi must have created it." (OSEP §56.2 TIP)
 
 PK authentication generalizes this: replace "key known only to you and your buddy" with "key known only to you but your buddy's public key isn't secret". Verifier proves that the holder of the private key — and only the holder — could have produced the signature.
 

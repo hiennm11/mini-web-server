@@ -103,7 +103,7 @@ The XOR columns are identical because the underlying GCM keystream is the same w
 > "THE CRYPTOGRAPHY'S BENEFIT RELIES ENTIRELY ON THE SECRECY OF THE KEY"
 
 Our key is in process memory only. If anything dumps process RAM to disk (crash dump, hibernation file, attacker exploit), the key is gone. §56.6 names the same trade-off explicitly:
-> "If the legitimate user ever provides the correct password to a compromised OS, all bets are off, alas. The compromised OS will copy the password provided by the user and hand it off to whatever villain is working behind the scenes."
+> "If the legitimate user ever provides the correct password to a compromised OS, all bets are off, alas. The compromised OS will copy the password provided by the user and hand it off to whatever villain is working behind the scenes, before it runs the password through the one-way cryptographic hashing algorithm."
 
 §56.4 stresses why the **auth tag** matters even when the *plaintext* is what we care about — without it, the attacker could substitute a different ciphertext that decrypts to *something* (often junk, but sometimes a believable message). GCM's tag fails closed, so the attacker can't even try to mount a chosen-ciphertext attack without the auth tag flipping first.
 

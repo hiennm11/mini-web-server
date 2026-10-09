@@ -34,7 +34,7 @@ The bounded buffer problem OSEP §30 + §31.4 covers is exactly what our `Worker
 
 > "A bounded buffer is also used when you pipe the output of one program into another." (OSEP §30.2)
 
-> "If we are going to add bounded buffers to a multi-threaded program, we have to somehow add synchronization to the get and put routines." (OSEP §30.2)
+> "Because the bounded buffer is a shared resource, we must of course require synchronized access to it, lest a race condition arise." (OSEP §30.2)
 
 ## .NET mechanism
 

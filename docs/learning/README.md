@@ -123,7 +123,3 @@ Within a folder, slices are numbered sequentially (`s1`, `s2`, ...). The milesto
 ## Status snapshot
 
 `docs/learning/` is the in-repo learning lab. For a higher-level overview (active work, latest commit, OSEP coverage table), see `../../CONTEXT.md`.
-
-## PR flow probe §40.9
-
-Temporary: verifies a pull request triggers the checks.

@@ -19,7 +19,7 @@ The driver route `/cv/run?scenario=lost-wakeup|single-cv|two-cv|covering-conditi
 
 ## OSTEP coverage
 - **Ch. 30 §30.1** "Definition and Routines" [OS+AD14]: introduces CVs as a queue that threads put themselves on when a state is not as desired; some other thread, when it changes the state, signals one (or more) waiters. The canonical `Wait(Lock)` atomically releases the lock + parks; `Signal` wakes one.
-- **Ch. 30 §30.1** "Mesa vs Hoare semantics" [LR80 vs H74]: Mesa (the C# `Monitor` default) signals as a *hint* — the waker keeps the lock until it leaves the critical section; the waiter doesn't immediately run. The waiter's lock-acquisition may race with another thread that runs first. Hoare semantics transfer the lock atomically. Almost every system uses Mesa; the canonical defensive idiom is `while (!predicate) Wait()` to re-check on every wakeup.
+- **Ch. 30 §30.2** (the Mesa/Hoare discussion that follows Figure 30.9) [LR80 vs H74]: Mesa (the C# `Monitor` default) signals as a *hint* — the waker keeps the lock until it leaves the critical section; the waiter doesn't immediately run. The waiter's lock-acquisition may race with another thread that runs first. Hoare semantics transfer the lock atomically. Almost every system uses Mesa; the canonical defensive idiom is `while (!predicate) Wait()` to re-check on every wakeup.
 - **Ch. 30 §30.2** "The Producer/Consumer (Bounded Buffer) Problem" [D72]: the canonical worked example. Single-CV-with-`if` is broken; single-CV-with-`while` is mostly broken (wake-up-the-wrong-type bug); two CVs (one for empty, one for full) + `while` is the correct solution.
 - **Ch. 30 §30.3** "Covering Conditions" [LR80]: when the waker doesn't know which waiter to wake (e.g., a memory allocator where different threads are waiting for different sizes), use `Broadcast()` to wake everyone; the defensive `while` loop on each waiter re-checks and re-sleeps the ones that aren't ready.
 - **Cross-reference**: M6 `docs/learning/m6-bounded-worker-pool/overview.md` uses `Monitor.Wait` / `Monitor.Pulse` directly, which stays correct because it needs only one condition. M29 makes the multi-condition case a first-class primitive.
@@ -31,7 +31,7 @@ The driver route `/cv/run?scenario=lost-wakeup|single-cv|two-cv|covering-conditi
 - `docs/adr/0019-m29-condition-variables.md` — the `Monitor`-wrapper rejection.
 
 ## Implementation deviations from OSEP
-- **Mesa semantics** (the BCL default): `Signal` releases a waiter, but the waker keeps the lock until it leaves the critical section. §30.1 notes Hoare as an alternative. We use Mesa — "Virtually every system ever built employs Mesa semantics."
+- **Mesa semantics** (the BCL default): `Signal` releases a waiter, but the waker keeps the lock until it leaves the critical section. §30.2 notes Hoare as an alternative. We use Mesa — "Virtually every system ever built employs Mesa semantics" — §30.2, just after Figure 30.9.
 - **FIFO wake order is ours**: §30.1 promises no ordering. FIFO makes the §30.2 bug reproduce deterministically instead of rarely.
 - **`WaitWhile` takes the "still blocked" predicate**, so the mandatory `while` stays visible in call sites rather than hidden inside an API.
 - **`Wait` requires single (non-recursive) ownership**: the BCL exposes no recursion depth, so a re-entrant `lock` around `Wait` is documented as invalid rather than detected. One `Monitor.Exit` is issued.

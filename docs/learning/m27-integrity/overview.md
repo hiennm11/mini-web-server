@@ -31,7 +31,7 @@ Exposed via `/integrity/run?scenario=compute|corrupt|scrub&blocks=N&blockSize=M`
 - §45.4 checksum layout (per-sector vs packed) — we model per-block (the simpler case).
 - §45.6 ZFS's full end-to-end checksum tree (checksum in every inode + indirect block) deferred — we model the simpler per-block sequence number.
 
-OSEP §45.0:
+OSEP Ch. 45 CRUX box:
 > "How should systems ensure that the data written to storage is protected? What techniques are required? How can such techniques be made efficient, with both low space and time overheads?"
 
 OSEP §45.1:
@@ -65,7 +65,7 @@ OSEP §45.7:
 
 ## Key OSEP quotes
 
-> "The crux: HOW TO ENSURE DATA INTEGRITY. How should systems ensure that the data written to storage is protected?" (OSEP §45.0)
+> "The crux: HOW TO ENSURE DATA INTEGRITY. How should systems ensure that the data written to storage is protected?" (OSEP Ch. 45 CRUX box)
 
 > "There is no perfect checksum: it is possible two data blocks with non-identical contents will have identical checksums, something referred to as a collision." (OSEP §45.3)
 

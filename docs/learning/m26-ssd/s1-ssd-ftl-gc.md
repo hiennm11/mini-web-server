@@ -9,7 +9,7 @@ Implements the OSEP Ch. 44 flash SSD model as a single in-memory simulator:
 - **Log-structured writes** (§44.7): writes append to the next free page in the log block; old versions become dead.
 - **Garbage collection (GC)** (§44.8): picks the block with the most dead pages, migrates live pages to the log, erases the block.
 - **Wear tracking** (§44.10): every `EraseBlock` bumps a per-block counter; surfaced as a histogram.
-- **Trim hint** (§44.12 ASIDE): `Trim(lba)` drops the mapping; the underlying page becomes dead without rewriting.
+- **Trim hint** (§44.8 ASIDE): `Trim(lba)` drops the mapping; the underlying page becomes dead without rewriting.
 
 Exposed via `/ssd/run?scenario=write|gc|wear&blocks=N&pages=K` HTTP route.
 
@@ -24,7 +24,7 @@ Exposed via `/ssd/run?scenario=write|gc|wear&blocks=N&pages=K` HTTP route.
 
 ## OSEP alignment
 
-Implements OSEP §44.3 (read/program/erase), §44.7 (log-structured FTL + mapping table), §44.8 (garbage collection), §44.10 (wear leveling — we track erase count but don't migrate cold data), §44.12 (TRIM).
+Implements OSEP §44.3 (read/program/erase), §44.7 (log-structured FTL + mapping table), §44.8 (garbage collection), §44.10 (wear leveling — we track erase count but don't migrate cold data), and the §44.8 ASIDE (TRIM).
 
 ## Smoke evidence
 
@@ -102,7 +102,7 @@ OSEP §44.10: every erase bumps a per-block counter. With no GC run, all counter
 
 ## OSEP concept
 
-> "The crux: HOW TO BUILD A FLASH-BASED SSD? How can we handle the expensive nature of erasing? How can we build a device that lasts a long time, given that repeated overwrite will wear the device out?" (OSEP §44.0)
+> "The crux: HOW TO BUILD A FLASH-BASED SSD? How can we handle the expensive nature of erasing? How can we build a device that lasts a long time, given that repeated overwrite will wear the device out?" (OSEP Ch. 44 CRUX box)
 
 > "Read (a page): ... typically quite fast, 10s of microseconds or so, regardless of location on the device. Erase (a block): ... quite expensive, taking a few milliseconds. Program (a page): ... usually taking around 100s of microseconds." (OSEP §44.3)
 

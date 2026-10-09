@@ -63,7 +63,7 @@ OSEP §43.10:
 
 ## Key OSEP quotes
 
-> "The crux: HOW TO MAKE ALL WRITES SEQUENTIAL WRITES? How can a file system transform all writes into sequential writes?" (OSEP §43.0)
+> "The crux: HOW TO MAKE ALL WRITES SEQUENTIAL WRITES? How can a file system transform all writes into sequential writes?" (OSEP Ch. 43 CRUX box)
 
 > "Before writing to the disk, LFS keeps track of updates in memory; when it has received a sufficient number of updates, it writes them to disk all at once." (OSEP §43.2)
 

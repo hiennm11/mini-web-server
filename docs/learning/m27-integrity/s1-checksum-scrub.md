@@ -77,7 +77,7 @@ OSEP §45.7 "Scrubbing": the scrubber walked all 8 blocks. Block 2 has checksum 
 
 ## OSEP concept
 
-> "How should systems ensure that the data written to storage is protected? What techniques are required? How can such techniques be made efficient, with both low space and time overheads?" (OSEP §45.0)
+> "How should systems ensure that the data written to storage is protected? What techniques are required? How can such techniques be made efficient, with both low space and time overheads?" (OSEP Ch. 45 CRUX box)
 
 > "Modern disks will occasionally seem to be mostly working but have trouble successfully accessing one or more blocks. Specifically, two types of single-block failures are common and worthy of consideration: **latent sector errors** (LSEs) and **block corruption**." (OSEP §45.1)
 

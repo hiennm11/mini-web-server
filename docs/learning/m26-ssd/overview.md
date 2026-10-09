@@ -25,7 +25,7 @@ Exposed via `/ssd/run?scenario=write|gc|wear&blocks=N&pages=K` HTTP route.
 
 ## OSEP coverage
 
-- **Ch. 44 Flash-based SSDs** (§44.1 storing a single bit; §44.2 bits to banks/planes; §44.3 basic flash operations read/erase/program; §44.4 performance + wear; §44.5 raw flash to SSD; §44.6 direct-mapped FTL — bad approach; §44.7 log-structured FTL + mapping table; §44.8 garbage collection; §44.9 mapping table size; §44.10 wear leveling; §44.12 TRIM).
+- **Ch. 44 Flash-based SSDs** (§44.1 storing a single bit; §44.2 bits to banks/planes; §44.3 basic flash operations read/erase/program; §44.4 performance + wear; §44.5 raw flash to SSD; §44.6 direct-mapped FTL — bad approach; §44.7 log-structured FTL + mapping table; §44.8 garbage collection; §44.9 mapping table size; §44.10 wear leveling; §44.8 TRIM).
 > **Resolved since this slice** — M32 (ADR 0022) delivered **§44.9 block-level + hybrid FTL** (`FtlMapping.cs` now has `PageLevelFtl`, `BlockLevelFtl` and `HybridFtl`, with the §44.9 worked figures asserted in the tests). Everything below this note is still open.
 
 - §44.1 SLC/MLC/TLC distinction deferred — we model generic pages with one byte each.
@@ -33,9 +33,9 @@ Exposed via `/ssd/run?scenario=write|gc|wear&blocks=N&pages=K` HTTP route.
 - §44.4 raw performance numbers (µs) deferred — we don't simulate timing.
 - §44.6 direct-mapped FTL not implemented — OSEP itself calls it a "bad approach". Still open.
 - §44.11 SSD-vs-HDD performance comparison deferred.
-- §44.12 read/program disturbance deferred.
+- §44.4 read/program disturbance deferred.
 
-OSEP §44.0:
+OSEP Ch. 44 CRUX box:
 > "Flash, as we'll see, has some unique properties. For example, to write to a given chunk of it (i.e., a flash page), you first have to erase a bigger chunk (i.e., a flash block), which can be quite expensive. In addition, writing too often to a page will cause it to **wear out**."
 
 OSEP §44.3:
@@ -65,12 +65,12 @@ OSEP §44.10:
 | §44.8 garbage collection | Pick block with most dead pages; read live pages to log; erase the block. | Switch merge / partial merge / full merge (hybrid-FTL terminology). |
 | §44.8 over-provisioning | Not modeled — the SSD reports its full capacity. | Reserved blocks hidden from the client. |
 | §44.10 wear leveling | Track erase count per block; surface in `WearReport`. | Active cold-data migration (real wear leveling). |
-| §44.12 trim | `Trim(lba)` drops the mapping entry; the physical page becomes dead. | Batch TRIM commands. |
+| §44.8 TRIM ASIDE | `Trim(lba)` drops the mapping entry; the physical page becomes dead. | Batch TRIM commands. |
 | §44.4 disturbance | Not modeled. | Read / program disturbs. |
 
 ## Key OSEP quotes
 
-> "The crux: HOW TO BUILD A FLASH-BASED SSD? How can we handle the expensive nature of erasing? How can we build a device that lasts a long time, given that repeated overwrite will wear the device out?" (OSEP §44.0)
+> "The crux: HOW TO BUILD A FLASH-BASED SSD? How can we handle the expensive nature of erasing? How can we build a device that lasts a long time, given that repeated overwrite will wear the device out?" (OSEP Ch. 44 CRUX box)
 
 > "When writing to a page within a flash, you first have to erase a bigger chunk (i.e., a flash block), which can be quite expensive." (OSEP §44.3)
 

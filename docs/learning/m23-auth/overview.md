@@ -13,7 +13,7 @@ A single-process authentication subsystem built with the primitives OSEP Ch. 54 
 - **Cryptographic hash** (OSEP §54.4): never store plaintext passwords; store only the hash, so a leaked password file doesn't reveal the original password.
 - **Salt** (OSEP §54.4, Morris-Thompson): per-user random salt concatenated to the password before hashing. Defeats rainbow-table attacks because every user has a different hash even with the same password.
 - **Slow hash** (PBKDF2, also discussed under §54.4 dictionary-attack defence): intentionally expensive hash function (100k iterations of PBKDF2-HMAC-SHA256) so that each dictionary-attack guess takes a meaningful amount of time — making brute force / dictionary attacks infeasible.
-- **Timing-safe compare** (Ch. 56 side-channel defence, also implicitly part of safe authentication): verify passwords with constant-time comparison so an attacker can't measure a few nanoseconds difference to leak the prefix of a correct password.
+- **Timing-safe compare** (not covered by OSTEP — Ch. 56 is about ciphers, hashes and key management and says nothing about side channels; this is our own engineering addition): verify passwords with constant-time comparison so an attacker can't measure a few nanoseconds difference to leak the prefix of a correct password.
 - **Fail-safe defaults** (OSEP §53.4, Saltzer-Schroeder): never echo the supplied password, return the same error message for "no such user" vs "wrong password" (so attackers can't enumerate usernames).
 
 Exposed via HTTP routes:
@@ -49,7 +49,7 @@ OSEP §54.4 sets the bar:
 OSEP §54.4 also describes salts:
 > "before hashing a new password and storing it in your password file, generate a big random number ... hash the result and store that. ... the attacker can no longer create one translation of passwords in the dictionary to their hashes."
 
-And the warning about timing-safe comparison (implicit under §54.4 + side-channel discussion):
+On timing-safe comparison — **OSTEP does not discuss this**, so the following is our own reasoning, not a chapter claim:
 > "run each possible password through the hash once and store the results ... if the salt is 32 bits, that's 2³² different translations for each word in the dictionary"
 
 ## OSEP §-specific deviations
@@ -58,7 +58,7 @@ And the warning about timing-safe comparison (implicit under §54.4 + side-chann
 - **Plaintext over the wire**: the HTTP routes take the password in the query string, which an MITM could read. OSEP §57.4 makes clear that's wrong for real systems; TLS would fix it. Out of scope for this lab (single localhost process).
 - **Rate limit / lockout** (OSEP §54.4 "shut off access ... or drastically slow down"): our `dictionary` scenario demonstrates the *defensive* side (each guess is slow due to PBKDF2). A real auth endpoint would also rate-limit by username. Not implemented.
 - **Two-factor / multi-factor** (OSEP §54.4 + §54.5): not implemented. Pure password-only.
-- **Account enumeration** (OSEP §53.4 fail-safe defaults + §54.10): we return a generic "invalid credentials" message rather than "no such user" vs "wrong password".
+- **Account enumeration** (the §54.5 ASIDE, "Linux Login Procedures"): we return a generic "invalid credentials" message rather than "no such user" vs "wrong password".
 - **Persistence**: users are in-memory only. Restarting the server drops all users. A real system persists the hash database on disk; we keep it in a `ConcurrentDictionary`.
 - **Group / role ACL** (OSEP §55.4 RBAC): **closed by M23.3** — `UserStore.Role`, `GrantRole`, `AuthenticateWithRole` and the `/protected/secret` gate. Two roles only (`User`, `Admin`); no capabilities or per-file ACLs.
 - **TLS handshake** (OSEP §57.5): **closed by M23.5** — `Handshake.RunDemo` derives a session key with HKDF-SHA256, served at `/crypto/handshake`. It is a handshake *derivation* demo, not real TLS.
@@ -66,7 +66,7 @@ And the warning about timing-safe comparison (implicit under §54.4 + side-chann
 ## .NET mechanism
 
 - `System.Security.Cryptography.Rfc2898DeriveBytes` — implements PBKDF2 with configurable iteration count, salt length, and derived key length. Uses HMAC-SHA256 under the hood.
-- `System.Security.Cryptography.RandomNumberGenerator.Fill` — CSPRNG for salt generation (uses the OS's entropy source, which OSEP §56.5 notes is "the best source for operating system purposes").
+- `System.Security.Cryptography.RandomNumberGenerator.Fill` — CSPRNG for salt generation. OSTEP §56.5's TIP "Selecting Keys" makes the entropy point: use hardware-derived randomness, "the best source for operating system purposes", reading /dev/random on Linux.
 - `System.Security.Cryptography.CryptographicOperations.FixedTimeEquals` — constant-time byte-array comparison. Avoids the short-circuit behaviour of `==` that leaks the longest matching prefix.
 - `System.Collections.Concurrent.ConcurrentDictionary<string, AuthUser>` — thread-safe user store; the HTTP handler pool runs 8 threads so we need concurrent map operations.
 

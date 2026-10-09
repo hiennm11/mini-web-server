@@ -2,7 +2,7 @@ namespace MiniWebServer.Host.MiniPager;
 
 /// <summary>
 /// Virtual address decomposed into VPN (virtual page number) and
-/// offset (within page). OSEP §18.4 "Where Are Page Tables Stored?"
+/// offset (within page). OSEP §18.2 "Where Are Page Tables Stored?"
 /// — we keep the page-table data in the same struct's PageTable
 /// class so the math is clear.
 ///

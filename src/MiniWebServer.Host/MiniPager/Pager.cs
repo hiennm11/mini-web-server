@@ -170,7 +170,7 @@ public sealed class LinearLookup : IPageTableLookup
 /// <summary>
 /// Two-level page table lookup (slice 17.1).
 ///
-/// OSEP §20.1 "A Two-Level Page Table":
+/// OSEP §20.3 "Multi-level Page Tables":
 ///   - 32-bit VA + 4 KB page: top 10 bits = PGD index, next 10 bits = PT index,
 ///     bottom 12 bits = offset.
 ///   - 1024 PGD entries, each pointing to a 1024-entry PT page.
@@ -433,7 +433,7 @@ public sealed class Pager
 
         if (result == LookupResult.Miss)
         {
-            // OSEP §21.4 "Page-Fault Control Flow" step 3-7: this is a
+            // OSEP §21.5 "Page-Fault Control Flow" step 3-7: this is a
             // first-touch (the page is unmapped). In a real OS this
             // loads from the executable file. Our simulator treats
             // this as "zero the page" and allocates a frame (which may
@@ -458,7 +458,7 @@ public sealed class Pager
 
         if (result == LookupResult.InSwap)
         {
-            // OSEP §21.4 "Page-Fault Control Flow" step 9: read page
+            // OSEP §21.5 "Page-Fault Control Flow" step 9: read page
             // back from swap into a free frame.
             int freeFrame = FindFreeFrame();
             if (freeFrame < 0)

@@ -39,19 +39,19 @@ public readonly record struct RaidDiskBlock(int DiskIndex, int BlockIndex);
 ///    single disk is, say, 3 years, the MTTF of an array of 100 disks is
 ///    about 3 years / 100, or roughly 11 days."
 ///
-/// OSEP §38.3 "RAID Level 0: Striping":
+/// OSEP §38.4 "RAID Level 0: Striping":
 ///   "The simplest RAID level. ... round-robin placement of blocks across
 ///    disks."
 ///
-/// OSEP §38.4 "RAID Level 1: Mirroring":
+/// OSEP §38.5 "RAID Level 1: Mirroring":
 ///   "With mirroring, we make a copy of every block we write to disk. So,
 ///    each logical write becomes two physical writes."
 ///
-/// OSEP §38.7 "RAID Level 4: Saving Space With Parity":
+/// OSEP §38.6 "RAID Level 4: Saving Space With Parity":
 ///   "In RAID 4, we have a dedicated parity disk. The parity block is
 ///    computed by XOR-ing all the corresponding data blocks in the stripe."
 ///
-/// OSEP §38.8 "RAID Level 5: Rotating Parity":
+/// OSEP §38.7 "RAID Level 5: Rotating Parity":
 ///   "RAID 5 solves the small-write problem of RAID 4 by rotating the
 ///    parity block across all disks."
 ///

@@ -19,16 +19,20 @@ dotnet run --project tests/MiniWebServer.Host.Tests   # 124 assertions
 pwsh tools/check-ostep-citations.ps1                  # every §N.M must resolve
 ```
 
-The citation check is not optional when a diff touches `.md` or a section comment in
-`.cs`. This repo cites ~3,000 OSTEP section references, and ADR 0030 records dozens that
-named a section which does not exist — a number past the end of a chapter, a "Summary"
-page cited for content it does not contain, an unnumbered ASIDE given a borrowed number.
-Every one survived a careful read, because a plausible number in a plausible chapter is
-exactly what a human eye does not catch. `tools/ostep-sections.json` is transcribed from
-the chapter PDFs; note that the free `toc.pdf` covers Chapters 2–51 only, and the
-security chapters 52–57 are absent from it.
+The citation check is not optional when a diff touches `.md` or a `.cs` comment.
+This repo cites ~3,000 OSTEP section references, and ADR 0030 records dozens that
+were wrong. It runs two passes: every `§N.M` must name a section that exists, and
+every citation that quotes a title must quote the title of *that* section or of a
+sub-heading inside it. That second pass caught a run of off-by-one errors where the
+quoted title was right and the number was off by one — a defect shape no amount of
+reading catches, because the quote reads like a citation.
 
-It proves the section **exists**, not that it contains what the text attributes to it.
+`tools/ostep-sections.json` is transcribed from the chapter PDFs; note that the free
+`toc.pdf` covers Chapters 2–51 only, and the security chapters 52–57 are absent from it.
+Sub-headings are indexed separately and must never be cited as `§N.M` of their own.
+
+It does not check prose quotations, and it cannot tell whether a section holds the
+specific content attributed to it. A correct title on the wrong section still passes.
 For that, open the chapter PDF.
 
 ### Skills

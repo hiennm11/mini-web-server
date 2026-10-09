@@ -20,9 +20,9 @@ public sealed class SimTraceLine
 }
 
 /// <summary>
-/// Stride scheduling (OSEP §9.3 Waldspurger 1995).
+/// Stride scheduling (OSEP §9.6 Waldspurger 1995).
 ///
-/// OSEP §9.3 "Stride Scheduling":
+/// OSEP §9.6 "Stride Scheduling":
 ///   "Each job in the system has a stride, which is inverse in proportion
 ///    to the number of tickets it has. ... every time a process runs, we
 ///    will increment a counter for it (called its pass value) by its

@@ -747,7 +747,7 @@ pwsh tools/check-ostep-citations.ps1          # every §N.M must resolve
 pwsh tools/check-ostep-citations.ps1 -List    # list all, not just failures
 ```
 
-It proves the section **exists**, not that it holds the content attributed to it — see ADR 0030.
+It checks that every `§N.M` exists **and** that a quoted title belongs to that section. It does not check prose quotations, nor whether a section holds the content attributed to it — see ADR 0030.
 
 ## Known Limitations
 

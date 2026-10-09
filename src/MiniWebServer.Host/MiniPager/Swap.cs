@@ -36,7 +36,7 @@ public sealed class Swap
     }
 
     /// <summary>
-    /// OSEP §21.4 "Page-Fault Control Flow" step 7: write the evicted
+    /// OSEP §21.5 "Page-Fault Control Flow" step 7: write the evicted
     /// frame to swap. Returns the swap slot index where the data was stored.
     /// </summary>
     public int WriteOut(byte[] frame)

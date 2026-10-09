@@ -48,7 +48,7 @@ public enum SsdPageState
 ///    the FTL should try its best to spread that work across all the
 ///    blocks of the device evenly."
 ///
-/// OSEP §44.12 "TRIM":
+/// OSEP §44.8 (TRIM is an ASIDE inside that section, not a numbered section of its own):
 ///   "The trim operation takes an address (and possibly a length) and
 ///    simply informs the device that the block(s) specified by the
 ///    address (and length) have been deleted; the device thus no longer

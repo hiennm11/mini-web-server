@@ -3,7 +3,7 @@ namespace MiniWebServer.Host.MiniPager;
 /// <summary>
 /// Page Directory Entry.
 ///
-/// OSEP §20.1 "A Two-Level Page Table":
+/// OSEP §20.3 "Multi-level Page Tables":
 ///   "the page directory, which has an entry for each page in the top
 ///    level of the page table. Each PDE contains a valid bit and a page
 ///    frame number, just like a PTE, but the page frame number here is
@@ -14,7 +14,7 @@ namespace MiniWebServer.Host.MiniPager;
 ///   - 10-bit PT index  → 1024 PTEs per page table
 ///   - 12-bit offset
 ///
-/// OSEP §20.4 "A Memory Trace" — the two-level structure reduces memory
+/// OSEP §18.5 "A Memory Trace" — the two-level structure reduces memory
 /// usage from 4 MB (linear) to just the PGD page + the PT pages that
 /// are actually populated. With 4 mapped pages that share a PGD entry,
 /// we use 1 PGD slot + 1 PT page = 4 KB + 4 KB = 8 KB (vs 4 MB linear).
@@ -30,7 +30,7 @@ public struct PageDirectoryEntry
 /// <summary>
 /// Two-level page table.
 ///
-/// OSEP §20.1 — Figure 20.3 "A Two-Level Page Table":
+/// OSEP §20.3 — Figure 20.3 "A Two-Level Page Table":
 ///   "the top-level directory page, the page-of-pages array, is used
 ///    to determine where (in physical memory) to find the page-of-pages
 ///    entries for a particular portion of the address space. The
@@ -59,7 +59,7 @@ public sealed class PageDirectory
     public void Set(int index, PageDirectoryEntry pde) => _entries[index] = pde;
 
     /// <summary>
-    /// OSEP §20.1 — count of populated PDEs (each has a backing PT page).
+    /// OSEP §20.3 — count of populated PDEs (each has a backing PT page).
     /// Memory savings: with sparse address spaces, most PDEs are invalid
     /// and consume only the PGD slot, not a full PT page.
     /// </summary>
@@ -88,7 +88,7 @@ public struct PageTableEntry
 /// <summary>
 /// Inner page table. 1024 PTEs per PT page for 32-bit VA + 4 KB pages.
 ///
-/// OSEP §20.1 "the page-of-pages entries then point to the actual page
+/// OSEP §20.3 "the page-of-pages entries then point to the actual page
 ///  table entries that contain the physical frame numbers for each
 ///  piece of user data".
 /// </summary>

@@ -22,7 +22,7 @@ public static class UserStore
     public sealed record AuthUser(DateTimeOffset CreatedAt, byte[] Salt, byte[] Hash, Role Role);
 
     private static readonly ConcurrentDictionary<string, AuthUser> _users =
-        new(StringComparer.Ordinal);   // case-sensitive: matches OSEP §54.10 "no info to non-authenticated users".
+        new(StringComparer.Ordinal);   // case-sensitive: matches the OSTEP Ch. 54 ASIDE "Linux Login Procedures", "no info to non-authenticated users".
 
     // Single counter that lets us prove OSEP §54.4 ("shut off access ... after too many wrong
     // guesses") hasn't been implemented — every failed login still increments it.

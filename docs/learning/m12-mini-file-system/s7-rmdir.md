@@ -46,10 +46,10 @@ A crash between these would otherwise leave either (a) the directory inode reuse
 
 ## OSEP concept
 
-OSEP §40.7 (`rename`, `link`, `unlink`, `mkdir`, `rmdir`) describes directory operations as multi-block atomic operations. The empty-directory rule for `rmdir` is a POSIX invariant: removing a non-empty directory would leave the files in it unreachable from the root (assuming no other hard links). The empty check is therefore mandatory, not optional.
+OSEP §39 (§39.8 rename, §39.10 unlink, §39.11 mkdir, §39.13 rmdir) + §40.4 describes directory operations as multi-block atomic operations. The empty-directory rule for `rmdir` is a POSIX invariant: removing a non-empty directory would leave the files in it unreachable from the root (assuming no other hard links). The empty check is therefore mandatory, not optional.
 
 ## Deferred
 
 - **fsync-style grouping**: today each request is its own transaction. A future slice could buffer all writes from a single HTTP request into one transaction (saves journal space).
-- **Hard links + `rename`**: OSEP §40.10 + §40.12. Would require managing `Nlink > 1` correctly across the FS (not currently tested).
-- **Indirect / doubly-indirect blocks**: today a file is capped at `NDIRECT = 13` blocks = ~50 KB. For larger files we'd need the §40.7 doubly-indirect block trick.
+- **Hard links + `rename`**: OSEP §39.8 + §39.13. Would require managing `Nlink > 1` correctly across the FS (not currently tested).
+- **Indirect / doubly-indirect blocks**: today a file is capped at `NDIRECT = 13` blocks = ~50 KB. For larger files we'd need the §40.3 doubly-indirect block trick.

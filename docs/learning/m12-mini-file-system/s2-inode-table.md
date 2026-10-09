@@ -55,5 +55,5 @@ direct_blocks = 2,-,-,-,-,-,-,-,-,-,-,-
 
 ## Deferred
 
-- **Indirect / doubly-indirect blocks** (OSEP §40.7): today a file is capped at 48 KB. Would need 1 block for the indirect pointer (1024 × 4-byte entries → +4 MB) and 1 block for the doubly-indirect (+4 GB).
+- **Indirect / doubly-indirect blocks** (OSEP §40.3): today a file is capped at 48 KB. Would need 1 block for the indirect pointer (1024 × 4-byte entries → +4 MB) and 1 block for the doubly-indirect (+4 GB).
 - **Larger inode size**: 64 bytes is enough for 12 direct pointers; real Linux ext4 inodes are 256 bytes to fit extended attributes + 4-level block pointers.

@@ -21,7 +21,7 @@ We will extend the concurrency / OSEP-chapter-30+ roadmap with the following mil
 | ID | Name | OSEP chapter(s) | Lesson slices | Status |
 |---|---|---|---|---|
 | **M8** | Bounded queue + backpressure in worker pool | Ch. 30, 31 | s6.3-bounded-queue (planned) | Future |
-| **M9** | Reader-writer lock + shared cache demo | Ch. 30 | 2-3 slices (rwlock primitive, /stats cache, smoke) | Future |
+| **M9** | Reader-writer lock + shared cache demo | Ch. 31 §31.5 | 2-3 slices (rwlock primitive, /stats cache, smoke) | Future |
 | **M10** | Async mode overload + ThreadPool cap | Ch. 33 | 1-2 slices (cap observation, stress under cap) | Future |
 | **M11** | Real `open`/`read`/`write`/`close` syscall demo | Ch. 39 | 2 slices (replace `File.ReadAllBytes` with raw `FileStream`; observable syscalls) | Future |
 | **M12** | Mini file system (inode + bitmap + journal) | Ch. 40-45 | 4-6 slices (superblock, dir, create, delete, journal) | Future |

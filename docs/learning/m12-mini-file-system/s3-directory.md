@@ -58,4 +58,4 @@ Root's size grew from 64 → 128 after one dir entry was added (32-byte slot + 3
 
 - **Directory compaction**: real FSes periodically compact a directory by removing free slots. Our `Unlink` leaves the slot intact; subsequent `DirLink` will reuse the slot if found.
 - **Long directory names**: 30-byte cap is short. Real ext4 uses variable-length entries (up to 255 bytes per filename).
-- **`rename`** (OSEP §40.10): not implemented in this slice. Could be added in a later slice.
+- **`rename`** (OSEP §39.8): not implemented in this slice. Could be added in a later slice.

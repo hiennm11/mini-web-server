@@ -67,7 +67,7 @@ OSEP §40.4 doesn't explicitly cover `rmdir`, but OSEP §39.13 does: "rmdir() ha
 ### Other simplifications
 
 - We don't implement `rename` (OSEP §40.8).
-- We don't implement hard links + `link` (OSEP §40.9) + unlink-naming-mystery.
+- We don't implement hard links + `link` (OSEP §39.14) + unlink-naming-mystery.
 - We don't implement `fsync` (OSEP §39.7) — would require forcing journal commit + checkpoint before responding to the HTTP write.
 
 ## Key OSEP quotes
@@ -84,7 +84,7 @@ OSEP §40.4 doesn't explicitly cover `rmdir`, but OSEP §39.13 does: "rmdir() ha
 
 - **fsync-style grouping**: each request is currently its own transaction.
 - **Block reuse revoke records** (OSEP §42.3 "Tricky Case: Block Reuse"): not needed yet.
-- **Hard links + `rename`** (OSEP §40.8-§40.9): would require `Nlink > 1` accounting.
+- **Hard links + `rename`** (OSEP §40.8-§39.14): would require `Nlink > 1` accounting.
 - **Indirect / doubly-indirect blocks** (OSEP §40.3): today a file is capped at ~48 KB (12 direct pointers).
 - **Extent-based allocation** (OSEP §40.3 TIP).
 - **`fsync` semantics** (OSEP §39.7).

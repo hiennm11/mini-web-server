@@ -23,10 +23,10 @@ Routes added:
 
 This slice is the I/O interface for the FS. OSEP §39 covers the file API (open / read / write / close / seek), but our routes are HTTP-level equivalents rather than POSIX syscalls. The semantic mapping:
 
-- HTTP `POST /fs/create?path=X` ↔ OSEP §40.7 `create(path)` + `open(path, O_CREAT)`
+- HTTP `POST /fs/create?path=X` ↔ OSEP §39.3 `create(path)` + `open(path, O_CREAT)`
 - HTTP `POST /fs/write?path=X` (body) ↔ OSEP §40.6 `write(fd, buf, len)` from offset 0
 - HTTP `GET /fs/read?path=X` ↔ OSEP §40.6 `read(fd, buf, len)` from offset 0
-- HTTP `POST /fs/unlink?path=X` ↔ OSEP §40.7 `unlink(path)`
+- HTTP `POST /fs/unlink?path=X` ↔ OSEP §39.10 `unlink(path)`
 
 The slice does not implement `open` / `close` / `seek`; everything is stateless.
 

@@ -19,6 +19,10 @@ dotnet run --project tests/MiniWebServer.Host.Tests   # 124 assertions
 pwsh tools/check-ostep-citations.ps1                  # every §N.M must resolve
 ```
 
+Both run in CI (`.github/workflows/checks.yml`) on every push and PR to `main`, so a
+failure is not something you have to remember to look for. Run them locally before
+pushing anyway — CI is the backstop, not the feedback loop.
+
 The citation check is not optional when a diff touches `.md` or a `.cs` comment.
 This repo cites ~3,000 OSTEP section references, and ADR 0030 records dozens that
 were wrong. It runs two passes: every `§N.M` must name a section that exists, and

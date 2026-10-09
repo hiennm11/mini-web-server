@@ -102,7 +102,11 @@ $titlesOk = 0
 $skipped = 0
 
 foreach ($file in $files) {
-    $rel = $file.FullName.Substring($Path.Length).TrimStart('\').Replace('\', '/')
+    # Path separator differs by platform: Windows yields '\', Linux yields '/'.
+# TrimStart('\') alone leaves a leading '/' on Linux, which would make every
+# $rel fail to match $exempt and flag the audit ADRs. This checker runs on
+# ubuntu-latest in CI, so the normalisation has to be platform-agnostic.
+$rel = $file.FullName.Substring($Path.Length).TrimStart([char[]]'\/').Replace('\', '/')
     if ($exempt -contains $rel) { $skipped++; continue }
 
     $text = Get-Content $file.FullName -Raw

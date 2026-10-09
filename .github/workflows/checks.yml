@@ -1,0 +1,82 @@
+# Verifies every commit, not just the ones an agent happens to check.
+#
+# ADR 0030 and 0031 fixed ~200 wrong OSTEP citations and then added a checker
+# that finds them mechanically. Until this workflow existed the checker ran
+# only because an agent chose to run it: it was written down in AGENTS.md and
+# nowhere else. Writing ADR 0031 made the checker fail on ADR 0031 eleven times,
+# and that was caught by accident rather than by construction.
+#
+# The citation check is listed first deliberately. It is the only job whose
+# failure mode is invisible in review - a wrong section number reads as
+# perfectly plausible prose - and it is fast enough to never be a reason to skip.
+
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A superseded run reporting a failure on the new commit is noise, not signal.
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  citations:
+    name: OSTEP citations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # pwsh ships preinstalled on ubuntu-latest. The checker is PowerShell
+      # because that is what the repo documents in AGENTS.md and CONTEXT.md; a
+      # second implementation in another language would drift from the first.
+      - name: Check every section citation resolves
+        shell: pwsh
+        run: ./tools/check-ostep-citations.ps1
+
+  build:
+    name: build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # Warnings are errors. The tree is currently clean under this rule, so it
+      # costs nothing now and catches the first regression later.
+      - name: Build
+        run: dotnet build MiniWebServer.sln -c Release -warnaserror
+
+      # The suite is a console application, not xunit: it prints PASS/FAIL per
+      # assertion and calls Environment.Exit(1) from the catch block. Exit code
+      # is the signal, which is why this step can be a bare `run`.
+      - name: Test
+        run: dotnet run --project tests/MiniWebServer.Host.Tests -c Release
+
+      # Proves the app still starts and serves, not just compiles. There is no
+      # --help flag; the server binds a fixed port and blocks, so the smoke test
+      # starts it in the background, waits for the socket, requests a file, and
+      # asserts a real 200 with a non-empty body. The EXIT trap reaps the server
+      # without masking the step's own exit status.
+      - name: Smoke: app starts and serves
+        run: |
+          set -euo pipefail
+          dotnet run --project src/MiniWebServer.Host -c Release --no-build > server.log 2>&1 &
+          server_pid=$!
+          trap 'kill $server_pid 2>/dev/null || true' EXIT
+
+          code=000
+          for _ in $(seq 1 30); do
+            code=$(curl -s -o body.txt -w '%{http_code}' --max-time 5 http://127.0.0.1:8080/index.html || echo 000)
+            [ "$code" = "200" ] && break
+            sleep 1
+          done
+
+          [ "$code" = "200" ] || { echo "server never returned 200 (last: $code)"; cat server.log; exit 1; }
+          [ -s body.txt ] || { echo "200 but empty body"; exit 1; }
+          echo "served $(wc -c < body.txt) bytes"

@@ -19,9 +19,11 @@ dotnet run --project tests/MiniWebServer.Host.Tests   # 124 assertions
 pwsh tools/check-ostep-citations.ps1                  # every §N.M must resolve
 ```
 
-Both run in CI (`.github/workflows/checks.yml`) on every push and PR to `main`, so a
-failure is not something you have to remember to look for. Run them locally before
-pushing anyway — CI is the backstop, not the feedback loop.
+Both run in CI (`.github/workflows/checks.yml`) on every push and PR to `main`. `main`
+is protected: it requires both checks to pass and refuses force pushes, so a change
+gets here through a PR, and a red check blocks the merge rather than reporting it
+afterwards. Run the checks locally before pushing anyway — CI is the backstop, not
+the feedback loop.
 
 The citation check is not optional when a diff touches `.md` or a `.cs` comment.
 This repo cites ~3,000 OSTEP section references, and ADR 0030 records dozens that

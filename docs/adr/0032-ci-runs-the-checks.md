@@ -62,6 +62,62 @@ Fixed to `TrimStart([char[]]'\/')`, verified by running that normalisation again
 
 The mode bit was also `100644`. On a Linux runner, `./tools/check-ostep-citations.ps1` needs `100755`, so the file mode is set in the index.
 
+## The gap: a workflow that reports is not a rule that holds
+
+The first run of this workflow on GitHub failed in 0 seconds with no log — the signature of a file that does not parse, not a step that fails.
+
+```
+X This run likely failed because of a workflow file issue.
+yaml.scanner.ScannerError: mapping values are not allowed here
+  in .github/workflows/checks.yml, line 66, column 20
+```
+
+Line 66 was `- name: Smoke: app starts and serves`. An unquoted YAML scalar containing `": "` is read as a nested mapping key, so `name` received a mapping instead of a string. Quoting it fixed the parse; a scan of every `name:` and `run:` line found no other occurrence.
+
+This is worth recording for what it says about verification. The workflow had already been checked — every CI assumption verified by running it locally — and it was still wrong. What was missing was parsing the file with a YAML parser rather than reading it.
+
+## Testing the pull request path found something worse
+
+A workflow that reports a failure does not prevent anything. `main` had no branch protection:
+
+```
+gh api repos/hiennm11/mini-web-server/branches/main/protection
+Branch not protected (HTTP 404)
+```
+
+So the sequence was tested end to end: open a PR, plant a nonexistent section, watch the check fail, then try to merge.
+
+The merge **succeeded**. The PR reported `mergeStateStatus: UNSTABLE`, and `gh pr merge` merged it anyway. The bad citation landed on `main`, and only then did the push run turn red — which is the checker telling you about a problem that already shipped, not stopping it.
+
+A check that fires after merge is a report. A check that blocks merge is a control.
+
+## Protection, and how it was verified
+
+`main` now requires both status checks and forbids force pushes. Neither was assumed to work:
+
+**The merge is blocked.** A PR with `citations` failing reports `mergeStateStatus: BLOCKED`, and:
+
+```
+X Pull request #2 is not mergeable: the base branch policy prohibits the merge.
+```
+
+**The force-push is rejected.**
+
+```
+remote: ! [remote rejected] main -> main (protected branch hook declined)
+remote: - 2 of 2 required status checks are expected.
+```
+
+**Green PRs still merge.** The `pull_request` trigger fires correctly — `event: pull_request`, one run per push, both jobs passing — and protection adds no friction to a clean change.
+
+## The verification that failed the first time
+
+The first planted error was a section that exists, so the check passed and proved nothing. The probe had been wrong, not the checker. The negative test only became real with a number past the end of a chapter — and then CI went red and named the file and line.
+
+This ADR would fail its own checker if it quoted either number literally, so it does not. That is the third time this repo has caught the same mistake: an audit record that names a wrong citation is not exempt from being one. The two audit ADRs are exempt in `check-ostep-citations.ps1`; this one is written to avoid needing the exemption.
+
+A test that passes for the wrong reason is worse than no test, because it reports confidence. It is worth being deliberate about which failure is being demonstrated.
+
 ## What CI deliberately does not do
 
 - **It does not lint the prose.** The 73 `DEFER` notes across `docs/learning` are recorded decisions, not debt; a check that flagged them would be flagging intent.
@@ -70,9 +126,11 @@ The mode bit was also `100644`. On a Linux runner, `./tools/check-ostep-citation
 
 ## Consequences
 
-A wrong citation now fails the build instead of surviving to be discovered by an audit that may never run. That is the entire point: ADR 0030 found ~200 of them after they had accumulated across the repo's history, and nothing would have found the next twenty.
+A wrong citation now fails the build instead of surviving to be discovered by an audit that may never run. With branch protection, it cannot be merged either: `main` requires both checks to pass and refuses force pushes.
 
-The cost is that CI is now a thing that can be red. That is the intended trade.
+That closes the loop ADR 0030 could not. It found ~200 wrong citations after they had accumulated across the repo's history, and nothing would have found the next twenty. Now the twenty-first is stopped at the merge.
+
+The cost is that `main` can go red and merges require the checks to have run. That is the intended trade: the alternative was demonstrated to permit merging a failing change.
 
 ## References
 

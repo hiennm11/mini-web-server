@@ -740,6 +740,15 @@ Run parser tests:
 dotnet run --project tests/MiniWebServer.Host.Tests/MiniWebServer.Host.Tests.csproj
 ```
 
+Check OSTEP citations before committing a doc edit that adds or changes a section reference:
+
+```powershell
+pwsh tools/check-ostep-citations.ps1          # every §N.M must resolve
+pwsh tools/check-ostep-citations.ps1 -List    # list all, not just failures
+```
+
+It proves the section **exists**, not that it holds the content attributed to it — see ADR 0030.
+
 ## Known Limitations
 
 - Port `8080` is hard-coded.

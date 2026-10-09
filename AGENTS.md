@@ -12,6 +12,25 @@ This repo uses the default mattpocock/skills triage labels. See `docs/agents/tri
 
 This repo uses a single-context domain-doc layout. See `docs/agents/domain.md`.
 
+### Verifying before you commit
+
+```powershell
+dotnet run --project tests/MiniWebServer.Host.Tests   # 124 assertions
+pwsh tools/check-ostep-citations.ps1                  # every §N.M must resolve
+```
+
+The citation check is not optional when a diff touches `.md` or a section comment in
+`.cs`. This repo cites ~3,000 OSTEP section references, and ADR 0030 records dozens that
+named a section which does not exist — a number past the end of a chapter, a "Summary"
+page cited for content it does not contain, an unnumbered ASIDE given a borrowed number.
+Every one survived a careful read, because a plausible number in a plausible chapter is
+exactly what a human eye does not catch. `tools/ostep-sections.json` is transcribed from
+the chapter PDFs; note that the free `toc.pdf` covers Chapters 2–51 only, and the
+security chapters 52–57 are absent from it.
+
+It proves the section **exists**, not that it contains what the text attributes to it.
+For that, open the chapter PDF.
+
 ### Skills
 
 This repo uses Matt Pocock's engineering skills. The main flow is **idea → ship**:

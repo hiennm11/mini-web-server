@@ -292,7 +292,7 @@ public sealed class TwoLevelLookup : IPageTableLookup
 /// fatal (the simulation records it and continues, but the OS
 /// would crash on a real fault).
 ///
-/// OSEP §18.7 "Putting It Together: Memory Access" — the
+/// OSTEP §18.1 "A Simple Example And Overview" — the
 /// translation pipeline:
 ///   1. Compute VPN from VA.
 ///   2. Look up PTE in the page table.

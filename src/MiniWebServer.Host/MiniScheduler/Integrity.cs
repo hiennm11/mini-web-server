@@ -100,7 +100,7 @@ public static class IntegrityChecksums
 /// <summary>
 /// Data-integrity simulator (OSEP Ch. 45).
 ///
-/// OSEP §45.0 "CRUX: HOW TO ENSURE DATA INTEGRITY":
+/// OSTEP Ch. 45 CRUX box, "HOW TO ENSURE DATA INTEGRITY":
 ///   "How should systems ensure that the data written to storage is
 ///    protected? What techniques are required? How can such techniques
 ///    be made efficient, with both low space and time overheads?"

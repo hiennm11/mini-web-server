@@ -13,7 +13,7 @@ public readonly record struct MemoryAccess(int Pid, int VirtualAddressValue, Acc
 public enum AccessKind { Read, Write }
 
 /// <summary>
-/// Outcome of a single translation attempt. OSEP §18.7.
+/// Outcome of a single translation attempt. OSTEP §18.1, "A Simple Example And Overview".
 ///   Hit: VA -> PA succeeded (page was in the page table).
 ///   PageFault: VA's VPN had no valid PTE (page is not in memory).
 ///     In slice 14.1 there's no swap, so this is a fatal fault.

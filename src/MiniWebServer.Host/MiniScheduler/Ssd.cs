@@ -18,7 +18,7 @@ public enum SsdPageState
 /// <summary>
 /// SSD simulator (OSEP Ch. 44).
 ///
-/// OSEP §44.0 "CRUX: HOW TO BUILD A FLASH-BASED SSD":
+/// OStep Ch. 44 CRUX box, "HOW TO BUILD A FLASH-BASED SSD":
 ///   "How can we handle the expensive nature of erasing? How can we build
 ///    a device that lasts a long time, given that repeated overwrite will
 ///    wear the device out?"

@@ -100,7 +100,7 @@ boosts=4 demotes=9 finishes=6
 
 ## OSEP concept
 
-This slice implements §8.1-§8.3 (basic MLFQ with boost) and a simplification of §8.4 (anti-gaming accounting). The trace output is exactly the kind of step-by-step analysis OSEP §8.6 uses to illustrate MLFQ's behavior. The synthetic workloads mirror §8.7's "long-running job + interactive job" and "I/O-aware jobs" examples. (§8.6 is the worked MLFQ trace; §8.7 is the problem set carrying those examples.)
+This slice implements §8.1-§8.3 (basic MLFQ with boost) and a simplification of §8.4 (anti-gaming accounting). The trace output is exactly the kind of step-by-step analysis OSEP §8.6 uses to illustrate MLFQ's behavior. The synthetic workloads mirror the two examples §8.6 uses: "long-running job + interactive job" and "I/O-aware jobs". (Ch. 8 ends at §8.6; both examples are inside it.)
 
 ## .NET mechanism
 

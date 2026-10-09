@@ -33,11 +33,11 @@ The driver route `/tlb/run?scenario=flushall-vs-flushasid&context_switches=N` re
 - **No ASID-tagged software TLB miss handler**: the M16 TLB is software-loaded; this slice keeps that style. The handler reads the current ASID from a register (just a field on the Pager, in our case) and writes it into the new TLB entry.
 
 ## What this slice does NOT do
-- **Multilevel TLB** (OSEP §19.5 mentions L1 + L2 split) — deferred; the single-level TLB is enough to demonstrate ASID.
+- **Multilevel TLB** — deferred. §19.5 is "TLB Issue: Context Switches" and says nothing about an L1/L2 split; the two-level TLB appears only in §19's Homework and Figure 19.5. The single-level TLB is enough to demonstrate ASID.
 - **ASID rollover flush** — see deviations.
 - **x86 INVPCID** instruction (per-PCID invalidation) — out of scope.
 - **ASID-tracked kernel mappings**: the slice uses the Global bit for kernel entries. Real systems often reserve a small range of ASIDs (e.g., 0–15) for kernel use and let user processes take the rest; the slice doesn't model this distinction.
 
 ## Where this leads
 - M17 multi-level page tables + M28 ASID = a more realistic VM: TLB entries can survive a context switch between processes, restoring "warm TLB" performance on the next run.
-- §19.5 mentions multilevel TLBs and ASID-trapped flush as the next natural extensions.
+- §19.5 covers ASIDs and the flush-on-switch alternative; the multilevel TLB is separate (Homework + Figure 19.5).

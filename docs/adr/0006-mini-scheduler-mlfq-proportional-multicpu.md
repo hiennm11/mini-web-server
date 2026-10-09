@@ -38,7 +38,7 @@ These milestones do **not** replace the actual MiniWebServer worker pool. They a
 
 - **Real kernel scheduling**: this is a user-space simulator. We are not modifying Linux CFS or Windows UMS.
 - **Multiprocessor synchronization primitives**: Ch. 10's single-queue multi-CPU scenario can deadlock if not done carefully; we will note the lock contention in the trace but won't model real cross-CPU lock contention.
-- **Real-time scheduling (Ch. 32, 33)**: out of scope; the repo already covers Ch. 33 via the bounded worker pool.
+- **Real-time scheduling**: OSTEP has no real-time chapter. Ch. 32 is concurrency bugs and Ch. 33 is event-based concurrency; the repo covers Ch. 33 via the bounded worker pool.
 - **Energy-aware scheduling (Ch. 11)**: out of scope.
 
 ## Architecture

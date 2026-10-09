@@ -43,7 +43,7 @@ Status: complete (4/4 features done).
 | Slice | Server behavior to build | OSEP mapping | C#/.NET mechanism | Status |
 |-------|--------------------------|---------------|-------------------|--------|
 | 1.1 | Raw socket lifecycle: `Bind` -> `Listen` -> `Accept` -> `Receive` -> `Send` -> `Close` | Chapter 4: The Abstraction: The Process; Chapter 6: Limited Direct Execution | `Socket`, `Bind`, `Listen`, `Accept`, `Receive`, `Send` | Done |
-| 1.2 | Parse HTTP request text into method, path, version, and headers | Chapter 4: Process state and address space; Chapter 36: I/O Devices | `Socket.Receive`, `byte[]`, `Encoding.UTF8`, `HttpRequestParser` | Done |
+| 1.2 | Parse HTTP request text into method, path, version, and headers | Ch. 4 (process abstraction) + Ch. 13 (address spaces); Chapter 36: I/O Devices | `Socket.Receive`, `byte[]`, `Encoding.UTF8`, `HttpRequestParser` | Done |
 | 1.3 | Serve static files from `wwwroot` and reject unsafe paths | Chapter 39: Files and Directories | `Path.GetFullPath`, `File.Exists`, `File.ReadAllBytes` | Done |
 | 1.4 | Robust receive: loop `Receive()` until the full request headers and expected body are available | Chapter 4.4: Process States; Chapter 36: I/O Devices | receive loop, buffer accumulation, header delimiter detection, `Content-Length` handling | Done |
 

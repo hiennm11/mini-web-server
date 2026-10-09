@@ -63,7 +63,7 @@ We implement **password-based authentication** with three classical OS primitive
 ### Out of scope (deferred)
 
 - **TLS / HTTPS** (OSEP §57.5): our requests go in plaintext. The slice doc calls this out: OSEP §57.4 says encrypting the password in transit is mandatory for real systems. Adding TLS would require cert management + `SslStream` wrapping + a one-time cert generation story — too broad for M23.
-- **RBAC / ACL** (OSEP §55.4 / Ch. 55 §55.6): only the "registered user" bit exists. No roles, no privileges beyond authentication.
+- **RBAC / ACL** (Ch. 55 §55.6; §55.3 is the ACL section and §55.4 is capabilities): only the "registered user" bit exists. No roles, no privileges beyond authentication.
 - **Multi-factor** (OSEP §54.4 + §54.5): password only. No TOTP / hardware token.
 - **Account lockout / rate limiting**: not implemented. Slow hash is the only speed bump.
 - **Persistence**: in-memory only. Restart drops users.

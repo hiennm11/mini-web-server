@@ -10,7 +10,7 @@ Accepted
 
 ## Context
 
-ADR 0004 lists OSEP Part II (Ch. 14-23: virtual memory) as out of scope, deferring it to its own ADR. The repo now covers OSEP's three pieces via the running server (virtualization = bounded worker pool, concurrency = locks/pools/caches, persistence = Mini FS journal), plus the recent M13 (MLFQ scheduler simulation). But the actual CPU memory-management unit (MMU) and its page-table data structures are not implemented. These are foundational to how every modern OS shares physical memory between processes.
+ADR 0004 lists OSEP Part I (Ch. 14-23: virtual memory) as out of scope, deferring it to its own ADR. (Ch. 14-23 is Part I — Virtualization — not Part II, which is Concurrency.) The repo now covers OSEP's three pieces via the running server (virtualization = bounded worker pool, concurrency = locks/pools/caches, persistence = Mini FS journal), plus the recent M13 (MLFQ scheduler simulation). But the actual CPU memory-management unit (MMU) and its page-table data structures are not implemented. These are foundational to how every modern OS shares physical memory between processes.
 
 This ADR records the next concrete milestones for the virtual-memory chapters. The work is a self-contained library that simulates an address-translation pipeline against a synthetic memory-access workload, exposed via HTTP routes. Same pattern as the M13 scheduler work.
 
@@ -87,7 +87,7 @@ Ch. 14 (memory API), Ch. 15 (base+bound) and Ch. 16 (segmentation) are out of sc
 
 Good:
 
-- Closes OSEP Part II (Ch. 14-23) for the lab. The repo becomes a complete walkthrough of OSEP Parts I (intro + virtualization), II (concurrency), III (persistence), and Part IV (memory).
+- Closes OSEP Part I (Ch. 14-23) for the lab. The repo becomes a complete walkthrough of OSEP Parts I (intro + virtualization), II (concurrency), III (persistence), and Part IV (memory).
 - Each slice is small (~30-60 min) and self-contained, so partial progress is still useful.
 - The pager simulator can later be wired into the scheduler simulator to model "process + CPU + memory" end-to-end.
 

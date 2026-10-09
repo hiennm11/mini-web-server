@@ -63,7 +63,10 @@ jobs:
       # starts it in the background, waits for the socket, requests a file, and
       # asserts a real 200 with a non-empty body. The EXIT trap reaps the server
       # without masking the step's own exit status.
-      - name: Smoke: app starts and serves
+      # The name must be quoted: an unquoted scalar containing ": " is read as a
+      # nested mapping key, which is why the first run failed to parse the file
+      # at all rather than failing a step.
+      - name: "Smoke: app starts and serves"
         run: |
           set -euo pipefail
           dotnet run --project src/MiniWebServer.Host -c Release --no-build > server.log 2>&1 &

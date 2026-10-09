@@ -15,7 +15,7 @@ Add concurrency to the server by spawning one OS thread per client. Observe:
 - how non-atomic increments on a shared counter corrupt the count
 - how thread stacks consume memory under load
 
-The race fix is deferred to M5 so the problem is observable before the solution.
+The race fix was deferred to M5 so the problem would be observable before the solution. **Closed by M5** (race lab): the fix is `lock` / `Interlocked` in `Program.cs` and `AsyncServer.cs`.
 
 ## Slices (in order)
 

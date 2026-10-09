@@ -55,7 +55,7 @@ Updated 2026-10-07 (M34 device drivers added — Ch. 36 §36.2-§36.6). Every ro
 | M32 (32.1) | Block-level + hybrid (log-block) FTL with switch/partial/full merge | Ch. 44 §44.9 | ✅ |
 | M33 (33.1) | Periodic scrubbing schedule driven by the §45.8 overhead argument | Ch. 45 (§45.7, §45.8) | ✅ |
 | M34 (34.1) | Device drivers: canonical protocol, interrupts, DMA, PIO vs MMIO | Ch. 36 (§36.2-§36.6) | ✅ |
-| M35 | Scheduling baselines: FIFO / SJF / STCF / Round Robin + response time (the §8-§10 comparison point) | Ch. 7 | ✅ (ADR 0026) |
+| M35 | Scheduling baselines: FIFO / SJF / STCF / Round Robin + response time (the §8-§10 comparison point) | Ch. 7 (§7.3-§7.7) | ✅ (ADR 0026) |
 | M36 | Free-space management: splitting, coalescing, allocation headers, first / best / worst / next fit, buddy allocation | Ch. 17 | ✅ (ADR 0027) |
 | M37 | Disk geometry, I/O-time arithmetic (eq. 37.1-37.2), disk scheduling (FIFO / SSTF / NBF / SCAN / C-SCAN) | Ch. 37 (§37.1-§37.5) | ✅ (ADR 0028) |
 | M15 | ArrayPool&lt;byte&gt; in async mode (receive + response buffers) | n/a (perf) | ✅ |

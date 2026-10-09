@@ -102,7 +102,7 @@ OSEP §44.10:
 ## What this slice does NOT do
 
 - Multi-chip parallelism (real SSDs use many flash chips in parallel).
-- Block-level or hybrid mapping (we use page-level; OSEP §44.9 explains why this doesn't scale to TB devices).
+- Block-level or hybrid mapping — **no longer a gap.** M32 (ADR 0022) added both; this milestone shipped page-level only.
 - Over-provisioning (real SSDs reserve 7–28% of capacity for GC [A+08]).
 - Microsecond timing — every operation is O(1).
 - Wear-leveling migration (cold-data shuffling). We track erase count but don't move data.

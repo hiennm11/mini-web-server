@@ -133,9 +133,11 @@ OSEP §44.10: every erase bumps a per-block counter. With no GC run, all counter
 
 ## Deferred (other SSD extensions)
 
-- **Block-level mapping** (§44.9) — one mapping entry per block instead of per page; small writes become expensive.
-- **Hybrid mapping** (§44.9) — page-level for log blocks, block-level for data blocks; switch merge / partial merge / full merge.
+> **Resolved since this slice** — M32 (ADR 0022) delivered both **block-level mapping** and **hybrid mapping** (§44.9), with switch/partial/full merge. `FtlMapping.cs` now carries `PageLevelFtl`, `BlockLevelFtl` and `HybridFtl` alongside this slice's page-level FTL. They are no longer deferred. Everything below is still open.
+
+- **Block-level mapping** (§44.9) — one mapping entry per block instead of per page; small writes become expensive. **Closed by M32 / ADR 0022.**
+- **Hybrid mapping** (§44.9) — page-level for log blocks, block-level for data blocks; switch merge / partial merge / full merge. **Closed by M32 / ADR 0022.**
 - **Over-provisioning** — reserve some blocks hidden from the client for GC headroom.
-- **Active wear leveling** — periodically migrate cold data so every block wears evenly.
+- **Active wear leveling** — periodically migrate cold data so every block wears evenly. M32 does not steer writes by erase count.
 - **Multi-chip parallelism** — split the device across N chips; reads/writes can hit multiple chips in parallel.
 - **Out-of-band (OOB) area** — store per-page mapping on the flash itself so the table can be reconstructed after power loss.

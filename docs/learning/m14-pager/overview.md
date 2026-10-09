@@ -24,7 +24,7 @@ A user-space paging simulator with the linear page table data structure. Multi-p
   - §18.5 A Memory Trace — the `array.c` example showing the I/O overhead of paging.
   - §18.6 Summary.
 
-- **Ch. 19 Translation Lookaside Buffers** — TLB motivation + algorithm. *We don't implement a TLB (deferred to M14.2).*
+- **Ch. 19 Translation Lookaside Buffers** — TLB motivation + algorithm. *No TLB in this milestone.* **Closed by M16** (`MiniPager/Tlb.cs`), and extended by M28 (ASID-tagged entries, ADR 0018).
 
 ## OSEP §-specific deviations
 
